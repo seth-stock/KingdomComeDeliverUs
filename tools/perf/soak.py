@@ -49,10 +49,11 @@ def probe():
     return (float(m.group(1)) ** 2 + float(m.group(2)) ** 2) ** 0.5, float(m.group(3))
 
 
-def enter_world(timeout=420):
-    """Press Continue until the camera is on the player (the main menu's camera is hundreds of metres away). Works with and without the mod."""
-    gd.fg(); time.sleep(0.6)
+def enter_world(timeout=480):
+    """Continue ONCE, then wait for the camera to be on the player (the main menu's camera is hundreds of metres away). Works with and without the mod.
+    If nothing happens within 90 s the menu is backed out of with Esc (a stray press may have opened a submenu) before pressing Continue again."""
     t0 = time.time()
+    attempt = 0
     while time.time() - t0 < timeout:
         p = probe()
         if p and p[0] < 20:
@@ -61,12 +62,18 @@ def enter_world(timeout=420):
                 sys.exit('GUARD: the loaded save is not the day-0 throwaway (world time %d): game killed' % p[1])
             time.sleep(5)
             return p[1]
-        # still in the menu or loading: press Continue only when no load is running (a loading screen ignores it anyway)
-        try:
-            gd.fg()
-        except Exception:
-            pass
-        gd.key('Enter', 15.0)
+        if attempt == 0 or time.time() - last > 90:
+            try:
+                gd.fg()
+            except Exception:
+                pass
+            if attempt > 0:
+                for _ in range(3):
+                    gd.key('Esc', 1.5)
+            gd.key('Enter', 2.0)
+            attempt += 1
+            last = time.time()
+        time.sleep(4)
     try:
         gd.shot(os.path.join(RUNS, 'world-did-not-load.png'))
     except Exception:
