@@ -1,0 +1,288 @@
+code,kind,order,tier,period,why,dlc,source,note
+test_petra3,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+test_petra4,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+test_petra5,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+test_AI_01,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+testPetra2,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+testPetra7,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+ta01_lostItem,test,0,open,,,,data,a developer test quest (group TechAlpha01); never part of a normal game
+ta01_lostSheep,test,0,open,,,,data,a developer test quest (group TechAlpha01); never part of a normal game
+ta01_shoot,test,0,open,,,,data,a developer test quest (group TechAlpha01); never part of a normal game
+q_capCum,side,0,mixed,q_capCum,Lost in Translation,,online,Lost in Translation: do not get far ahead of the Cuman prisoner or he escapes (wiki)
+q_lionsDen,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_sikBas,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+ta02_lostHammer,test,0,open,,,,data,a developer test quest (group TechAlpha02); never part of a normal game
+q_stepBros,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_ointmentMarta,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_spaMarta,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_friendInNeed,side,0,mixed,q_friendInNeed,A Friend In Need...,,online,A Friend In Need...: random ambushes are disabled while Matthew and Fritz travel to Ledetchko (wiki)
+test_martin,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_varletSverad,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_brocade,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_roastedChicken,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_sveradShouldBeKilled,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+ta03_lostKeys,test,0,open,,,,data,a developer test quest (group TechAlpha03); never part of a normal game
+q_disguise,side,0,mixed,q_disguise,Masquerade,,online,Masquerade: staged objectives with free roaming between (wiki: PARTLY)
+test_DB,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+test_petra8,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+test_petra1,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+test_petra6,test,0,open,,,,data,a developer test quest (group TestPetra); never part of a normal game
+q_usurersGirl,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_execIntro,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_package,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_CTSimple,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTObjectiveState,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTObjectiveExclusive,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTObjectiveReward,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTObjectiveTracked,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTTest,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTQuestState,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_execExec,side,0,mixed,q_execExec,Money for Old Rope,,online,"Money for Old Rope: a timed week, the execution site cannot be left once it begins (wiki)"
+q_CTQuestRepeatable,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_ct_smartObject,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTQuestCounter,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_mrchArcher,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_cumByMerh,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_dyingSoldier,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+location_Samopse,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+ta04_ourLittleHouse,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_woundedSoldiers,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_hustler,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_standUpForGirl,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_archery,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_boozeSmuggler,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+q_CTSide,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTSideDone,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTDescription,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTOnMap,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTOnMap2,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTOnMapVIP,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_CTOnMapTrigger,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+ta04_lostSword,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+ta04_graveDigging,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+q_CTOnMapMoving,test,0,open,,,,data,a developer test quest (group CodeTest); never part of a normal game
+q_TestDan,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+ta04_trackers,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+q_pilferer,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_nightsWatch,main,6,mixed,q_awakeningInRattay,"Rattay: the recovery, the training and the night watch",,online+data,"night patrol with Nightingale 11:00-19:00, then a forced brawl (wiki: PARTLY)"
+q_whoseCow,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+ta04_lostSword_found,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+q_troubleCorpse,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_colonization,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_huntPtacek,main,7,mixed,q_huntPtacek,the Talmberg hunt: the boar chase and the Cuman camp,,online+data,"hunting free, then the boar chase and the Cuman camp are scripted; wandering too far from Hans is a game over (wiki: PARTLY)"
+q_glassMaker,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_bigMouth,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_thiefInSpa,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_glassPupil,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_minesExploration,side,0,mixed,q_minesExploration,The King's Silver,,online,"The King's Silver: the mine escape is mandatory: ""there's no going back"" after Nemoy falls (wiki)"
+q_colliers,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_skalitz,main,1,mixed,q_skalitz,"Skalitz's last day, the flight and the return: a scripted run from the raid to the waking at the mill",,online+data,"Skalitz: scripted morning, errands free, then the raid (wiki: PARTLY, ""alternates between scripted sequences and free roaming"")"
+q_hareHunt,side,0,mixed,q_hareHunt,Hare Hunt,,online,Hare Hunt: a timed horn at 05:00 and a branching with Sheep in Wolf's Clothing (wiki)
+q_basicTraining,main,5,mixed,q_awakeningInRattay,"Rattay: the recovery, the training and the night watch",,online+data,"training with Bernard and an archery contest, a required duel; Rattay arena (wiki: FORCED sessions, free between)"
+q_escapeToTalmberk,main,2,rails,q_skalitz,"Skalitz's last day, the flight and the return: a scripted run from the raid to the waking at the mill",,online+data,"Skalitz to Talmberg: scripted escape, mandatory dialogue, linear (wiki: FORCED)"
+q_avalonSteel,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_ledecko,main,11,mixed,q_ledecko,Ledetchko: the race to Reeky's hideout,,online+data,"free clue gathering, a timed race, the finale forces the fight at Reeky's hideout (wiki: PARTLY, timed)"
+q_samopesh,main,12,open,,,,online+data,"free: choose Morcock or Timmy, report to Radzig (wiki: PARTLY, open in practice)"
+q_pribyslav,main,13,mixed,q_pribyslav,Pribyslavitz: the scouting and the battle,,online+data,"scouting the bandit camp with several approaches, then the report before the battle (wiki: PARTLY)"
+q_godsWays,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_RacingAndBetting,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_horse_on_the_run,side,0,mixed,q_horse_on_the_run,The Horse That Bolted,,online,The Horse That Bolted: a scripted multi-stage trail (wiki)
+q_nightingales,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_smejkif4quest,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_newHerbarium,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_secret_of_steel,side,0,mixed,q_secret_of_steel,Tricks of the Trade,,online,Tricks of the Trade: must visit Sasau and return (wiki: PARTLY)
+q_testDelivering,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_herbalistone,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_hangover,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_superstition,side,0,mixed,q_superstition,No Rest for the Wicked,The Amorous Adventures of Bold Sir Hans Capon,online,"No Rest for the Wicked: digging up a corpse and a murder investigation, some night scenes"
+q_returnToSkalitz,main,3,rails,q_skalitz,"Skalitz's last day, the flight and the return: a scripted run from the raid to the waking at the mill",,online+data,"Rovna to Skalitz: scripted encounters, the forced confrontation with Runt (wiki: FORCED)"
+q_debtor,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_inVinoVeritas,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_samopesh_tracker,system,0,open,,,,data,tracker graph of My Friend Timmy
+q_waldensians,side,0,mixed,q_waldensians,Waldensians,,online,Waldensians: a time limit before the Vicar does the job himself (wiki)
+q_colonization_grooms,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_charlatan,side,0,mixed,q_charlatan,Miracles While You Wait,,online,Miracles While You Wait: the shroud stage and the forced confrontation at the charlatan's dwelling (wiki)
+q_master_main,system,0,open,,,,data,the master graph of the main story
+e_ambush,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_test_svatba,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_pribBattle,main,14,rails,q_pribyslav,Pribyslavitz: the scouting and the battle,,online+data,"the battle: waves, archers, the bandit commander in the steeple; ""highly scripted linear sequence""; point of no return (wiki: FORCED)"
+q_massacre,main,8,mixed,q_massacre,Neuhof: the investigation of the massacre,,online+data,"Neuhof investigation free, forced combat, Bernard will not wait (wiki: PARTLY)"
+ta04_lostSword_tracked,test,0,open,,,,data,a developer test quest (group TechAlpha04); never part of a normal game
+q_neuhof_colliers,main,9,open,,,,online+data,"free exploration of charcoal burner camps; mandatory beats only at the end (wiki: PARTLY, open in practice)"
+q_test_labut1,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_mourning_smith,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_awakeningInRattay,main,4,mixed,q_awakeningInRattay,"Rattay: the recovery, the training and the night watch",,online+data,"Peshek mill recovery scripted, then free in Rattay until the castle meeting (wiki: PARTLY, not timed)"
+beta_combat_training,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_recruiters,main,17,mixed,q_recruiters,Sasau: the recruiters and the church meeting,,online+data,"optional investigation paths, then the scripted church meeting (wiki: PARTLY)"
+q_millerDate,side,0,mixed,q_millerDate,Courtship,,online,"Courtship: dates at fixed hours with scripted scenes, straying from Theresa fails a date (wiki)"
+q_devilplay,side,0,mixed,q_devilplay,Playing with the Devil,,online,Playing with the Devil: the ritual vision is scripted and the player cannot leave it (wiki)
+q_watercarrier,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_loveLetter,side,0,mixed,q_loveLetter,Honeyed Words,The Amorous Adventures of Bold Sir Hans Capon,online,"Honeyed Words: love poems, a night tryst, an enraged butcher kept at bay: timed night scenes"
+q_stone,side,0,mixed,q_stone,A Rock and a Hard Place,,online,"A Rock and a Hard Place: timed, the groschen arrive at noon within five days (wiki)"
+q_visitInBaths,side,0,rails,q_visitInBaths,Next to Godliness,,online,"Next to Godliness: a timed night ""once it starts it must finish by morning"", the fight with Archie, Henry wakes outside the bathhouse (wiki)"
+q_cemetery_flowers,side,0,mixed,q_cemetery_flowers,Restless Spirit,,online,Restless Spirit: a ritual at a fixed hour (wiki)
+ui_position,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_kill,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_items,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_npcs,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_items_side,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_kill_side,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_npcs_side,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+ui_position_side,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+q_enteringTheMonastery,main,18,rails,q_enteringTheMonastery,the monastery: Henry lives as a novice and cannot leave,,online+data,"once inside as a novice progression is scripted: ceremonies and monk routines (wiki: PARTLY, locked inside)"
+q_auschitz,main,10,mixed,q_auschitz,"Uzhitz: the investigation, the sermon and the brawl",,online+data,"investigation free; the tavern scene, sermon and brawl are scripted (wiki: PARTLY)"
+test_q_tereza_1,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_wounded_soul,side,0,mixed,q_wounded_soul,In God's Hands,,online,"In God's Hands: a timed cure inside the monastery, cannot leave until done (wiki)"
+test_assetTracked,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_urbans_bone,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+test_distgatecrashbug,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_flirtTalmberk,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_talmberkBarbican,main,22,rails,q_infiltrationAndCapture,"Vranik to the Talmberg night: the point of no return, the escape, the counter-attack and the raid",,online+data,"Talmberg: ""highly scripted and straightforward"", cannot leave (wiki: FORCED)"
+q_execExec_aux,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_infiltrationAndCapture,main,20,mixed,q_infiltrationAndCapture,"Vranik to the Talmberg night: the point of no return, the escape, the counter-attack and the raid",,online+data,"Vranik: free infiltration, then after Istvan the imprisonment and escape are scripted; ""a point of no return"" (wiki)"
+q_counterfeiters,main,16,mixed,q_counterfeiters,Sasau: the counterfeiters,,online+data,scripted interrogations alternate with free investigation in Sasau (wiki: PARTLY)
+q_captiveInMerhojed,main,15,mixed,q_captiveInMerhojed,Merhojed: the interrogation,,online+data,"interrogation approaches free, fixed report location (wiki: PARTLY)"
+q_plagueInMerhojed,side,0,mixed,q_plagueInMerhojed,Pestilence,,online,"Pestilence: a timed plague, must travel between Merhojed and the monastery (wiki)"
+q_smithBattle,side,0,mixed,q_smithBattle,Rattled,,online,"Rattled: a duel at the forge, staged (wiki: PARTLY)"
+interactionTrigger,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+ui_focustest,test,0,open,,,,data,a developer test quest (group UI); never part of a normal game
+q_istvans_reinforcements,main,25,rails,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,"bridge battle: ""Henry will be locked in place with the Skalitz men"" (wiki: FORCED)"
+q_talmberkPrepare,main,24,mixed,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,Siege: scripted objectives alternate with free preparation; two days waiting for the trebuchet (wiki: PARTLY)
+q_sazavaMonastery,side,0,rails,q_sazavaMonastery,In the Cloister,,online,"In the Cloister: Henry follows a time-based daily schedule with mandatory prayers, meals and work; the wiki says FORCED"
+q_race_talmberk,side,0,rails,q_race_talmberk,Talmberg Horse Race,,online,"Talmberg Horse Race: timed, a scripted multi-stage event, ""eliminated if not mounted at noon"" (wiki: FORCED)"
+q_abductedWoman,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+test_achievement,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_conquest,main,27,rails,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,"the castle assault: fixed battle stages and ""a cutscene sequence until the quest Epilogue begins"" (wiki: FORCED, point of no return)"
+q_church_construction,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_monastery_treasure,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_konradKyeser,main,24,mixed,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,"Rocketeer: recruit the engineer (persuade, forge, bribe or force); a midnight confrontation; part of the Siege"
+q_defence,main,26,mixed,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,"defending the trebuchet, the interrogation and the hostage exchange; mandatory cutscenes (wiki: PARTLY)"
+q_torn_book,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_counterOffensive,main,21,rails,q_infiltrationAndCapture,"Vranik to the Talmberg night: the point of no return, the escape, the counter-attack and the raid",,online+data,scripted military assault; must reach Talmberg by 15:00 or game over (wiki: FORCED)
+q_night_rescue,main,23,mixed,q_infiltrationAndCapture,"Vranik to the Talmberg night: the point of no return, the escape, the counter-attack and the raid",,online+data,"stealth infiltration with some freedom, the escape scripted (wiki: PARTLY)"
+q_libri_prohibiti,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_searchForSaint,main,19,rails,q_enteringTheMonastery,the monastery: Henry lives as a novice and cannot leave,,online+data,Henry keeps his cover as Brother Gregor with daily obligations; the confrontation is scripted (wiki: PARTLY)
+q_swordTournament,activity,0,rails,q_swordTournament,a tournament event of the sword tournament chain,,data,a tournament event of the sword tournament chain
+q_abbots_list,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_licentious_monks,side,0,mixed,q_licentious_monks,Nasty Habits,,online,Nasty Habits: a timer and a confrontation (wiki)
+q_bullied_novice,side,0,mixed,q_bullied_novice,The Trials of a Novice,,online,The Trials of a Novice: cannot leave the monastery until the debt is settled (wiki)
+q_raubritter,side,0,mixed,q_raubritter,Robber Baron,,online,"Robber Baron: a ride with Bernard, an optional fight at the camp (wiki)"
+q_revenge,main,28,open,,,,online+data,"Vengeance: the game-long umbrella quest, uncompleted at the end of the first game (wiki)"
+q_floatingArchery,activity,0,mixed,q_floatingArchery,Chumps on the River,,online,Chumps on the River: a staged archery event
+q_killCow,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_bodyOfChrist,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_focus_stealth,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+test_statistics,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_friendinneed2,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_expensiveScuffle,side,0,mixed,q_expensiveScuffle,A Costly Brawl,,online,A Costly Brawl: cannot leave the monastery until the debt is resolved (wiki)
+q_perks,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+q_lambInWolfskin,side,0,mixed,q_lambInWolfskin,Sheep in Wolf's Clothing,,online,Sheep in Wolf's Clothing: mutually exclusive with Hare Hunt (wiki)
+q_counterOffensive_battle,system,0,open,,,,data,a sub-graph of Payback (the battle); no gating of its own
+q_konradKyeser_tracker,system,0,open,,,,data,tracker graph of Rocketeer
+q_testph,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+test_js_qsotree_v09_2016,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_raubritter_cloth,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_epilogue,main,29,mixed,q_talmberkPrepare,"the siege of Talmberg: the preparation, the battles and the assault, to the end of the war",,online+data,"council cutscenes in Rattay, then free play until the final talk with Hans at the border camp (wiki: PARTLY)"
+q_tutorial_swordOne,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+test_triggerAreas,test,0,open,,,,data,a developer test quest (group New); never part of a normal game
+q_zajicsTrap,side,0,mixed,q_zajicsTrap,Cherchez la Femme,,online,Cherchez la Femme: timed at 05:00 (wiki)
+event_wanderer,event,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+a_swordofsheba,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_pesek_thievery,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_vojtech_thievery,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_simon_thievery,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_camps,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_camps2,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_camps3,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_ironRation,side,0,mixed,q_ironRation,Emergency Supply,,online,"Emergency Supply: timed, two days (wiki)"
+q_gallowsBrothers,side,0,mixed,q_gallowsBrothers,Gallows Brothers,,online,Gallows Brothers: must be completed before The Die is Cast (wiki)
+q_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+q_learnToRead,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_escapeToTalmberk_tracker,system,0,open,,,,data,a tracker graph of Run!; no gating of its own
+q_activityswordtutorial,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_tutorials,system,0,open,,,,data,the tutorial hints graph
+event_ambushnpc,event,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+q_fightClub_uzice,activity,0,rails,q_fightClub_uzice,a fight club bout,,online,a fight club bout: the ring locks the player in
+q_archery_uzice,activity,0,mixed,q_archery_uzice,an archery contest,,data,an archery contest: a short staged event
+event_wanderer_persistent,event,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+q_archery_rataje,activity,0,mixed,q_archery_rataje,an archery contest,,data,an archery contest: a short staged event
+q_archery_mrchojedy,activity,0,mixed,q_archery_mrchojedy,an archery contest,,data,an archery contest: a short staged event
+q_fightClub_rataje,activity,0,rails,q_fightClub_rataje,a fight club bout,,online,a fight club bout: the ring locks the player in
+q_focus_combat,test,0,open,,,,data,a developer test quest
+q_fightClub_skalice,activity,0,rails,q_fightClub_skalice,a fight club bout,,online,a fight club bout: the ring locks the player in (Revenge of the Cuman King)
+q_e3_2017_combat,side,0,mixed,q_e3_2017_combat,Fight!,,data,Fight!: a staged duel
+a_huntsman_alex,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_huntsman_butcher,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_huntsman_chamberlain,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_jealousGroom,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_antiqueHooker,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_lastWill,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_vagabund,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_waldensians_tracker,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_pickpocket_training,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_friendInNeed2_tracker,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+a_landlord,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+test_respawn,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+a_currier,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_questGiverHubs,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+q_activityGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+dlc_treasuresOfThePast,system,0,open,,,Treasures of the Past,online,Treasures of the Past: five maps and chests; no scripted quest (wiki)
+dlc_homes,side,0,open,,,From the Ashes,online,"the village management root; wiki: scripted start, then free-roaming management, judgements free"
+q_dlc_newhomes_kolikator,side,0,open,,,From the Ashes,online,"Lost in the Woods; wiki: scripted start, then free-roaming management, judgements free"
+q_questItems,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_ratajTournament,activity,0,rails,q_ratajTournament,Rattay Tourney,,online,"Rattay Tourney: enrolment until 14:59, inventory removed, participants cannot leave the arena (wiki)"
+q_dlc_homes,side,0,open,,,From the Ashes,online,"A Place to Call Home; wiki: scripted start, then free-roaming management, judgements free"
+q_dlc_newhomes_recruits,side,0,open,,,From the Ashes,online,"recruiting villagers; wiki: scripted start, then free-roaming management, judgements free"
+q_dlc_newhomes_judgement,side,0,open,,,From the Ashes,online,"The Scales of Justice (judgements); wiki: scripted start, then free-roaming management, judgements free"
+q_archery_pribyslavice,activity,0,mixed,q_archery_pribyslavice,an archery contest,,data,an archery contest: a short staged event
+q_newhomes_tracker,system,0,open,,,,data,the tracker of From the Ashes
+q_rides,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,Band of Bastards: the umbrella quest of the band
+q_rides_prologue,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,Desperate Measures: joining the band
+q_rides_message,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,Bad Blood: cannot leave the area during the initial patrol with Kuno; forced combat with raiders (wiki)
+q_rides_trap,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,"A Tight Spot: a mandatory ambush: ""fight your way out with Kuno"" (wiki)"
+q_rides_feast,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,Uninvited Guests: a forced mill battle with Kuno's band (wiki)
+q_rides_traitor,side,0,mixed,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,Thirty Pieces: tracking Jakey; choices on how to handle him (wiki: PARTLY)
+q_dlc_newhomes_resources,side,0,open,,,From the Ashes,online,"Supplies; wiki: scripted start, then free-roaming management, judgements free"
+q_gamblersDen,side,0,open,,,The Amorous Adventures of Bold Sir Hans Capon,online,"Game of Throws: many ways in: dialogue, stealth, combat or the dice tournament (wiki: FREE)"
+q_rides_bacchus,side,0,open,,,Band of Bastards,online,The Ring of Bacchus: an optional hunt for a ring
+q_johana,side,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_tournament_smith,side,0,mixed,q_tournament_smith,Dead Men Tell No Tales,The Amorous Adventures of Bold Sir Hans Capon,online,Dead Men Tell No Tales: a timed quest (wiki category)
+q_dlc_revelation,side,0,mixed,q_dlc_revelation,the Madonna of Sasau: the investigation chain,A Woman's Lot,online,"The Madonna of Sasau: investigation chain with scripted scenes (wiki: PARTLY, find and rescue Marius)"
+q_dlc_revelation_murderer,side,0,open,,,A Woman's Lot,online,"Infernal Dream: a chain chapter, free"
+q_rides_battle,side,0,rails,q_rides,"Band of Bastards: Henry rides with Kuno's band (patrols, ambushes, a mill attack, the parley)",Band of Bastards,online,What Price Honour?: the parley with Hagen Zoul is a cutscene and the area cannot be left; then the battle (wiki)
+q_tournament_smithClosure,side,0,open,,,The Amorous Adventures of Bold Sir Hans Capon,online,Dead Men Tell No Tales - End: the closing dialogue
+q_rides_chase,side,0,open,,,Band of Bastards,online,chase graph of Band of Bastards: a small sub-graph
+q_dlc_revelation_gambler,side,0,open,,,A Woman's Lot,online,"Casting Lots: a chain chapter, free"
+q_dlc_revelation_treasure,side,0,open,,,A Woman's Lot,online,"Bonum Commune: a chain chapter, free"
+q_dlc_revelation_adela,side,0,open,,,A Woman's Lot,online,"Go, and Sin No More: a chain chapter, free"
+q_dlc_revelation_henry,side,0,open,,,A Woman's Lot,online,"The Wicket Gate: a chain chapter, free"
+q_ratajtournament_permanent,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_tournament_ptacek,side,0,mixed,q_tournament_ptacek,Capon's Champion,The Amorous Adventures of Bold Sir Hans Capon,online,Capon's Champion: a tournament stage
+a_tournament_betting,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_theresa,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"the DLC root: the flashback begins; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_nails,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Unexpected Visit as Theresa; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_escape,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Thicker than Water; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_henryLevel,system,0,open,,,A Woman's Lot,data,the bridge graph (Henry's level) of A Woman's Lot
+q_dlc_revelation_trial,side,0,mixed,q_dlc_revelation,the Madonna of Sasau: the investigation chain,A Woman's Lot,online,"the trial: the scripted trial (wiki: ""during the trial don't stay silent"")"
+q_theresa_blanka,side,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Cry Wolf! (as Theresa); wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_brother,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Ties that Bind; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_return,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Aftermath; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_survivors,side,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Angel of Mercy (as Theresa); wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+test_ondra,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_theresa_johanka,side,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Matchmaker (as Theresa); wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_test_theresa_openworld,test,0,open,,,,data,a developer test quest (group testScript); never part of a normal game
+q_romanceWithTheresa,system,0,open,,,A Woman's Lot,data,romance flag graph
+q_theresa_village,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"Ordinary Routine as Theresa; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+q_theresa_silver,main,0,rails,q_theresa,A Woman's Lot: the flashback as Theresa (the player is locked in as her until it ends),A Woman's Lot,online,"The Family Silver; wiki: ""no return until they are finished"", Theresa cannot leave Skalitz or its outskirts, time does not pass"
+test_vitek,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_test_dogMarker,test,0,open,,,,data,a developer test quest (group TestScript); never part of a normal game
+q_theresa_events,system,0,open,,,A Woman's Lot,data,events graph of A Woman's Lot
+q_archery_skalice,activity,0,mixed,q_archery_skalice,an archery contest,,data,an archery contest: a short staged event
+q_dog,system,0,open,,,,data,"the dog companion graph (Henry's dog, base game)"
+dlc1_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+dlc2_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+dlc4_johanka_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+dlc3_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+dlc4_theresa_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"
+a_bernardTraining,activity,0,open,,,,online+data,free to roam: no staged or locked element reported
+q_tournament_questGivers,system,0,open,,,,data,"free to roam, or a quest-giver / system graph"

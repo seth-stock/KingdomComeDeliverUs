@@ -1,0 +1,44 @@
+Kingdom Come: Deliver Us -- authors and lineage
+=============================================
+
+This is a modified version of Kingdom Come: Together, ported to the first game. The official
+repository of that project is https://github.com/DeepFriedDepp/KingdomCome-Together .
+This port is not part of it and is not one of its releases.
+
+
+In order of lineage
+-------------------
+
+1. The original project: marczukmichal/kcd2-multiplayer
+   https://github.com/marczukmichal/kcd2-multiplayer
+
+   Written by marczukmichal, with the contributions made to that project.
+   This project continues it with the original developer's permission. The
+   original author, and that project's contributors, keep the copyright on
+   their code that remains here. The original repository carries no license
+   of its own; nothing here claims that it did.
+
+2. This project: DeepFriedDepp/KingdomCome-Together
+   https://github.com/DeepFriedDepp/KingdomCome-Together
+
+   Maintained by DeepFriedDepp. Its own code, from the point of forking on, is
+   Copyright (C) 2026 the Kingdom Come: Together contributors, and is licensed
+   under the GNU General Public License version 3 (LICENSE) with the additional
+   terms of its section 7 in NOTICE. Every contributor is recorded in the git
+   history of the official repository.
+
+
+Whose game it is
+----------------
+
+This project's copyright covers only its own code. Kingdom Come: Deliverance
+(and Kingdom Come: Deliverance II), its assets and its content belong to Warhorse Studios and PLAION.
+Kingdom Come: Deliver Us is unofficial and free, and is not affiliated with or
+endorsed by Warhorse Studios, Deep Silver or PLAION. The mod ships none of the
+game's files.
+
+
+3. This port: Kingdom Come: Deliver Us
+   Its own code, from the point of the port on, is Copyright (C) 2026 the Kingdom Come: Deliver Us
+   contributors, and is licensed under the GNU General Public License version 3 (LICENSE)
+   with the additional terms of NOTICE.

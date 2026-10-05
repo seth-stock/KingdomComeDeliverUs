@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+Debug/
+Release/
+
+# IDE state
+.vs/
+.idea/
+*.user
+*.suo
+
+# Local release artifacts (installer, friends bundle)
+release/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Game data extracted for research is never committed
+_work/
+_extracted/
+
+# Soak raw runs (the committed record carries the tables)
+tools/perf/runs/
