@@ -155,7 +155,7 @@ function G.update(now)
     end
 end
 
-K.every(0.033, "ghosts", G.update)
+K.every(0.05, "ghosts", G.update)   -- 20 Hz: smooth enough with the smoothing below, and cheaper than 30
 
 function G.count()
     local n = 0

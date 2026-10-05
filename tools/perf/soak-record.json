@@ -1,0 +1,31 @@
+{
+ "version": "0.1.0",
+ "passed": false,
+ "mean_delta_pct": -6.4,
+ "p5_delta_pct": -8.43,
+ "mod": {
+  "label": "mod",
+  "samples": 359,
+  "mean": 92.23,
+  "median": 92.6,
+  "p5": 89.1,
+  "min": 83.7,
+  "max": 94.6,
+  "script_errors": 0,
+  "minutes": 6.0,
+  "warmup": 2.0
+ },
+ "vanilla": {
+  "label": "vanilla",
+  "samples": 359,
+  "mean": 98.54,
+  "median": 99.1,
+  "p5": 97.3,
+  "min": 26.2,
+  "max": 101.7,
+  "script_errors": 0,
+  "minutes": 6.0,
+  "warmup": 2.0
+ },
+ "date": "2026-10-05"
+}

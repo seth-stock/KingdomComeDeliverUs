@@ -1,7 +1,7 @@
 -- quests: watch the quests the plan can gate (docs/quest-gating-plan.csv) and tell the agent when one changes.
 -- Q|code|started|completed|objectiveId,objectiveId   (a quest back at "nothing" is sent once, as Q|code|0|0|)
 local K = KCDUS
-K.Quests = { cache = {}, cursor = 1, perStep = 6, changes = 0 }
+K.Quests = { cache = {}, cursor = 1, perStep = 2, changes = 0 }
 local Q = K.Quests
 
 local function bool(v)
@@ -71,7 +71,9 @@ K.handlers["QSNAP"] = function(f)
     Q.snapshot = true
 end
 
-K.every(0.05, "quests", Q.step)
+-- 2 quests every 0.1 s: the whole watched list is visited about every 5 s. A change is noticed within that; the story logic works in
+-- tens of seconds, and polling faster cost measurable frame rate (the soak).
+K.every(0.1, "quests", Q.step)
 
 -- Q? code: read one quest right now (used by tests and the agent's resync)
 K.handlers["QGET"] = function(f)

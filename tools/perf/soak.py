@@ -100,6 +100,10 @@ def run(a):
             p.kill()
         procs.clear()
         gd.kill(); time.sleep(5)
+        if a.mod_only:
+            van = json.load(open(os.path.join(RUNS, 'vanilla.json')))
+            print('(tuning run: vanilla reused from an earlier run, not a release record)')
+            return verdict(mod, van, tuning=True)
         # ---- vanilla run
         if os.path.isdir(PARK): shutil.rmtree(PARK)
         shutil.move(os.path.join(MODS, 'kcdus'), PARK)
@@ -116,7 +120,7 @@ def run(a):
     return verdict(mod, van)
 
 
-def verdict(mod, van):
+def verdict(mod, van, tuning=False):
     dm = (mod['mean'] - van['mean']) / van['mean'] * 100
     dp = (mod['p5'] - van['p5']) / van['p5'] * 100
     ok_mean, ok_p5, ok_err = dm > -5.0, dp > -10.0, mod['script_errors'] == 0
@@ -131,6 +135,9 @@ def verdict(mod, van):
     pak = open(os.path.join(ROOT, 'build', 'mod', 'kcdus', 'Data', 'kcdus.pak'), 'rb').read()
     rec = dict(version=open(os.path.join(ROOT, 'VERSION')).read().strip(), pak_sha256=hashlib.sha256(pak).hexdigest(), passed=passed, mean_delta_pct=round(dm, 2), p5_delta_pct=round(dp, 2),
                mod=mod, vanilla=van, date=time.strftime('%Y-%m-%d'))
+    if tuning:
+        rec['passed'] = False
+        rec['tuning_only'] = True
     json.dump(rec, open(os.path.join(ROOT, 'tools', 'perf', 'soak-record.json'), 'w'), indent=1)
     return 0 if passed else 1
 
@@ -138,7 +145,7 @@ def verdict(mod, van):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=8); r.add_argument('--warmup', type=float, default=2)
+    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=8); r.add_argument('--warmup', type=float, default=2); r.add_argument('--mod-only', action='store_true', help='tuning: measure the mod only and compare with the last vanilla run')
     v = sub.add_parser('verdict'); v.add_argument('mod'); v.add_argument('vanilla')
     a = ap.parse_args()
     if a.cmd == 'run': sys.exit(run(a))

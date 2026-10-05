@@ -315,7 +315,7 @@ public class SessionTests
         await Until(() => guest.Game.Has("PROMPT|"), what: "question");
         guest.Game.Emit("KCDUS|KEY|stay");
         host.Game.Emit("KCDUS|Q|q_pribBattle|1|1|");                    // the battle ends
-        await Until(() => guest.Session.GetStatus().Story.Section != "" , 500, "section").ContinueWith(_ => { });
+        await Task.Delay(300);                                            // the leave beat reaches the friend
         clock.Ms += 9000; guest.Tick();                                   // past the 8 s grace
         await Until(() => guest.Game.Has("NOTE|Your host's story stretch is over"), what: "the end of the stretch");
     }

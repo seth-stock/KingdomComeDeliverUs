@@ -99,20 +99,30 @@ function K.inWorldRaw()
 end
 
 -- the player is in a loaded game (not the main menu, not a loading screen)
+K.WORLD_CHECK_S = 0.25   -- the full check (camera, player position) is 4 a second, not 30
+
 function K.inWorld()
     local now = K.now()
     if Game.IsLoadingEngineSaveGame() then
         K.lastWorldOk = nil   -- a load is a hard stop: no grace
+        K.worldCheckedAt = nil
         return false
     end
+    if K.worldCheckedAt ~= nil and now - K.worldCheckedAt < K.WORLD_CHECK_S then
+        return K.worldCached
+    end
+    K.worldCheckedAt = now
+    local r
     if K.inWorldRaw() then
         K.lastWorldOk = now
-        return true
+        r = true
+    elseif K.lastWorldOk ~= nil and now - K.lastWorldOk < K.CUTSCENE_GRACE then
+        r = true
+    else
+        r = false
     end
-    if K.lastWorldOk ~= nil and now - K.lastWorldOk < K.CUTSCENE_GRACE then
-        return true
-    end
-    return false
+    K.worldCached = r
+    return r
 end
 
 -- agent -> game. The agent calls: kcdus "<seq>~REC|f|f~REC|f"

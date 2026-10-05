@@ -204,7 +204,7 @@ public class LuaModTests
         m.Send("1~P|2|Hans|100.0,200.0,30.0|0|0,0,0|0|100|100|MotionIdle");
         m.Advance(0.2);
         m.Send("2~P|2|Hans|900.0,800.0,30.0|0|0,0,0|0|100|100|MotionIdle");
-        m.Advance(0.05);
+        m.Advance(0.12);
         Assert.InRange(m.Num("__spawned[1].pos.x"), 899.0, 901.0);
     }
 
@@ -314,34 +314,34 @@ public class LuaModTests
         Assert.Empty(m.Lines("KCDUS|Q|"));   // nothing is going on: nothing to say
         m.Do("__world.quests.q_escapeToTalmberk = { started = true, completed = false, objectives = { 12, 5 } }");
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(7.0);   // the whole list is visited about every 5 s
         Assert.Equal(new[] { "KCDUS|Q|q_escapeToTalmberk|1|0|5,12" }, m.Lines("KCDUS|Q|"));
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(7.0);   // the whole list is visited about every 5 s
         Assert.Empty(m.Lines("KCDUS|Q|"));   // unchanged: silent
         m.Do("__world.quests.q_escapeToTalmberk.objectives = { 12, 5, 99 }");
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(7.0);   // the whole list is visited about every 5 s
         Assert.Equal(new[] { "KCDUS|Q|q_escapeToTalmberk|1|0|5,12,99" }, m.Lines("KCDUS|Q|"));
         m.Do("__world.quests.q_escapeToTalmberk = { started = true, completed = true, objectives = {} }");
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(7.0);   // the whole list is visited about every 5 s
         Assert.Equal(new[] { "KCDUS|Q|q_escapeToTalmberk|1|1|" }, m.Lines("KCDUS|Q|"));
         // the agent just connected and wants everything again
         m.Send("9~QSNAP");
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(7.0);   // the whole list is visited about every 5 s
         Assert.Equal(new[] { "KCDUS|Q|q_escapeToTalmberk|1|1|" }, m.Lines("KCDUS|Q|"));
     }
 
     [Fact]
-    public void Every_watched_quest_is_visited_within_a_couple_of_seconds()
+    public void Every_watched_quest_is_visited_within_a_few_seconds()
     {
         var m = new LuaMod();
         m.InWorld();
         m.Do("for _, q in ipairs(KCDUS_QUESTS) do __world.quests[q.code] = { started = true, completed = false, objectives = { 1 } } end");
         m.ClearLog();
-        m.Advance(3.0);
+        m.Advance(8.0);   // two quests every 0.1 s: the whole list in about 5 s
         Assert.Equal((int)m.Num("#KCDUS_QUESTS"), m.Lines("KCDUS|Q|").Count);
     }
 
