@@ -66,3 +66,18 @@ K.handlers["TIME"] = function(f)
         Calendar.SetWorldTime(t)
     end
 end
+
+-- TP|x,y,z|yaw : bring the player somewhere (the join-or-stay choice brings a friend beside the host; the tether pulls one back)
+K.handlers["TP"] = function(f)
+    local pos = K.split(f[2] or "", ",")
+    local x, y, z = tonumber(pos[1]), tonumber(pos[2]), tonumber(pos[3])
+    if x == nil or y == nil or z == nil then
+        return
+    end
+    player:SetWorldPos({ x = x, y = y, z = z })
+    local yaw = tonumber(f[3])
+    if yaw ~= nil then
+        K.try("tp:angles", function() player:SetWorldAngles({ x = 0, y = 0, z = yaw }) end)
+    end
+    K.out("TELEPORTED", string.format("%.1f,%.1f,%.1f", x, y, z))
+end

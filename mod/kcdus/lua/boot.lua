@@ -11,6 +11,8 @@ end
 command("kcdus", "KCDUS_In(%line)", "Kingdom Come: Deliver Us - the agent's channel (do not type)")
 command("kcdus_say", "KCDUS_Say(%line)", "Say something to your co-op partners")
 command("kcdus_status", "KCDUS_Status()", "Show the co-op status")
+command("kcdus_join", "KCDUS.out('KEY', 'join')", "Join your host in the story stretch you were asked about")
+command("kcdus_stay", "KCDUS.out('KEY', 'stay')", "Stay in the open world instead of joining your host")
 command("kcdus_off", "KCDUS.stop()", "Stop the co-op mod's update loop")
 command("kcdus_on", "KCDUS.start()", "Start the co-op mod's update loop")
 
