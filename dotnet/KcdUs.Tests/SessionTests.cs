@@ -248,6 +248,23 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task No_answer_counts_as_joining_once_and_is_not_repeated_every_second()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Sample(500, 600, 40); guest.Sample(10, 10, 10);
+        clock.Ms += 7000; host.Tick();
+        host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
+        await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
+        for (int i = 0; i < 60; i++) { clock.Ms += 1000; host.Sample(500, 600, 40); await Task.Delay(12); guest.Tick(); }   // a minute of silence (the host keeps reporting)
+        await Until(() => guest.Game.Has("TP|"), what: "the default join");
+        await Task.Delay(300);
+        Assert.Equal(1, guest.Game.Count("TP|"));
+        Assert.Equal(1, guest.Game.Snapshot().Count(s => s == "NOTE|You joined your host."));
+        Assert.Equal(RailsChoice.Join, guest.Session.GetStatus().Story.MyChoice == "join" ? RailsChoice.Join : RailsChoice.Pending);
+    }
+
+    [Fact]
     public async Task A_standing_answer_does_not_ask()
     {
         var (relay, host, guest, clock) = await Pair(RailsPref.Free);

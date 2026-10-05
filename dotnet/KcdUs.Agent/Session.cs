@@ -445,8 +445,12 @@ public sealed class Session
                 break;
 
             case RailsJoiner.Act.Auto:
-            case RailsJoiner.Act.Backstop:
                 Announce(step.Choice, code, step.Why);
+                break;
+
+            case RailsJoiner.Act.Backstop:
+                // nobody answered: that is a yes, and it is an ANSWER (the joiner leaves "pending", or this would fire every second)
+                if (_joiner.Decide(step.Choice, now)) Announce(step.Choice, code, step.Why);
                 break;
 
             case RailsJoiner.Act.Resend:
