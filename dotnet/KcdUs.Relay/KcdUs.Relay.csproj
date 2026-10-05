@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>KcdUsRelay</AssemblyName>
+    <RootNamespace>KcdUs.Relay</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionFileContent Condition="Exists('$(MSBuildThisFileDirectory)..\..\VERSION')">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</VersionFileContent>
+    <Version Condition="'$(VersionFileContent)' != ''">$(VersionFileContent)</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KcdUs.Protocol\KcdUs.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

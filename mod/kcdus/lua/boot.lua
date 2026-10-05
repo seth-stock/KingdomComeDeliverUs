@@ -1,0 +1,24 @@
+-- boot: register the console commands, announce ourselves, start ticking.
+local K = KCDUS
+
+local function command(name, code, help)
+    local ok, err = pcall(System.AddCCommand, name, code, help)
+    if not ok then
+        K.out("ERR", "command", name, K.clean(err))
+    end
+end
+
+command("kcdus", "KCDUS_In(%line)", "Kingdom Come: Deliver Us - the agent's channel (do not type)")
+command("kcdus_say", "KCDUS_Say(%line)", "Say something to your co-op partners")
+command("kcdus_status", "KCDUS_Status()", "Show the co-op status")
+command("kcdus_off", "KCDUS.stop()", "Stop the co-op mod's update loop")
+command("kcdus_on", "KCDUS.start()", "Start the co-op mod's update loop")
+
+K.handlers["HELLO?"] = function(f)
+    K.out("HELLO", K.VERSION or "0", K.PROTO or 0, K.LUA_BUILD or "")
+    K.out("READY", K.inWorldNow and 1 or 0)
+end
+
+K.out("HELLO", K.VERSION or "0", K.PROTO or 0, K.LUA_BUILD or "")
+K.hookPlayer()
+K.start()

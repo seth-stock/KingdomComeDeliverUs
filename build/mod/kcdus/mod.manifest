@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kcd_mod>
+    <info>
+        <name>Kingdom Come: Deliver Us</name>
+        <modid>kcdus</modid>
+        <description>Co-op for Kingdom Come: Deliverance. Unofficial community mod, not affiliated with Warhorse Studios or Deep Silver.</description>
+        <author>the Kingdom Come: Deliver Us contributors</author>
+        <version>0.1.0</version>
+        <created_on>2026-10-05</created_on>
+    </info>
+</kcd_mod>
