@@ -20,6 +20,7 @@ the mod logged no script error. It prints the numbers either way; it never loose
 import argparse, json, os, re, shutil, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+NOISE_LIMIT_PCT = 3.0
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import gamedrive as gd
@@ -142,11 +143,11 @@ def run(a):
         mods.append(one_mod_run(a, 'mod-%d' % (i + 1)))
     avg = lambda rs, k: round(statistics.mean(r[k] for r in rs), 2)
     van = dict(label='vanilla', samples=sum(r['samples'] for r in vans), mean=avg(vans, 'mean'), median=avg(vans, 'median'), p5=avg(vans, 'p5'),
-               min=min(r['min'] for r in vans), script_errors=sum(r['script_errors'] for r in vans), runs=[r['mean'] for r in vans])
+               min=min(r['min'] for r in vans), max=max(r['max'] for r in vans), script_errors=sum(r['script_errors'] for r in vans), runs=[r['mean'] for r in vans])
     mod = dict(label='mod', samples=sum(r['samples'] for r in mods), mean=avg(mods, 'mean'), median=avg(mods, 'median'), p5=avg(mods, 'p5'),
-               min=min(r['min'] for r in mods), script_errors=sum(r['script_errors'] for r in mods), runs=[r['mean'] for r in mods])
-    json.dump(dict(vanilla=van, mod=mod), open(os.path.join(RUNS, 'summary.json'), 'w'), indent=1)
-    return verdict(mod, van)
+               min=min(r['min'] for r in mods), max=max(r['max'] for r in mods), script_errors=sum(r['script_errors'] for r in mods), runs=[r['mean'] for r in mods])
+    json.dump(dict(vanilla=van, mod=mod, vanilla_runs=vans, mod_runs=mods), open(os.path.join(RUNS, 'summary.json'), 'w'), indent=1)
+    return verdict(mod, van, runs=vans + mods)
 
 
 def run_vanilla_only(a):
@@ -165,7 +166,19 @@ def run_vanilla_only(a):
     return 0
 
 
-def verdict(mod, van, tuning=False):
+def validity(runs, van, mod):
+    """A measurement is only worth a verdict when the machine was quiet: identical runs must agree, and no run may show a stalled or catching-up game."""
+    why = []
+    for name, rs in (('vanilla', van.get('runs')), ('mod', mod.get('runs'))):
+        if rs and len(rs) > 1 and (max(rs) - min(rs)) / (sum(rs) / len(rs)) * 100 > NOISE_LIMIT_PCT:
+            why.append('the %s runs differ by %.1f%% (limit %.0f%%): %s' % (name, (max(rs) - min(rs)) / (sum(rs) / len(rs)) * 100, NOISE_LIMIT_PCT, rs))
+    for r in runs or []:
+        if r['max'] > 1.5 * r['median']:
+            why.append('%s: a second at %.0f fps against a median of %.0f (the game stalled and caught up: focus lost? something else running?)' % (r['label'], r['max'], r['median']))
+    return why
+
+
+def verdict(mod, van, tuning=False, runs=None):
     dm = (mod['mean'] - van['mean']) / van['mean'] * 100
     dp = (mod['p5'] - van['p5']) / van['p5'] * 100
     ok_mean, ok_p5, ok_err = dm > -5.0, dp > -10.0, mod['script_errors'] == 0
@@ -176,8 +189,11 @@ def verdict(mod, van, tuning=False):
         print('noise floor: the vanilla runs differ by %.1f%% (%s)   mod runs: %s' % ((max(van['runs']) - min(van['runs'])) / van['mean'] * 100, van['runs'], mod.get('runs')))
     print('mean %+.1f%% (need > -5%%): %s | p5 %+.1f%% (need > -10%%): %s | script errors %d: %s' %
           (dm, 'ok' if ok_mean else 'FAIL', dp, 'ok' if ok_p5 else 'FAIL', mod['script_errors'], 'ok' if ok_err else 'FAIL'))
-    passed = ok_mean and ok_p5 and ok_err
-    print('SOAK', 'PASS' if passed else 'FAIL')
+    bad = validity(runs, van, mod) if not tuning else []
+    for w in bad:
+        print('INVALID:', w)
+    passed = ok_mean and ok_p5 and ok_err and not bad
+    print('SOAK', 'INCONCLUSIVE (leave the machine alone while it runs, and run it again)' if bad else ('PASS' if passed else 'FAIL'))
     import hashlib
     pak = open(os.path.join(ROOT, 'build', 'mod', 'kcdus', 'Data', 'kcdus.pak'), 'rb').read()
     rec = dict(version=open(os.path.join(ROOT, 'VERSION')).read().strip(), pak_sha256=hashlib.sha256(pak).hexdigest(), passed=passed, mean_delta_pct=round(dm, 2), p5_delta_pct=round(dp, 2),
