@@ -105,18 +105,34 @@ public sealed class CommandPacker
     public void Clear() { lock (_gate) { _fifo.Clear(); _latest.Clear(); _latestOrder.Clear(); } }
 }
 
-/// <summary>A TCP client for the engine's remote console: connects, drains whatever the engine says, sends '5'+line+NUL.</summary>
+/// <summary>
+/// A TCP client for the engine's remote console: sends '5'+line+NUL and drains whatever the engine says.
+/// <b>The engine processes only 21 commands per connection and then silently stops serving it</b> (found in the real game: a fresh connection
+/// answers 21 pings and no more, at any pace and with any line size; new connections work again). So the client opens a new connection
+/// every <see cref="MaxCommandsPerConnection"/> commands; a local connect costs about a millisecond.
+/// </summary>
 public sealed class RemoteConsoleClient
 {
+    /// <summary>Under the engine's 21, with room for a hello and a mistake.</summary>
+    public const int MaxCommandsPerConnection = 16;
+    public const int WriteTimeoutMs = 1500;
+    public const int ConnectTimeoutMs = 500;
+
     private readonly string _host;
     private readonly int _port;
+    private readonly object _gate = new();
     private TcpClient? _tcp;
     private NetworkStream? _stream;
-    private readonly object _sendLock = new();
+    private int _sentOnConnection;
+    private long _generation;
 
     public RemoteConsoleClient(string host, int port) { _host = host; _port = port; }
 
     public bool Connected { get; private set; }
+    public int Reconnects { get; private set; }
+    public int Rotations { get; private set; }
+    public long Sent { get; private set; }
+    public string LastReset { get; private set; } = "";
     public event Action<bool>? StateChanged;
 
     private void Set(bool v)
@@ -126,56 +142,79 @@ public sealed class RemoteConsoleClient
         StateChanged?.Invoke(v);
     }
 
-    public async Task RunAsync(CancellationToken ct)
+    private bool Open()
     {
-        var buf = new byte[4096];
-        while (!ct.IsCancellationRequested)
+        // caller holds _gate
+        try { _tcp?.Close(); } catch { }
+        _tcp = null; _stream = null;
+        var tcp = new TcpClient { NoDelay = true };
+        try
         {
-            try
+            var connect = tcp.ConnectAsync(_host, _port);
+            if (!connect.Wait(ConnectTimeoutMs)) { tcp.Close(); return false; }
+            _tcp = tcp;
+            _stream = tcp.GetStream();
+            _sentOnConnection = 0;
+            long gen = ++_generation;
+            var s = _stream;
+            _ = Task.Run(async () =>   // drain the engine's replies (the hello, autocomplete noise, forwarded log lines) so it never blocks on us
             {
-                _tcp = new TcpClient { NoDelay = true };
-                await _tcp.ConnectAsync(_host, _port, ct).ConfigureAwait(false);
-                _stream = _tcp.GetStream();
-                Set(true);
-                while (!ct.IsCancellationRequested)
-                {
-                    int n = await _stream.ReadAsync(buf, ct).ConfigureAwait(false);   // the hello and autocomplete noise: read and ignore
-                    if (n == 0) break;
-                }
-            }
-            catch (OperationCanceledException) { break; }
-            catch { }
-            Set(false);
-            try { _tcp?.Close(); } catch { }
-            try { await Task.Delay(1500, ct).ConfigureAwait(false); } catch { break; }
+                var buf = new byte[4096];
+                try { while (await s.ReadAsync(buf).ConfigureAwait(false) > 0) { } } catch { }
+                lock (_gate) { if (gen == _generation) { _stream = null; Set(false); } }
+            });
+            return true;
         }
-        Set(false);
+        catch { try { tcp.Close(); } catch { } return false; }
     }
 
-    public int Reconnects { get; private set; }
-    public long Sent { get; private set; }
+    /// <summary>Keeps trying to connect while the game is not up; once connected it only has to notice a drop.</summary>
+    public async Task RunAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            bool up;
+            lock (_gate)
+            {
+                if (_stream is null)
+                {
+                    if (Open()) { Set(true); }
+                    else Set(false);
+                }
+                up = Connected;
+            }
+            try { await Task.Delay(up ? 500 : 1500, ct).ConfigureAwait(false); } catch { break; }
+        }
+        lock (_gate) { try { _tcp?.Close(); } catch { } _stream = null; Set(false); }
+    }
 
-    /// <summary>Drop the connection (a dead one the engine stopped serving); the run loop dials again.</summary>
+    /// <summary>Drop the connection (a dead one); the next send or the run loop dials again.</summary>
     public void Reset(string why)
     {
-        lock (_sendLock)
+        lock (_gate)
         {
             try { _tcp?.Close(); } catch { }
+            _stream = null;
             Reconnects++;
             LastReset = why;
         }
     }
 
-    public string LastReset { get; private set; } = "";
-
-    /// <summary>Send one line. A write that does not finish in <see cref="WriteTimeoutMs"/> means the engine has stopped reading this connection: it is dropped.</summary>
-    public const int WriteTimeoutMs = 1500;
-
     public bool TrySend(string line)
     {
-        NetworkStream? s;
-        lock (_sendLock) s = _stream;
-        if (!Connected || s is null) return false;
+        NetworkStream s;
+        lock (_gate)
+        {
+            if (!Connected) return false;
+            if (_stream is null || _sentOnConnection >= MaxCommandsPerConnection)
+            {
+                bool rotating = _stream is not null;
+                if (!Open()) { Set(false); return false; }
+                if (rotating) Rotations++;
+            }
+            s = _stream!;
+            _sentOnConnection++;
+        }
         var b = Encoding.UTF8.GetBytes(line);
         var msg = new byte[b.Length + 2];
         msg[0] = (byte)'5';
@@ -189,7 +228,7 @@ public sealed class RemoteConsoleClient
             return true;
         }
         catch (OperationCanceledException) { Reset("a write did not finish in " + WriteTimeoutMs + " ms"); return false; }
-        catch { Set(false); return false; }
+        catch { Reset("a write failed"); return false; }
     }
 }
 
@@ -257,12 +296,12 @@ public sealed class ConsoleGameLink : IGameLink
     private CancellationTokenSource? _cts;
     private readonly List<Task> _tasks = new();
 
-    private long _lastLineAtMs;
-    private bool _everAnswered;
+    private long _lastPongAtMs;
+    private bool _everPonged;
     private long _lastResetAtMs;
     private readonly Func<long> _now;
 
-    /// <summary>The game has been silent this long although we ping it every 2 s: its side of our connection is dead.</summary>
+    /// <summary>No PONG this long although we ping every 2 s: the game no longer reads our connection.</summary>
     public const int SilentResetMs = 8000;
 
     public ConsoleGameLink(string gameDir, string host = "127.0.0.1", int port = 4600, Func<long>? nowMs = null, Action<string>? log = null)
@@ -271,7 +310,12 @@ public sealed class ConsoleGameLink : IGameLink
         _log = log ?? (_ => { });
         _console = new RemoteConsoleClient(host, port);
         _tail = new LogTail(Path.Combine(gameDir, "kcd.log"));
-        _tail.LineRead += l => { if (GameLine.Parse(l) is { } g) { _lastLineAtMs = _now(); _everAnswered = true; Line?.Invoke(g); } };
+        _tail.LineRead += l =>
+        {
+            if (GameLine.Parse(l) is not { } g) return;
+            if (g.Kind == "PONG") { _lastPongAtMs = _now(); _everPonged = true; }   // only a PONG proves the game reads OUR commands: its heartbeat lines flow whatever we do
+            Line?.Invoke(g);
+        };
         _console.StateChanged += v => { if (!v) _packer.Clear(); ConsoleStateChanged?.Invoke(v); };
     }
 
@@ -281,6 +325,7 @@ public sealed class ConsoleGameLink : IGameLink
     public int Queued => _packer.Queued;
     public int Dropped => _packer.Dropped;
     public int Reconnects => _console.Reconnects;
+    public int Rotations => _console.Rotations;
     public long CommandsSent => _console.Sent;
 
     public void Send(string record) => _packer.Add(record);
@@ -308,14 +353,14 @@ public sealed class ConsoleGameLink : IGameLink
         }
     }
 
-    /// <summary>A connection the game once answered on, and no longer does: rebuild it (at most every <see cref="SilentResetMs"/>).</summary>
+    /// <summary>The game answered our pings once and no longer does: rebuild the connection (at most every <see cref="SilentResetMs"/>).</summary>
     private void Watchdog()
     {
         long now = _now();
-        if (!_everAnswered || now - _lastLineAtMs < SilentResetMs || now - _lastResetAtMs < SilentResetMs) return;
+        if (!_everPonged || now - _lastPongAtMs < SilentResetMs || now - _lastResetAtMs < SilentResetMs) return;
         _lastResetAtMs = now;
-        _log($"the game has not answered for {(now - _lastLineAtMs) / 1000} s: dropping and re-dialling the remote console");
-        _console.Reset("the game stopped answering");
+        _log($"the game has not answered a ping for {(now - _lastPongAtMs) / 1000} s: dropping and re-dialling the remote console");
+        _console.Reset("the game stopped answering pings");
     }
 
     public async ValueTask DisposeAsync()

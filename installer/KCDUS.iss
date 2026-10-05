@@ -92,7 +92,7 @@ Root: HKCU; Subkey: "Software\KCDUS"; ValueType: string; ValueName: "GameDir"; V
 Root: HKCU; Subkey: "Software\KCDUS"; ValueType: string; ValueName: "ModDir"; ValueData: "{code:GameModDir}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Harden-Firewall.ps1"" -Add"; Verb: runas; Flags: runhidden waituntilterminated; Tasks: firewall; StatusMsg: "Blocking the remote-console port from other computers..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Harden-Firewall.ps1"" -Add"; Verb: runas; Flags: shellexec runhidden waituntilterminated; Tasks: firewall; StatusMsg: "Blocking the remote-console port from other computers..."
 Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
@@ -243,9 +243,10 @@ begin
   begin
     if RegQueryStringValue(HKEY_CURRENT_USER, 'Software\KCDUS', 'ModDir', ModDir) and DirExists(ModDir) then
     begin
-      if MsgBox('Also remove the mod from your game folder?' + #13#10 + ModDir + #13#10#13#10 +
+      { SuppressibleMsgBox obeys /SUPPRESSMSGBOXES and answers Yes there: a scripted uninstall removes what its install put in the game folder }
+      if SuppressibleMsgBox('Also remove the mod from your game folder?' + #13#10 + ModDir + #13#10#13#10 +
                 'Your saves are not touched either way. Saves made while the mod was installed still load without it.',
-                mbConfirmation, MB_YESNO) = IDYES then
+                mbConfirmation, MB_YESNO, IDYES) = IDYES then
       begin
         DeleteFile(ModDir + '\Data\kcdus.pak');
         DeleteFile(ModDir + '\mod.manifest');

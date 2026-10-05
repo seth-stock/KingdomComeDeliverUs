@@ -505,14 +505,38 @@ public sealed class Session
         }
     }
 
+    /// <summary>The game only moves its clock FORWARD (its own scripts do SetWorldTime(now + hours*3600); a request for an earlier time is ignored: seen live).
+    /// So a friend is aligned to the host's TIME OF DAY by skipping forward, at most <see cref="MaxTimeSkipSeconds"/>; one who would need more keeps their own clock.</summary>
+    public const double MaxTimeSkipSeconds = 12 * 3600;
+    private long _lastNoSyncLogMs;
+
+    /// <summary>The seconds to skip forward to share the host's time of day, or null when already within the drift or when it would be too long a skip.</summary>
+    public static double? TimeSkip(double localTime, double hostTime, double driftSeconds)
+    {
+        const double day = 86400;
+        double forward = ((hostTime - localTime) % day + day) % day;
+        if (forward < driftSeconds || forward > day - driftSeconds) return null;   // the same time of day, near enough
+        return forward <= MaxTimeSkipSeconds ? forward : null;
+    }
+
     private void ApplyTime(double hostTime, long now)
     {
         if (_local is null || !_inWorld || _local.InDialog) return;
         if (now - _lastTimeApplyMs < 20_000) return;
-        if (Math.Abs(_local.WorldTime - hostTime) < _o.TimeDriftSeconds) return;
+        double forward = ((hostTime - _local.WorldTime) % 86400 + 86400) % 86400;
+        if (forward < _o.TimeDriftSeconds || forward > 86400 - _o.TimeDriftSeconds) return;
+        if (TimeSkip(_local.WorldTime, hostTime, _o.TimeDriftSeconds) is not { } skip)
+        {
+            if (now - _lastNoSyncLogMs > 120_000)
+            {
+                _lastNoSyncLogMs = now;
+                _log($"the clock: your game is {(86400 - forward) / 3600:0.0} h ahead of the host's time of day; the game cannot turn its clock back, so yours stays");
+            }
+            return;
+        }
         _lastTimeApplyMs = now;
-        _log($"the clock: host {hostTime:0}, mine {_local.WorldTime:0}: set");
-        _game.Send(string.Create(CultureInfo.InvariantCulture, $"TIME|{hostTime:0}"));
+        _log($"the clock: skipping {skip / 3600:0.0} h forward to the host's time of day");
+        _game.Send(string.Create(CultureInfo.InvariantCulture, $"TIME|{_local.WorldTime + skip:0}"));
     }
 
     private void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 160));

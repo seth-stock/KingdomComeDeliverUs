@@ -378,6 +378,34 @@ public class SessionTests
     }
 }
 
+public class TimeSyncTests
+{
+    [Fact]
+    public void A_friend_behind_the_host_skips_forward_to_the_same_time_of_day()
+    {
+        Assert.Equal(14000, Session.TimeSkip(36000, 50000, 120));
+        // behind in absolute time but a different day: align the time of day, never go back
+        Assert.Equal(27953, Session.TimeSkip(94547, 36100, 120)!.Value, 0.5);
+    }
+
+    [Fact]
+    public void Near_enough_is_left_alone_in_both_directions_and_across_midnight()
+    {
+        Assert.Null(Session.TimeSkip(36000, 36100, 120));          // host 100 s ahead
+        Assert.Null(Session.TimeSkip(36100, 36000, 120));          // host 100 s behind: the same time of day, near enough
+        Assert.Null(Session.TimeSkip(86350, 86400 + 40, 120));     // across midnight
+        Assert.Null(Session.TimeSkip(86400 + 40, 86350, 120));
+    }
+
+    [Fact]
+    public void A_skip_longer_than_twelve_hours_is_not_taken_and_the_clock_is_never_asked_to_go_back()
+    {
+        Assert.Null(Session.TimeSkip(36000, 36000 - 3 * 3600, 120));   // the friend is 3 h ahead: 21 h of skipping would be needed
+        Assert.NotNull(Session.TimeSkip(36000, 36000 + 12 * 3600, 120));
+        Assert.Null(Session.TimeSkip(36000, 36000 + 12 * 3600 + 600, 120));
+    }
+}
+
 public class CommandPackerTests
 {
     [Fact]
@@ -505,17 +533,91 @@ public class RemoteConsoleClientTests
         using var conn = await server.AcceptTcpClientAsync();
         var s = conn.GetStream();
         await s.WriteAsync(new byte[] { (byte)'1', 0 });           // the engine's hello
-        await s.WriteAsync(System.Text.Encoding.ASCII.GetBytes("6map rataje\0"));
+        await s.WriteAsync(System.Text.Encoding.ASCII.GetBytes("6map rataje "));
         var end = DateTime.UtcNow.AddSeconds(3);
         while (!client.Connected && DateTime.UtcNow < end) await Task.Delay(10);
         Assert.True(client.Connected);
         Assert.True(client.TrySend("kcdus 1~PING|7"));
         var buf = new byte[64];
         int n = await s.ReadAsync(buf);
-        Assert.Equal("5kcdus 1~PING|7\0", System.Text.Encoding.UTF8.GetString(buf, 0, n));
+        Assert.Equal("5kcdus 1~PING|7 ", System.Text.Encoding.UTF8.GetString(buf, 0, n));
         cts.Cancel();
         server.Stop();
         await run;
         Assert.False(client.Connected);
+    }
+
+    /// <summary>The real engine serves 21 commands per connection and then nothing (found live): the client must never send more than 16 on one.</summary>
+    [Fact]
+    public async Task A_new_connection_is_opened_every_sixteen_commands_because_the_engine_stops_serving_one_after_twenty_one()
+    {
+        var server = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        server.Start();
+        int port = ((IPEndPoint)server.LocalEndpoint).Port;
+        var perConnection = new List<int>();
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var acceptor = Task.Run(async () =>
+        {
+            while (true)
+            {
+                System.Net.Sockets.TcpClient c;
+                try { c = await server.AcceptTcpClientAsync(); } catch { return; }
+                int idx; lock (perConnection) { perConnection.Add(0); idx = perConnection.Count - 1; }
+                _ = Task.Run(async () =>
+                {
+                    var st = c.GetStream();
+                    var b = new byte[4096];
+                    var acc = new List<byte>();
+                    try
+                    {
+                        int n;
+                        while ((n = await st.ReadAsync(b)) > 0)
+                        {
+                            for (int i = 0; i < n; i++)
+                            {
+                                if (b[i] == 0) { lock (perConnection) perConnection[idx]++; lines.Enqueue(System.Text.Encoding.UTF8.GetString(acc.ToArray())); acc.Clear(); }
+                                else acc.Add(b[i]);
+                            }
+                        }
+                    }
+                    catch { }
+                });
+            }
+        });
+        using var cts = new CancellationTokenSource();
+        var client = new RemoteConsoleClient("127.0.0.1", port);
+        var run = Task.Run(() => client.RunAsync(cts.Token));
+        var end = DateTime.UtcNow.AddSeconds(3);
+        while (!client.Connected && DateTime.UtcNow < end) await Task.Delay(10);
+        for (int i = 0; i < 100; i++) Assert.True(client.TrySend("kcdus " + i + "~PING|x"));
+        await Task.Delay(400);
+        lock (perConnection)
+        {
+            Assert.All(perConnection, n => Assert.True(n <= RemoteConsoleClient.MaxCommandsPerConnection, "a connection got " + n));
+            Assert.Equal(100, perConnection.Sum());
+            Assert.True(perConnection.Count >= 7, "connections: " + perConnection.Count);
+        }
+        Assert.True(client.Rotations >= 6);
+        Assert.True(RemoteConsoleClient.MaxCommandsPerConnection < 21);
+        cts.Cancel(); server.Stop();
+        await run;
+    }
+
+    [Fact]
+    public async Task Without_a_game_the_client_keeps_trying_and_reports_not_connected()
+    {
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0); probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port; probe.Stop();          // a port nothing listens on
+        using var cts = new CancellationTokenSource();
+        var client = new RemoteConsoleClient("127.0.0.1", port);
+        var run = Task.Run(() => client.RunAsync(cts.Token));
+        await Task.Delay(300);
+        Assert.False(client.Connected);
+        Assert.False(client.TrySend("kcdus 1~PING|x"));
+        var server = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port); server.Start();   // the game comes up
+        var end = DateTime.UtcNow.AddSeconds(5);
+        while (!client.Connected && DateTime.UtcNow < end) await Task.Delay(50);
+        Assert.True(client.Connected);
+        cts.Cancel(); server.Stop(); await run;
     }
 }
