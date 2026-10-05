@@ -1,18 +1,19 @@
 {
  "version": "0.1.0",
+ "pak_sha256": "9abfee7dc91b64f318ecb7fe12139c209e5222ff59f613dee3f0e97ccbcdbacb",
  "passed": false,
- "mean_delta_pct": -6.4,
- "p5_delta_pct": -8.43,
+ "mean_delta_pct": -3.75,
+ "p5_delta_pct": -4.52,
  "mod": {
-  "label": "mod",
-  "samples": 359,
-  "mean": 92.23,
-  "median": 92.6,
-  "p5": 89.1,
-  "min": 83.7,
-  "max": 94.6,
+  "label": "mod-noplayers",
+  "samples": 239,
+  "mean": 94.84,
+  "median": 94.9,
+  "p5": 92.9,
+  "min": 91.5,
+  "max": 97.4,
   "script_errors": 0,
-  "minutes": 6.0,
+  "minutes": 4.0,
   "warmup": 2.0
  },
  "vanilla": {
@@ -27,5 +28,6 @@
   "minutes": 6.0,
   "warmup": 2.0
  },
- "date": "2026-10-05"
+ "date": "2026-10-05",
+ "tuning_only": true
 }

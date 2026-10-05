@@ -4,7 +4,7 @@
 r"""
 The frame-rate soak: the real game, on a THROWAWAY save, with and without the mod, measured by the same sampler.
 
-  python tools\perf\soak.py run --minutes 8 --warmup 2          # both runs, then the verdict, then restores everything
+  python tools\perf\soak.py run --minutes 4 --warmup 1.5 --pairs 2   # vanilla, mod, vanilla, mod, then the verdict, then restores everything
   python tools\perf\soak.py verdict runs\mod.json runs\vanilla.json
 
 What a run does (docs/SOAK.md):
@@ -79,45 +79,76 @@ def measure(label, minutes, warmup):
     return rec
 
 
-def run(a):
-    os.makedirs(RUNS, exist_ok=True)
-    gd.kill(); time.sleep(4)
+def one_mod_run(a, label):
     procs = []
     try:
-        # ---- mod run
         subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'Build-Pak.py'), '--install-to', MODS], check=True, capture_output=True)
         gd.launch(devmode=True)
         enter_world()
-        procs.append(sh([os.path.join(BIN, 'KcdUs.Relay', 'bin', 'Debug', 'net8.0', 'KcdUsRelay.exe'), '--port', '7791']))
-        time.sleep(2)
-        procs.append(sh([os.path.join(BIN, 'KcdUs.Bot', 'bin', 'Debug', 'net8.0', 'KcdUsBot.exe'), '--relay', '127.0.0.1:7791', '--role', 'host',
-                         '--name', 'Host', '--center', '736.0,3419.0,63.91', '--radius', '1.2', '--speed', '0.5', '--time', '40000']))
-        time.sleep(2)
-        procs.append(sh([os.path.join(BIN, 'KcdUs.Agent', 'bin', 'Debug', 'net8.0', 'KcdUsAgent.exe'), '--role', 'guest', '--relay', '127.0.0.1:7791',
-                         '--name', 'Henry', '--game-dir', GAME, '--no-hotkeys', '--status-port', '1416']))
-        mod = measure('mod', a.minutes, a.warmup)
-        for p in procs:
-            p.kill()
-        procs.clear()
-        gd.kill(); time.sleep(5)
-        if a.mod_only:
-            van = json.load(open(os.path.join(RUNS, 'vanilla.json')))
-            print('(tuning run: vanilla reused from an earlier run, not a release record)')
-            return verdict(mod, van, tuning=True)
-        # ---- vanilla run
-        if os.path.isdir(PARK): shutil.rmtree(PARK)
-        shutil.move(os.path.join(MODS, 'kcdus'), PARK)
-        gd.launch(devmode=True)
-        enter_world()
-        van = measure('vanilla', a.minutes, a.warmup)
+        if not a.no_players:
+            procs.append(sh([os.path.join(BIN, 'KcdUs.Relay', 'bin', 'Debug', 'net8.0', 'KcdUsRelay.exe'), '--port', '7791']))
+            time.sleep(2)
+            procs.append(sh([os.path.join(BIN, 'KcdUs.Bot', 'bin', 'Debug', 'net8.0', 'KcdUsBot.exe'), '--relay', '127.0.0.1:7791', '--role', 'host',
+                             '--name', 'Host', '--center', '736.0,3419.0,63.91', '--radius', '1.2', '--speed', '0.5', '--time', '40000']))
+            time.sleep(2)
+            procs.append(sh([os.path.join(BIN, 'KcdUs.Agent', 'bin', 'Debug', 'net8.0', 'KcdUsAgent.exe'), '--role', 'guest', '--relay', '127.0.0.1:7791',
+                             '--name', 'Henry', '--game-dir', GAME, '--no-hotkeys', '--status-port', '1416']))
+        return measure(label, a.minutes, a.warmup)
     finally:
         for p in procs:
             try: p.kill()
             except Exception: pass
+        gd.kill(); time.sleep(5)
+
+
+def one_vanilla_run(a, label):
+    try:
+        if os.path.isdir(PARK): shutil.rmtree(PARK)
+        shutil.move(os.path.join(MODS, 'kcdus'), PARK)
+        gd.launch(devmode=True)
+        enter_world()
+        return measure(label, a.minutes, a.warmup)
+    finally:
+        gd.kill(); time.sleep(5)
+        if os.path.isdir(PARK):
+            shutil.move(PARK, os.path.join(MODS, 'kcdus'))
+
+
+def run(a):
+    """vanilla, mod, vanilla, mod: the game's frame rate drifts by a few percent from one session to the next (observed 98.5 then 94.8 for the
+    same vanilla game), so a single A then B cannot tell an overhead from drift. Alternating and averaging can, and the spread between the two
+    vanilla runs is the noise floor the verdict prints."""
+    os.makedirs(RUNS, exist_ok=True)
+    if a.vanilla_only:
+        return run_vanilla_only(a)
+    gd.kill(); time.sleep(4)
+    vans, mods = [], []
+    for i in range(a.pairs):
+        vans.append(one_vanilla_run(a, 'vanilla-%d' % (i + 1)))
+        mods.append(one_mod_run(a, 'mod-%d' % (i + 1)))
+    avg = lambda rs, k: round(statistics.mean(r[k] for r in rs), 2)
+    van = dict(label='vanilla', samples=sum(r['samples'] for r in vans), mean=avg(vans, 'mean'), median=avg(vans, 'median'), p5=avg(vans, 'p5'),
+               min=min(r['min'] for r in vans), script_errors=sum(r['script_errors'] for r in vans), runs=[r['mean'] for r in vans])
+    mod = dict(label='mod', samples=sum(r['samples'] for r in mods), mean=avg(mods, 'mean'), median=avg(mods, 'median'), p5=avg(mods, 'p5'),
+               min=min(r['min'] for r in mods), script_errors=sum(r['script_errors'] for r in mods), runs=[r['mean'] for r in mods])
+    json.dump(dict(vanilla=van, mod=mod), open(os.path.join(RUNS, 'summary.json'), 'w'), indent=1)
+    return verdict(mod, van)
+
+
+def run_vanilla_only(a):
+    gd.kill(); time.sleep(4)
+    try:
+        if os.path.isdir(PARK): shutil.rmtree(PARK)
+        shutil.move(os.path.join(MODS, 'kcdus'), PARK)
+        gd.launch(devmode=True)
+        enter_world()
+        rec = measure('vanilla-' + a.tag, a.minutes, a.warmup)
+        print(json.dumps(rec))
+    finally:
         gd.kill(); time.sleep(3)
         if os.path.isdir(PARK):
             shutil.move(PARK, os.path.join(MODS, 'kcdus'))
-    return verdict(mod, van)
+    return 0
 
 
 def verdict(mod, van, tuning=False):
@@ -127,6 +158,8 @@ def verdict(mod, van, tuning=False):
     print('            mean    median  p5      min     n    script errors')
     for r in (mod, van):
         print('%-10s  %-7.1f %-7.1f %-7.1f %-7.1f %-4d %d' % (r['label'], r['mean'], r['median'], r['p5'], r['min'], r['samples'], r['script_errors']))
+    if van.get('runs') and len(van['runs']) > 1:
+        print('noise floor: the vanilla runs differ by %.1f%% (%s)   mod runs: %s' % ((max(van['runs']) - min(van['runs'])) / van['mean'] * 100, van['runs'], mod.get('runs')))
     print('mean %+.1f%% (need > -5%%): %s | p5 %+.1f%% (need > -10%%): %s | script errors %d: %s' %
           (dm, 'ok' if ok_mean else 'FAIL', dp, 'ok' if ok_p5 else 'FAIL', mod['script_errors'], 'ok' if ok_err else 'FAIL'))
     passed = ok_mean and ok_p5 and ok_err
@@ -145,7 +178,7 @@ def verdict(mod, van, tuning=False):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=8); r.add_argument('--warmup', type=float, default=2); r.add_argument('--mod-only', action='store_true', help='tuning: measure the mod only and compare with the last vanilla run')
+    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=4); r.add_argument('--warmup', type=float, default=1.5); r.add_argument('--pairs', type=int, default=2); r.add_argument('--vanilla-only', action='store_true', help='tuning: one vanilla measurement'); r.add_argument('--tag', default='b'); r.add_argument('--no-players', action='store_true', help='tuning: the mod with no second player (no relay, bot or agent): its own overhead'); r.add_argument('--mod-only', action='store_true', help='tuning: measure the mod only and compare with the last vanilla run')
     v = sub.add_parser('verdict'); v.add_argument('mod'); v.add_argument('vanilla')
     a = ap.parse_args()
     if a.cmd == 'run': sys.exit(run(a))
