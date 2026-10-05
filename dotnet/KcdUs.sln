@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcdUs.Agent", "KcdUs.Agent\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcdUs.Tests", "KcdUs.Tests\KcdUs.Tests.csproj", "{8D937F50-8612-43ED-B91F-F2378FF17B78}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcdUs.Bot", "KcdUs.Bot\KcdUs.Bot.csproj", "{41CF92F3-653C-4599-AE5F-27E9143B22FD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{8D937F50-8612-43ED-B91F-F2378FF17B78}.Release|x64.Build.0 = Release|Any CPU
 		{8D937F50-8612-43ED-B91F-F2378FF17B78}.Release|x86.ActiveCfg = Release|Any CPU
 		{8D937F50-8612-43ED-B91F-F2378FF17B78}.Release|x86.Build.0 = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|x64.Build.0 = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Debug|x86.Build.0 = Debug|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|x64.ActiveCfg = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|x64.Build.0 = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|x86.ActiveCfg = Release|Any CPU
+		{41CF92F3-653C-4599-AE5F-27E9143B22FD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

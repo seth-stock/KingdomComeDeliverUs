@@ -152,23 +152,44 @@ public sealed class RemoteConsoleClient
         Set(false);
     }
 
-    public bool TrySend(string line)
+    public int Reconnects { get; private set; }
+    public long Sent { get; private set; }
+
+    /// <summary>Drop the connection (a dead one the engine stopped serving); the run loop dials again.</summary>
+    public void Reset(string why)
     {
         lock (_sendLock)
         {
-            if (!Connected || _stream is null) return false;
-            try
-            {
-                var b = Encoding.UTF8.GetBytes(line);
-                var msg = new byte[b.Length + 2];
-                msg[0] = (byte)'5';
-                Buffer.BlockCopy(b, 0, msg, 1, b.Length);
-                msg[^1] = 0;
-                _stream.Write(msg, 0, msg.Length);
-                return true;
-            }
-            catch { Set(false); return false; }
+            try { _tcp?.Close(); } catch { }
+            Reconnects++;
+            LastReset = why;
         }
+    }
+
+    public string LastReset { get; private set; } = "";
+
+    /// <summary>Send one line. A write that does not finish in <see cref="WriteTimeoutMs"/> means the engine has stopped reading this connection: it is dropped.</summary>
+    public const int WriteTimeoutMs = 1500;
+
+    public bool TrySend(string line)
+    {
+        NetworkStream? s;
+        lock (_sendLock) s = _stream;
+        if (!Connected || s is null) return false;
+        var b = Encoding.UTF8.GetBytes(line);
+        var msg = new byte[b.Length + 2];
+        msg[0] = (byte)'5';
+        Buffer.BlockCopy(b, 0, msg, 1, b.Length);
+        msg[^1] = 0;
+        try
+        {
+            using var cts = new CancellationTokenSource(WriteTimeoutMs);
+            s.WriteAsync(msg, cts.Token).AsTask().GetAwaiter().GetResult();
+            Sent++;
+            return true;
+        }
+        catch (OperationCanceledException) { Reset("a write did not finish in " + WriteTimeoutMs + " ms"); return false; }
+        catch { Set(false); return false; }
     }
 }
 
@@ -232,14 +253,25 @@ public sealed class ConsoleGameLink : IGameLink
     private readonly RemoteConsoleClient _console;
     private readonly LogTail _tail;
     private readonly CommandPacker _packer = new();
+    private readonly Action<string> _log;
     private CancellationTokenSource? _cts;
     private readonly List<Task> _tasks = new();
 
-    public ConsoleGameLink(string gameDir, string host = "127.0.0.1", int port = 4600)
+    private long _lastLineAtMs;
+    private bool _everAnswered;
+    private long _lastResetAtMs;
+    private readonly Func<long> _now;
+
+    /// <summary>The game has been silent this long although we ping it every 2 s: its side of our connection is dead.</summary>
+    public const int SilentResetMs = 8000;
+
+    public ConsoleGameLink(string gameDir, string host = "127.0.0.1", int port = 4600, Func<long>? nowMs = null, Action<string>? log = null)
     {
+        _now = nowMs ?? (() => Environment.TickCount64);
+        _log = log ?? (_ => { });
         _console = new RemoteConsoleClient(host, port);
         _tail = new LogTail(Path.Combine(gameDir, "kcd.log"));
-        _tail.LineRead += l => { if (GameLine.Parse(l) is { } g) Line?.Invoke(g); };
+        _tail.LineRead += l => { if (GameLine.Parse(l) is { } g) { _lastLineAtMs = _now(); _everAnswered = true; Line?.Invoke(g); } };
         _console.StateChanged += v => { if (!v) _packer.Clear(); ConsoleStateChanged?.Invoke(v); };
     }
 
@@ -248,6 +280,8 @@ public sealed class ConsoleGameLink : IGameLink
     public bool ConsoleConnected => _console.Connected;
     public int Queued => _packer.Queued;
     public int Dropped => _packer.Dropped;
+    public int Reconnects => _console.Reconnects;
+    public long CommandsSent => _console.Sent;
 
     public void Send(string record) => _packer.Add(record);
     public void SendLatest(string key, string record) => _packer.AddLatest(key, record);
@@ -265,10 +299,23 @@ public sealed class ConsoleGameLink : IGameLink
     {
         while (!ct.IsCancellationRequested)
         {
-            if (_console.Connected && _packer.Next() is { } cmd)
-                _console.TrySend(cmd);
+            if (_console.Connected)
+            {
+                if (_packer.Next() is { } cmd) _console.TrySend(cmd);
+                Watchdog();
+            }
             try { await Task.Delay(CommandPacker.SpacingMs, ct).ConfigureAwait(false); } catch { break; }
         }
+    }
+
+    /// <summary>A connection the game once answered on, and no longer does: rebuild it (at most every <see cref="SilentResetMs"/>).</summary>
+    private void Watchdog()
+    {
+        long now = _now();
+        if (!_everAnswered || now - _lastLineAtMs < SilentResetMs || now - _lastResetAtMs < SilentResetMs) return;
+        _lastResetAtMs = now;
+        _log($"the game has not answered for {(now - _lastLineAtMs) / 1000} s: dropping and re-dialling the remote console");
+        _console.Reset("the game stopped answering");
     }
 
     public async ValueTask DisposeAsync()

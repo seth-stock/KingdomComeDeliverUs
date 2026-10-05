@@ -78,6 +78,42 @@ public class LuaModTests
     }
 
     [Fact]
+    public void The_main_menu_scene_is_not_a_world_even_though_a_game_is_started_and_a_player_exists()
+    {
+        var m = new LuaMod();
+        m.InWorld();
+        m.Do("__world.camera = { x = 991.0, y = 3508.0, z = 54.0 }; __world.pos = { x = 728.9, y = 3411.6, z = 63.8 }");   // observed: 280 m away
+        m.ClearLog();
+        m.Advance(3.0);
+        Assert.Equal(0, m.Lines("KCDUS|ST|").Count);
+        Assert.Equal(0, m.Lines("KCDUS|READY|1").Count);
+        Assert.InRange(m.Lines("KCDUS|HB|").Count, 2, 4);      // the mod is alive and answering, just not reporting a player
+        m.Do("__world.camera = nil");                           // the save finished loading: the camera is behind the player
+        m.ClearLog();
+        m.Advance(1.0);
+        Assert.Equal(1, m.Lines("KCDUS|READY|1").Count);
+        Assert.True(m.Lines("KCDUS|ST|").Count >= 8);
+    }
+
+    [Fact]
+    public void A_cutscene_camera_far_away_for_a_moment_does_not_make_the_world_flap()
+    {
+        var m = new LuaMod();
+        m.InWorld();
+        m.Advance(1.0);
+        m.Do("__world.camera = { x = 400.0, y = 20.0, z = 30.0 }");   // a long establishing shot
+        m.ClearLog();
+        m.Advance(1.0);                                                 // inside the grace
+        Assert.Equal(0, m.Lines("KCDUS|READY|0").Count);
+        m.Advance(1.5);                                                 // it stayed: that is a menu
+        Assert.Equal(1, m.Lines("KCDUS|READY|0").Count);
+        m.Do("__world.camera = nil");
+        m.ClearLog();
+        m.Advance(0.5);
+        Assert.Equal(1, m.Lines("KCDUS|READY|1").Count);
+    }
+
+    [Fact]
     public void A_loading_screen_is_not_a_world()
     {
         var m = new LuaMod();

@@ -23,6 +23,10 @@ __world = {
 }
 
 System = {}
+function System.GetViewCameraPos()
+    if __world.camera then return __world.camera end
+    return { x = __world.pos.x + 1.0, y = __world.pos.y - 3.0, z = __world.pos.z + 1.7 }   -- behind the player, like the game camera
+end
 function System.LogAlways(s) __log[#__log + 1] = tostring(s) end
 function System.GetCurrAsyncTime() return __clock end
 function System.GetFrameTime() return 0.016 end

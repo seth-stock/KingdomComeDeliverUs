@@ -71,8 +71,13 @@ function K.num(s, default)
     return v
 end
 
--- the player is in a loaded game (not the main menu, not a loading screen)
-function K.inWorld()
+-- The main menu is a live scene with a player entity in it (frozen clock, no quests), so "a game is started and a player exists"
+-- is true in the menu too. What the menu does not have is a camera near that player: it films the village from a spot hundreds
+-- of metres away (observed 280 m), while in the world the camera is on or behind the player.
+K.MENU_CAMERA_M = 200
+K.CUTSCENE_GRACE = 1.5   -- a cutscene camera can be far from Henry for a moment; the menu is far for good
+
+function K.inWorldRaw()
     if not CryAction.IsGameStarted() then
         return false
     end
@@ -82,7 +87,32 @@ function K.inWorld()
     if Game.IsLoadingEngineSaveGame() then
         return false
     end
+    local c = System.GetViewCameraPos()
+    local p = player:GetWorldPos()
+    if c ~= nil and p ~= nil then
+        local dx, dy = c.x - p.x, c.y - p.y
+        if dx * dx + dy * dy > K.MENU_CAMERA_M * K.MENU_CAMERA_M then
+            return false
+        end
+    end
     return true
+end
+
+-- the player is in a loaded game (not the main menu, not a loading screen)
+function K.inWorld()
+    local now = K.now()
+    if Game.IsLoadingEngineSaveGame() then
+        K.lastWorldOk = nil   -- a load is a hard stop: no grace
+        return false
+    end
+    if K.inWorldRaw() then
+        K.lastWorldOk = now
+        return true
+    end
+    if K.lastWorldOk ~= nil and now - K.lastWorldOk < K.CUTSCENE_GRACE then
+        return true
+    end
+    return false
 end
 
 -- agent -> game. The agent calls: kcdus "<seq>~REC|f|f~REC|f"

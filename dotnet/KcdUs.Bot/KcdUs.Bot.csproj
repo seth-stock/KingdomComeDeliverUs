@@ -5,10 +5,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>KcdUsAgent</AssemblyName>
-    <RootNamespace>KcdUs.Agent</RootNamespace>
-    <!-- registry, hotkeys and the window check are Windows-only on purpose: the game is -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <AssemblyName>KcdUsBot</AssemblyName>
+    <RootNamespace>KcdUs.Bot</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -19,8 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KcdUs.Protocol\KcdUs.Protocol.csproj" />
-    <!-- the host agent can run the relay in-process (the serve option) -->
-    <ProjectReference Include="..\KcdUs.Relay\KcdUs.Relay.csproj" />
+    <ProjectReference Include="..\KcdUs.Agent\KcdUs.Agent.csproj" />
   </ItemGroup>
 
 </Project>
