@@ -1,0 +1,8 @@
+# Text files are LF in the repo and in the working copy: generated files (tools/Build-QuestCatalog.py --check) compare byte for byte.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.pak binary
+*.zip binary
