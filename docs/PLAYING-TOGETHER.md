@@ -14,7 +14,7 @@ Warhorse Studios or Deep Silver.
 |---|---|
 | See each other | every other player is a body that follows their position and heading (it glides, in an idle pose: no walking animation) |
 | Talk | type in the launcher's chat box; messages appear at the top of the game screen |
-| One clock | a friend's game time is set to the host's when it has drifted more than two game-minutes |
+| Time of day | a friend whose game is behind the host's time of day skips forward (up to 12 game hours) to match it. **The game cannot turn its clock back**, so a friend who is ahead keeps their own clock (the agent log says so) |
 | **Join or stay** | when the host is in a stretch of the story that locks them in (a battle, the monastery, a duel, a tournament, Theresa's flashback...) each friend is asked: **F11 join** (be brought beside the host and, in a staged stretch, kept within 120 m) or **F12 stay** in the open world. No answer in 30 seconds counts as joining. **F11 joins at any time** |
 | Every quest known | the game's 287 quests are classified: 28 put the host on rails, 62 are mixed (scripted and free alternate), the rest are open (`quest-gating-table.md`) |
 

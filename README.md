@@ -22,7 +22,7 @@ story puts them "on rails", **choose whether to join them or to stay in the open
 ## Build
 
 ```
-dotnet test dotnet\KcdUs.sln                       # 103 tests
+dotnet test dotnet\KcdUs.sln                       # 108 tests
 python tools\Build-QuestCatalog.py --check         # the quest catalog equals the game data and the plan (needs the game installed)
 python tools\Build-Pak.py --install-to "<game>\Mods"   # the mod, into your game (a developer's install; the installer is the normal way)
 powershell -ExecutionPolicy Bypass -File tools\Build-Installer.ps1   # every gate, then release\KingdomComeDeliverUs-Setup-<version>.exe

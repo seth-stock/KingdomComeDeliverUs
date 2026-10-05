@@ -66,16 +66,20 @@ Wire format (found by experiment): a message is a one-character type, the text, 
 | client to server | `'5' <console line> 00` | run this line in the console |
 | server to client | `'6' <text> 00` | autocomplete suggestions (noise: ignore) |
 
-* The server **does not forward log output** to the client, so the game-to-agent direction cannot use this socket (§4).
+* The server sends autocomplete noise and, after that, log lines (`'2'`), but a connection stops being served after 21 commands (below), so the log file, not the socket, is the reliable game-to-agent channel (§4).
 * A console line starting `#` is Lua, but **only when the game runs with `-devmode`**. Without it `#` lines are refused. **(verified with -devmode; the refusal without it is not seen)**
 * **A mod can register its own console command from its init script, and that works without `-devmode`:** `System.AddCCommand("kcdus", "KCDUS_In(%line)", "help")`.
   `%line` is replaced by the **whole argument text as a quoted Lua string**, so the payload must contain no `"` and no `\`. The command takes any number of
   arguments when the code contains `%line`; without a placeholder extra arguments are refused (`Too many arguments for: ...`). **(verified)**
-* **Limits (measured):**
+* **Limits (measured, in the real game):**
+  * **21 commands per connection.** The engine answers 21 commands on a connection and then silently stops reading it, at any pace and with any line size; a fresh
+    connection works again (21 pings answered on each of several consecutive connections; 72 of 72 over six connections of 12). The agent therefore opens a new connection every **16** commands
+    (a local connect costs about a millisecond). Found when the first live run of the agent stopped being heard after two seconds; the game's own heartbeat lines kept flowing, so liveness is judged by `PONG` replies only.
   * length: 3000 bytes got through, 6000 did not. The agent keeps every command under **1800 bytes**.
-  * burst: 40 commands sent back to back kept 8; 500 kept 133. Sent **at least 5 ms apart** (181 per second) all 40 of 40 arrived. The agent
-    paces to one command per 25 ms and packs several messages into each.
+  * burst: very close commands are dropped (40 sent back to back kept 8). Sent at least 5 ms apart they arrived; the agent paces to one command per 25 ms and packs several records into each.
+  * for every command the engine replies with the next entry of its autocomplete list (`'6'` messages, 20 of them) and then forwards log lines (`'2'`); the client drains and ignores them.
   * the console runs on the game's main thread, one command per frame at most.
+  * the engine serves several clients at once.
 
 ## 4. Getting events out: the log
 
@@ -90,7 +94,7 @@ A line is a few hundred bytes at most; the mod writes about 20 a second. `System
 | Position | `player:GetWorldPos()` -> a vector; `player:GetWorldAngles()`; `player.actor:GetHeadDir()` **(verified)** |
 | Movement | `player:GetVelocity(v)` (walk 3.2 m/s, run 5.1 m/s); `player.actor:GetCurrentAnimationState()` -> `MotionIdle` / `MotionMovement`; `AI.GetStance(player.id)` **(verified)** |
 | Vitals | `player.soul:GetState('health')` 100, `'stamina'` 105; `soul:SetState`, `soul:DealDamage`, `actor:SetHealth` exist **(read; writes not yet exercised)** |
-| Time | `Calendar.GetWorldTime()`, `SetWorldTime` exist **(read)**; `Calendar.GetWorldTime()` read 36000 **(verified)** |
+| Time | `Calendar.GetWorldTime()` reads seconds (36000 = 10:00). **`SetWorldTime` only moves the clock forward** (the game's own scripts do `SetWorldTime(now + hours*3600)`; a request for an earlier time is ignored) and does nothing while the clock is paused (the prologue pauses it). Skipping forward 7.4 h worked and landed on the host's time of day **(verified)** |
 | Weapon, horse | `player.human:IsWeaponDrawn/IsMounted/GetHorse/DrawWeapon/Mount/PlayAnim/SetAnimMotionParam` exist **(read)** |
 | Spawn a body | `System.SpawnEntity{class="NPC", name=..., position=...}` returns a table; a human NPC (bald, plain shirt) appears at that spot **(verified)**; `class="DummyPlayer"` returned nil; `InventoryDummyPlayer` spawned **(verified)** |
 | Move the body | `entity:SetWorldPos`, `entity:SetWorldAngles` work; moved from a 33 ms timer the body follows. Its animation state stays `MotionIdle` (it glides) **(verified)**. `AI.GoTo` does nothing for these NPCs **(verified)** |

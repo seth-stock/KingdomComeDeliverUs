@@ -25,15 +25,15 @@ Unofficial; modified port of Kingdom Come: Together (https://github.com/DeepFrie
 
 ## The game link (docs/KCD1-MODDING.md has the evidence)
 
-* **Agent to game:** the engine's remote console on `127.0.0.1:4600` (switched on by the mod's `mod.cfg`). One console command, `kcdus "<seq>~REC|f|f~REC|f"`, registered by the mod with `System.AddCCommand`, carries a packed batch of records. `CommandPacker` keeps a line under 1800 bytes and the sender spaces lines 25 ms apart (the engine drops bursts). A player's position replaces an older waiting one with the same key.
+* **Agent to game:** the engine's remote console on `127.0.0.1:4600` (switched on by the mod's `mod.cfg`). One console command, `kcdus "<seq>~REC|f|f~REC|f"`, registered by the mod with `System.AddCCommand`, carries a packed batch of records. `CommandPacker` keeps a line under 1800 bytes and the sender spaces lines 25 ms apart (the engine drops bursts). A player's position replaces an older waiting one with the same key. **The engine serves only 21 commands per connection**, so the client opens a new connection every 16.
 * **Game to agent:** `System.LogAlways("KCDUS|KIND|…")` into `kcd.log`, tailed every 40 ms. The log is truncated when the game starts, which resets the tail.
-* **Liveness:** the agent pings every 2 s; the game logs a heartbeat every second. A connection the game once answered on and stopped answering is dropped and re-dialled after 8 s (observed: the engine stopped serving a connection after the player loaded a save).
+* **Liveness:** the agent pings every 2 s and the game answers `PONG`. No PONG for 8 s after one has been seen: the connection is dropped and re-dialled. (The game's heartbeat lines flow whatever the agent does, so they prove nothing about the inbound direction.)
 * **The menu is a world too:** the engine runs a scene behind the main menu. The mod calls it "in the world" only when a game is started, the player exists, no load is running and **the camera is within 200 m of the player** (the menu's camera was 280 m away).
 * **Timers die on every load:** the 30 Hz loop is a chain of one-shot timers that `K.kick()` re-arms from the player's load hooks and from any agent line.
 
 ## Records (agent to game)
 
-`HELLO?` `QSNAP` `PING|n` `P|id|name|state` `PD|id` `PA` `NOTE|text` `CHAT|name|text` `PROMPT|text|seconds` `PROMPTCLEAR` `TIME|worldTime` `TP|x,y,z|yaw`
+`HELLO?` `QSNAP` `PING|n` `P|id|name|state` `PD|id` `PA` `NOTE|text` `CHAT|name|text` `PROMPT|text|seconds` `PROMPTCLEAR` `TIME|worldTime` (a forward skip: the game never turns its clock back) `TP|x,y,z|yaw`
 
 ## Events (game to agent)
 
@@ -46,7 +46,7 @@ Unofficial; modified port of Kingdom Come: Together (https://github.com/DeepFrie
 3. Each **friend's** `RailsJoiner` turns the beat into a question (`PROMPT`), a standing answer, or the 45 s backstop (no answer = join). The answer goes to the host (`Event choice|code join/free`), repeated every 20 s while the period lasts.
 4. A joined friend is **brought** (`TP` beside the host) and, in a rails section, **tethered** (warning at 90 m, pulled back at 120 m); a friend who stays is left entirely alone. A period ends 8 s after the host's last section of it ends, or when the host's beat has been silent for 90 s.
 
-Decisions that came from tests, not the first design: an unanswered question is answered **once** (a bug sent it every second); the quest-log snapshot at load is not news; a friend's quests never decide what the host is asked.
+Decisions that came from tests and the live game, not the first design: the engine serves 21 commands per connection, so the client rotates; the clock only moves forward, so time of day is aligned by skipping up to 12 h and a friend who is ahead keeps their own; an unanswered question is answered **once** (a bug sent it every second); the quest-log snapshot at load is not news; a friend's quests never decide what the host is asked.
 
 ## Tests
 
