@@ -1,0 +1,44 @@
+KINGDOM COME: DELIVER US 0.1.0 -- co-op for Kingdom Come: Deliverance (the FIRST game)
+=======================================================================================
+
+An unofficial, free community mod. Not affiliated with or endorsed by Warhorse Studios or Deep Silver.
+A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/KingdomCome-Together). GPL-3.0.
+You and your host must all run THIS version (0.1.0): a different version is refused.
+
+WHAT IT IS (and is not)
+  Each of you plays your OWN save. You see each other as figures that follow each other around, you can chat, you share the clock,
+  and when the host's story locks them in (a battle, the monastery, a tournament...) you are asked: join them (F11) or stay in the open world (F12).
+  Enemies, quests and loot are NOT shared. Nobody has played this with two people yet: please send logs if something looks wrong.
+
+WHAT YOU NEED (in Steam)
+  Kingdom Come: Deliverance (the first game), up to date (1.9.8). Steam must be RUNNING before the game starts.
+
+STEP 1 -- install
+  * Check the file (optional, the installer is unsigned): in PowerShell
+        Get-FileHash .\KingdomComeDeliverUs-Setup-0.1.0.exe -Algorithm SHA256
+    It must equal the number in SHA256.txt.
+  * Run KingdomComeDeliverUs-Setup-0.1.0.exe. Windows will warn it is unsigned: click "More info", then "Run anyway".
+  * It finds the game through Steam and shows the folder: correct it if wrong. Leave the "Block the game's remote-console port" box ticked
+    (it asks for administrator permission once; it keeps other computers from sending your game console commands).
+
+STEP 2 -- connect (the host first)
+  * Open "Kingdom Come Deliver Us" (desktop shortcut).
+  * HOST: pick "Host a game". The launcher shows your addresses: give your friend the 100.x one if you both use Tailscale (free), e.g. 100.64.12.3:7788.
+  * FRIEND: pick "Join a friend", type the host's address and port. Never use "localhost".
+  * Click "1. START CO-OP", then "2. START THE GAME" (Steam starts the game). At the main menu LOAD YOUR OWN SAVE.
+  * The launcher says "Connected as host/guest". The other player appears as a figure near where they are. To meet, be at the same place on the map.
+
+PLAYING
+  * Chat: type in the launcher's chat box, Enter.
+  * When the host's story locks them in you are asked: F11 = join them (you are brought beside them), F12 = stay in the open world.
+    No answer in 30 seconds counts as joining. F11 joins at any time. The launcher has the same two buttons and a standing setting.
+  * Game console (the ~ key, if it opens): kcdus_say <text>   kcdus_join   kcdus_stay   kcdus_status
+
+IF SOMETHING GOES WRONG
+  * "Waiting for the game": start the game with the launcher's button, with Steam running.
+  * "the co-op mod did not answer": run the installer again; after a game update the game may have switched mods off.
+  * "relay refused: version": everybody must install the same version.
+  * Logs: %LocalAppData%\KCDUS\logs\agent.log and the game's kcd.log (lines starting KCDUS|). Remove your public IP before posting them.
+  * Full guide: docs\PLAYING-TOGETHER.md (installed next to the launcher). What is missing and what is not yet seen: docs\KNOWN-LIMITS.md.
+
+UNINSTALL: Windows Settings > Apps > Kingdom Come: Deliver Us. It asks whether to remove the mod from your game folder. Your saves are never touched.

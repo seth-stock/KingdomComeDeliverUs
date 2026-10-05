@@ -1,3 +1,5 @@
+# Copyright (C) 2026 the Kingdom Come: Deliver Us contributors (AUTHORS). SPDX-License-Identifier: GPL-3.0-only
+# Unofficial, free, not affiliated with Warhorse Studios or Deep Silver.
 """Send a Lua file (or inline string) to the KCD1 remote console as one '#' line, then print the new kcd.log lines.
 usage: rcl.py file.lua [--wait 1.5]   |   rcl.py -e 'lua code'"""
 import socket, sys, time, os, re

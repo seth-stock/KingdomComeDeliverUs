@@ -127,7 +127,9 @@ def verdict(mod, van):
           (dm, 'ok' if ok_mean else 'FAIL', dp, 'ok' if ok_p5 else 'FAIL', mod['script_errors'], 'ok' if ok_err else 'FAIL'))
     passed = ok_mean and ok_p5 and ok_err
     print('SOAK', 'PASS' if passed else 'FAIL')
-    rec = dict(version=open(os.path.join(ROOT, 'VERSION')).read().strip(), passed=passed, mean_delta_pct=round(dm, 2), p5_delta_pct=round(dp, 2),
+    import hashlib
+    pak = open(os.path.join(ROOT, 'build', 'mod', 'kcdus', 'Data', 'kcdus.pak'), 'rb').read()
+    rec = dict(version=open(os.path.join(ROOT, 'VERSION')).read().strip(), pak_sha256=hashlib.sha256(pak).hexdigest(), passed=passed, mean_delta_pct=round(dm, 2), p5_delta_pct=round(dp, 2),
                mod=mod, vanilla=van, date=time.strftime('%Y-%m-%d'))
     json.dump(rec, open(os.path.join(ROOT, 'tools', 'perf', 'soak-record.json'), 'w'), indent=1)
     return 0 if passed else 1

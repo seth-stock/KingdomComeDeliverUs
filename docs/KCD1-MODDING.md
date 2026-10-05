@@ -111,22 +111,29 @@ plugin did to the engine's own systems (a custom animation graph for the ghost, 
 
 ## 7. What the port keeps, changes and drops
 
-Kept (same design, same names where possible): the relay and the agent as separate processes; the launcher with Host and Join; the version handshake;
-presence (each player sees the others as a body that follows them); chat; shared world time; the host's story facts mirrored to the friend; and the
-**join-or-stay choice** with the gating on every quest of the game (`docs/quest-gating-table.md`).
+**Kept** (same design as Kingdom Come: Together, same names where possible): the relay and the agent as separate processes; the launcher with Host and Join; the
+version handshake (a different release is refused); presence (each player sees the others as a body that follows them); chat; the shared clock; and the
+**join-or-stay choice** with the gating on every quest of the game (`docs/quest-gating.md`).
 
-Changed: the transport (§3, §4); ghosts are plain NPC bodies moved by script; the friend is brought into the host's world by **a co-op save
-file placed in their saves folder** (they load it from the menu) rather than by an automatic load.
+**Changed:** the transport (§3, §4); the other players are plain NPC bodies moved by script; **everybody loads their own save** (there is no load command, and nothing
+is mirrored from the host's world).
 
-Dropped: everything that needed the native plugin: per-hit combat replication, NPC claim and drive, the dice minigame replication, the voice layer. Their
-absence is listed in `docs/KNOWN-LIMITS.md`.
+**Dropped** (it needed the native plugin or an engine-level hook): per-hit combat replication, NPC claim and drive, the dice minigame replication, the voice layer,
+quest mirroring, loading the host's world. `docs/KNOWN-LIMITS.md` lists them.
+
+**Found while building it (all seen in the real game):**
+* the main menu is a live scene with a player entity and `IsGameStarted() == true`: "in the world" needs the camera to be near the player (ARCHITECTURE.md, "The game link");
+* every script timer is dropped when a save loads: the loop re-arms from `Player.OnLoad` and from any agent line;
+* `AI.GoTo`, `human:PlayAnim`, `human:SetAnimMotionParam` and `UseMannequinAGState` do nothing useful on a script-spawned `NPC`: its animation state stays `MotionIdle`;
+* the engine can stop serving a remote-console connection that was fine before a load; a second connection works. The agent drops and re-dials a connection the game stopped answering on;
+* the engine serves several remote-console clients at once.
 
 ## 8. Safety
 
-* The remote console is a local control surface. The installer adds `netsh advfirewall firewall add rule name="Kingdom Come Deliver Us: block remote console"
-  dir=in action=block protocol=TCP localport=4600 remoteip=any` (and an allow for `127.0.0.1`), the agent only ever connects to `127.0.0.1`, and the mod
-  switches the remote console on only while the launcher started the game. **(not seen on a second machine)**
-* A register of the commands the mod adds: `kcdus` (all agent traffic), `kcdus_say`, `kcdus_status`. None can run arbitrary Lua: the payload is parsed as text.
+* The remote console is a local control surface. The installer's optional task adds a Windows Firewall rule (`tools/Harden-Firewall.ps1`) that blocks inbound TCP 4600 from every IPv4 address except 127.0.0.0/8, so
+  other computers cannot send the game console commands while the agent on this machine still can. The agent only ever connects to `127.0.0.1`, and the
+  mod's `mod.cfg` switches the console on whenever the mod is installed (the game offers no allow-list). **(the rule is not seen on a second machine)**
+* The commands the mod adds: `kcdus` (all agent traffic), `kcdus_say`, `kcdus_join`, `kcdus_stay`, `kcdus_status`, `kcdus_on`, `kcdus_off`. None can run arbitrary Lua: the payload is parsed as text, and a record kind the mod does not know is ignored.
 * The mod ships none of the game's files.
 
 ## 9. Sources

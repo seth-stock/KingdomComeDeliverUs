@@ -1,3 +1,5 @@
+# Copyright (C) 2026 the Kingdom Come: Deliver Us contributors (AUTHORS). SPDX-License-Identifier: GPL-3.0-only
+# Unofficial, free, not affiliated with Warhorse Studios or Deep Silver.
 """Drive KCD1 for tests: launch, wait for the menu, CONTINUE into the throwaway save (it is the newest), guard, screenshot, quit.
 usage: gamectl.py launch [-devmode] | cont | shot <png> | kill | state
 The guard: the throwaway game is a day-0 game (world time under 200000). If what loaded is anything else, the game is killed at once
@@ -60,7 +62,6 @@ def launch(devmode=False):
 def cont():
     fg(); time.sleep(0.5)
     key('Enter', 4.0)                               # Continue
-    shot(r'C:\Users\seths\Projects\kcd1-coop\_work\cont1.png')
     t0 = time.time()
     while time.time() - t0 < 300:
         if log_has(r'KCDUS\|ST\|'): break
