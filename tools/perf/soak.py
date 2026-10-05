@@ -61,9 +61,17 @@ def enter_world(timeout=420):
             time.sleep(5)
             return p[1]
         # still in the menu or loading: press Continue only when no load is running (a loading screen ignores it anyway)
+        try:
+            gd.fg()
+        except Exception:
+            pass
         gd.key('Enter', 15.0)
+    try:
+        gd.shot(os.path.join(RUNS, 'world-did-not-load.png'))
+    except Exception:
+        pass
     gd.kill()
-    sys.exit('the world did not load')
+    sys.exit('the world did not load (see runs/world-did-not-load.png)')
 
 
 def measure(label, minutes, warmup):
