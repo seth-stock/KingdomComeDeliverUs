@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>KcdUsLauncher</AssemblyName>
+    <RootNamespace>KcdUs.Launcher</RootNamespace>
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <VersionFileContent Condition="Exists('$(MSBuildThisFileDirectory)..\..\VERSION')">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</VersionFileContent>
+    <Version Condition="'$(VersionFileContent)' != ''">$(VersionFileContent)</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KcdUs.Protocol\KcdUs.Protocol.csproj" />
+    <!-- the launcher reads and writes the agent's settings file with the agent's own class -->
+    <ProjectReference Include="..\KcdUs.Agent\KcdUs.Agent.csproj" />
+  </ItemGroup>
+
+</Project>
