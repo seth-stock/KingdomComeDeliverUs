@@ -36,26 +36,32 @@ def sh(args, **kw):
     return subprocess.Popen(args, stdout=open(os.path.join(RUNS, 'proc.log'), 'ab'), stderr=subprocess.STDOUT, **kw)
 
 
-def enter_world(timeout=300):
+def probe():
+    """(camera distance from the player in metres, world time) through the remote console (-devmode), or None while the game cannot answer."""
+    try:
+        out = rclua.send(['#local c=System.GetViewCameraPos(); local p=player:GetWorldPos(); System.LogAlways(string.format("SOAKPOS %.1f %.1f %.1f", c.x-p.x, c.y-p.y, Calendar.GetWorldTime()))'], 0.8)
+    except Exception:
+        return None
+    m = re.search(r'SOAKPOS (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)', out)
+    if not m:
+        return None
+    return (float(m.group(1)) ** 2 + float(m.group(2)) ** 2) ** 0.5, float(m.group(3))
+
+
+def enter_world(timeout=420):
+    """Press Continue until the camera is on the player (the main menu's camera is hundreds of metres away). Works with and without the mod."""
     gd.fg(); time.sleep(0.6)
     t0 = time.time()
     while time.time() - t0 < timeout:
-        gd.key('Enter', 12.0)
-        txt = gd.log_text()
-        if re.search(r'KCDUS\|READY\|1', txt) or (gd.pid() and re.search(r'Loading Screen|OnLoadingComplete', txt)):
-            break
-    # in the world: the camera is on the player (the menu's is hundreds of metres away)
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        out = rclua.send(['#local c=System.GetViewCameraPos(); local p=player:GetWorldPos(); System.LogAlways(string.format("SOAKPOS %.1f %.1f %.1f", c.x-p.x, c.y-p.y, Calendar.GetWorldTime()))'], 0.8)
-        m = re.search(r'SOAKPOS (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)', out)
-        if m and (float(m.group(1)) ** 2 + float(m.group(2)) ** 2) ** 0.5 < 20:
-            wt = float(m.group(3))
-            if wt > 200000:
+        p = probe()
+        if p and p[0] < 20:
+            if p[1] > 200000:
                 gd.kill()
-                sys.exit('GUARD: the loaded save is not the day-0 throwaway (world time %d): game killed' % wt)
-            return wt
-        time.sleep(3)
+                sys.exit('GUARD: the loaded save is not the day-0 throwaway (world time %d): game killed' % p[1])
+            time.sleep(5)
+            return p[1]
+        # still in the menu or loading: press Continue only when no load is running (a loading screen ignores it anyway)
+        gd.key('Enter', 15.0)
     gd.kill()
     sys.exit('the world did not load')
 
