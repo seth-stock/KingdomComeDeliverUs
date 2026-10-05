@@ -136,11 +136,80 @@ def one_vanilla_run(a, label):
             shutil.move(PARK, os.path.join(MODS, 'kcdus'))
 
 
+def run_onoff(a):
+    """THE GATE. The game's frame rate drifts by several percent from one launch to the next on this machine (vanilla runs of 105.9 and 96.6 fps the same
+    afternoon), which swamps a small overhead when two launches are compared. So the overhead is measured INSIDE ONE SESSION: the mod's loop (position
+    sampling, the other player's body, quest polling, the agent's traffic) is switched off and on with the mod's own kcdus_off / kcdus_on commands, alternating
+    every --seconds, with the host's clock held constant so nothing about the world differs between the windows. The other player's body stays spawned in both
+    states, so this measures the loop, not the body (a feature)."""
+    os.makedirs(RUNS, exist_ok=True)
+    gd.kill(); time.sleep(4)
+    procs = []
+    try:
+        subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'Build-Pak.py'), '--install-to', MODS], check=True, capture_output=True)
+        gd.launch(devmode=True)
+        wt = enter_world()
+        procs.append(sh([os.path.join(BIN, 'KcdUs.Relay', 'bin', 'Debug', 'net8.0', 'KcdUsRelay.exe'), '--port', '7791']))
+        time.sleep(2)
+        procs.append(sh([os.path.join(BIN, 'KcdUs.Bot', 'bin', 'Debug', 'net8.0', 'KcdUsBot.exe'), '--relay', '127.0.0.1:7791', '--role', 'host',
+                         '--name', 'Host', '--center', '736.0,3419.0,63.91', '--radius', '1.2', '--speed', '0.5', '--time', str(int(wt)), '--time-rate', '0']))
+        time.sleep(2)
+        procs.append(sh([os.path.join(BIN, 'KcdUs.Agent', 'bin', 'Debug', 'net8.0', 'KcdUsAgent.exe'), '--role', 'guest', '--relay', '127.0.0.1:7791',
+                         '--name', 'Henry', '--game-dir', GAME, '--no-hotkeys', '--status-port', '1416']))
+        rclua.send(rclua.lua_lines(open(os.path.join(HERE, 'sampler.lua'), encoding='utf-8').read()), 1.0)
+        print('on/off soak: warm-up %.1f min, then %d windows of %d s (alternating)' % (a.warmup, a.windows, a.seconds), flush=True)
+        time.sleep(a.warmup * 60)
+        on, off = [], []
+        for i in range(a.windows):
+            state = 'on' if i % 2 == 0 else 'off'
+            rclua.send(['kcdus_on' if state == 'on' else 'kcdus_off'], 0.3)
+            time.sleep(8)                              # let the state settle; not measured
+            start = len(gd.log_text())
+            time.sleep(a.seconds - 8)
+            seg = gd.log_text()[start:]
+            fps = [float(m.group(1)) for m in re.finditer(r'SOAK\|([\d.]+)\|', seg)]
+            (on if state == 'on' else off).extend(fps)
+            print('  window %2d %-3s %d samples, mean %.1f' % (i + 1, state, len(fps), statistics.mean(fps) if fps else 0), flush=True)
+        rclua.send(['kcdus_on'], 0.3)
+        errs = len(re.findall(r'KCDUS\|ERR\|', gd.log_text())) + len(re.findall(r'\[Error\] Lua error', gd.log_text()))
+    finally:
+        for p in procs:
+            try: p.kill()
+            except Exception: pass
+        gd.kill(); time.sleep(3)
+    mean = lambda xs: statistics.mean(xs)
+    p5 = lambda xs: sorted(xs)[int(len(xs) * 0.05)]
+    d = (mean(on) - mean(off)) / mean(off) * 100
+    dp = (p5(on) - p5(off)) / p5(off) * 100
+    print('            mean    median  p5      samples')
+    print('loop ON     %-7.1f %-7.1f %-7.1f %d' % (mean(on), statistics.median(on), p5(on), len(on)))
+    print('loop OFF    %-7.1f %-7.1f %-7.1f %d' % (mean(off), statistics.median(off), p5(off), len(off)))
+    bad = []
+    if min(len(on), len(off)) < 20:
+        bad.append('too few samples')
+    if max(max(on), max(off)) > 1.5 * statistics.median(on + off):
+        bad.append('a stalled or catching-up second (focus lost? something else running?)')
+    ok = d > -3.0 and dp > -5.0 and errs == 0 and not bad
+    print('loop cost: mean %+.1f%% (need > -3%%), p5 %+.1f%% (need > -5%%), script errors %d' % (d, dp, errs))
+    for w in bad:
+        print('INVALID:', w)
+    print('SOAK', 'INCONCLUSIVE' if bad else ('PASS' if ok else 'FAIL'))
+    import hashlib
+    pak = open(os.path.join(ROOT, 'build', 'mod', 'kcdus', 'Data', 'kcdus.pak'), 'rb').read()
+    rec = dict(version=open(os.path.join(ROOT, 'VERSION')).read().strip(), pak_sha256=hashlib.sha256(pak).hexdigest(), passed=bool(ok), method='on-off in one session',
+               mean_delta_pct=round(d, 2), p5_delta_pct=round(dp, 2), on=dict(mean=round(mean(on), 2), p5=round(p5(on), 2), n=len(on)),
+               off=dict(mean=round(mean(off), 2), p5=round(p5(off), 2), n=len(off)), script_errors=errs, windows=a.windows, seconds=a.seconds, date=time.strftime('%Y-%m-%d'))
+    json.dump(rec, open(os.path.join(ROOT, 'tools', 'perf', 'soak-record.json'), 'w'), indent=1)
+    return 0 if ok else 1
+
+
 def run(a):
     """vanilla, mod, vanilla, mod: the game's frame rate drifts by a few percent from one session to the next (observed 98.5 then 94.8 for the
     same vanilla game), so a single A then B cannot tell an overhead from drift. Alternating and averaging can, and the spread between the two
     vanilla runs is the noise floor the verdict prints."""
     os.makedirs(RUNS, exist_ok=True)
+    if a.onoff:
+        return run_onoff(a)
     if a.vanilla_only:
         return run_vanilla_only(a)
     gd.kill(); time.sleep(4)
@@ -215,7 +284,7 @@ def verdict(mod, van, tuning=False, runs=None):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=4); r.add_argument('--warmup', type=float, default=1.5); r.add_argument('--pairs', type=int, default=2); r.add_argument('--vanilla-only', action='store_true', help='tuning: one vanilla measurement'); r.add_argument('--tag', default='b'); r.add_argument('--no-players', action='store_true', help='tuning: the mod with no second player (no relay, bot or agent): its own overhead'); r.add_argument('--mod-only', action='store_true', help='tuning: measure the mod only and compare with the last vanilla run')
+    r = sub.add_parser('run'); r.add_argument('--minutes', type=float, default=4); r.add_argument('--warmup', type=float, default=1.5); r.add_argument('--pairs', type=int, default=2); r.add_argument('--onoff', action='store_true', help='the gate: switch the mod loop off and on inside one session'); r.add_argument('--windows', type=int, default=12); r.add_argument('--seconds', type=int, default=60); r.add_argument('--vanilla-only', action='store_true', help='tuning: one vanilla measurement'); r.add_argument('--tag', default='b'); r.add_argument('--no-players', action='store_true', help='tuning: the mod with no second player (no relay, bot or agent): its own overhead'); r.add_argument('--mod-only', action='store_true', help='tuning: measure the mod only and compare with the last vanilla run')
     v = sub.add_parser('verdict'); v.add_argument('mod'); v.add_argument('vanilla')
     a = ap.parse_args()
     if a.cmd == 'run': sys.exit(run(a))

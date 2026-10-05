@@ -21,6 +21,7 @@ var pref = o.GetValueOrDefault("pref", "join");
 string role = o.GetValueOrDefault("role", "guest");
 string? beat = o.GetValueOrDefault("beat");
 double? hostClock = o.TryGetValue("time", out var tm) ? double.Parse(tm, CultureInfo.InvariantCulture) : null;
+double clockRate = o.TryGetValue("time-rate", out var tr) ? double.Parse(tr, CultureInfo.InvariantCulture) : 20;   // game seconds per real second; 0 = a clock that stands still
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -74,7 +75,7 @@ while (!cts.IsCancellationRequested)
         if (hostClock is not null && now - lastClock >= 5000)
         {
             lastClock = now;
-            relay.Send(MessageType.HostEvent, string.Create(CultureInfo.InvariantCulture, $"time|{hostClock + now / 1000.0 * 20:0}"));
+            relay.Send(MessageType.HostEvent, string.Create(CultureInfo.InvariantCulture, $"time|{hostClock + now / 1000.0 * clockRate:0}"));
         }
         if (beat is not null && StorySections.ByCode(beat) is { } sec && now - lastBeat >= 30000)
         {
