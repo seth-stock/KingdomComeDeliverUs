@@ -256,7 +256,7 @@ public class SessionTests
         clock.Ms += 7000; host.Tick();
         host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
         await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
-        for (int i = 0; i < 60; i++) { clock.Ms += 1000; host.Sample(500, 600, 40); await Task.Delay(12); guest.Tick(); }   // a minute of silence (the host keeps reporting)
+        for (int i = 0; i < 60; i++) { clock.Ms += 1000; host.Sample(500, 600, 40); await Task.Delay(40); guest.Tick(); }   // a minute of silence (the host keeps reporting, inside the relay's 30 per second)
         await Until(() => guest.Game.Has("TP|"), what: "the default join");
         await Task.Delay(300);
         Assert.Equal(1, guest.Game.Count("TP|"));
