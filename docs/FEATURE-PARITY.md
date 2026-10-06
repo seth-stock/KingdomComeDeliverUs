@@ -7,9 +7,9 @@ Nothing here has been seen with two real people on two computers.
 
 | Feature | KCD1 (Deliver Us) | KCD2 (Together) | Same? / why they differ |
 |---|---|---|---|
-| **In-game "Multiplayer" tab** | **seen**: a button in the main menu (and pause menu: built) opening pages (status, host, join, world, story, keys, browser settings). Data-only: flow-graph files built on the player's computer from their own `GameData.pak` | **seen** (pages, buttons, values, handlers) via Lua calls into the game's Scaleform `Menu` element; root button: see "KCD2 tab: what is left" below | Same pages and options; different mechanism (KCD1 menus are data, KCD2's are compiled) |
+| **In-game "Multiplayer" tab** | **seen**: a button in the main menu (and pause menu: built) opening pages (status, host, join, world, story, keys, browser settings). Data-only: flow-graph files built on the player's computer from their own `GameData.pak` | **seen** in the main menu: root button, pages, Back, settings that change the mod's real state (e.g. `mp_join_henry` auto/fresh), all via Lua calls into the game's Scaleform `Menu` element. Pause menu not yet seen | Same pages and options; different mechanism (KCD1 menus are data, KCD2's are compiled) |
 | Install needs no Modding Tools | yes (the tab's file is made at install from the player's own game files) | yes (it is Lua inside the mod's pak; nothing is made from game files). KCD2 itself needs the *Modding Tools build of the game* for its console API: that is the KCD2 mod's existing requirement | differs: KCD2's game build requirement |
-| Warhorse's modding EULA shown and carried | **built**: installer page, copy in `Mods\kcdus\`, Linux asks for `yes` | **not yet**: the KCD2 installer shows the repo's licence only | **gap in KCD2** (see the list below) |
+| Warhorse's modding EULA shown and carried | **built**: installer page, copy in `Mods\kcdus\`, Linux asks for `yes` | **not yet**: the KCD2 installer shows the repo's licence only, and no KCD2 modding EULA text was found on this machine | **gap in KCD2**: needs the text from Warhorse/PLAION |
 | Host / join / leave from the game | **seen** (agent idle mode, tab buttons) | **built** in the tab as *Co-op sync start/stop*; host and join are the KCD2 launcher's job (a separate program starts the relay and the agent) | differs: KCD1's agent can start a relay itself |
 | Settings in your browser | **tests + seen**: `http://127.0.0.1:1415/settings?t=…` | **no**: the KCD2 launcher (a Blazor app) is the settings UI | differs |
 | Keys: F11 join / F12 stay, changeable | **tests**: F11/F12, F9/F10 or none, Windows and Linux | F11/F12 in the game's own Keybinds list (changeable in Settings > Keybinds) | KCD2's keys are the game's own bindings; KCD1 has no key binding list for mods |
@@ -29,9 +29,10 @@ Nothing here has been seen with two real people on two computers.
 
 ## KCD2 tab: what is left
 
-* **Seen live:** the tab's pages (status, game world, saving, story, session rules, keys) are drawn with the game's own menu look, buttons fire, values are read from and written to the mod's own state.
-* The **root button**: the engine runs no Lua timers in the main menu, so it is added when the game's own "change focus" sound event fires, and the page is drawn over a page the game opened itself so that the game's own Back returns to the root.
-  The borrowed page id and the pause menu's differences were being checked when this was written: see `docs/MENU.md` in the KCD2 repo for the state.
+* **Seen live:** the *Multiplayer* entry on the main menu (it comes back after the game rebuilds the page), every page (status, game world, saving, story, session rules, keys), *Back* up the tab and then to the game's root page,
+  and a setting that changes the mod's own state and re-draws. The mechanism (no timers in the main menu; the cursor-move sound drives it; the game's own Help page is opened by an injected `menu_accept` so that its Back works) is in the KCD2 repo's `docs/MENU.md`.
+* **Not seen:** the tab in the pause menu of a running game; the buttons in a session with a partner; controllers.
+* The KCD2 tab has no *host/join* buttons: that is the KCD2 launcher's job (it starts the relay and the agent); the KCD1 agent can start its own relay, so its tab can.
 
 ## KCD1 gaps that remain (and why)
 
@@ -44,5 +45,5 @@ Nothing here has been seen with two real people on two computers.
 |---|---|---|
 | KCD1: reconcile two copies of a world when players meet | KCD2 | Would need KCD2 world files to be comparable; the KCD2 `HenryStore` already keeps per-world snapshots. Not started |
 | KCD1: browser settings page | KCD2 | Not needed: the KCD2 launcher is the settings UI |
-| KCD1: Warhorse EULA page in the installer | KCD2 | **To do**: add the KCD2 modding terms (the Modding Tools' `LICENSE.txt` is a third-party licence list, not a modding EULA: check the modding terms before copying anything) |
+| KCD1: Warhorse EULA page in the installer | KCD2 | **To do**: carry the KCD2 modding terms. The KCD2 Modding Tools folder only holds `LICENSE.txt`, a list of third-party licences (MIT, Apache, Codejock...), not a Warhorse/PLAION modding EULA, so there is nothing to copy; the terms have to come from Warhorse/PLAION (or the Modding Tools' own first-run agreement) |
 | KCD2: shared combat, NPCs, quests, loot | KCD1 | Cannot be built without a native plugin |
