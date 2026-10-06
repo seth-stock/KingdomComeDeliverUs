@@ -17,6 +17,7 @@ story puts them "on rails", **choose whether to join them or to stay in the open
 | How it is built | `docs/ARCHITECTURE.md` |
 | What is not there, and what has not been seen | `docs/KNOWN-LIMITS.md`, `docs/TWO-PLAYER-CHECKLIST.md` |
 | Frame-rate soak, installer | `docs/SOAK.md`, `docs/INSTALLER.md` |
+| Linux (experimental, untested under a real Proton) | `docs/LINUX.md`; the launcher is `linux/kcdus` |
 | Release notes | `docs/releases/RELEASE-NOTES-0.1.0.md` |
 
 ## Build

@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# Copyright (C) 2026 the Kingdom Come: Deliver Us contributors (AUTHORS). SPDX-License-Identifier: GPL-3.0-only
+# GPLv3 section 7 additional terms: NOTICE. This project's own code only; Kingdom Come: Deliverance and its content
+# belong to Warhorse Studios and Deep Silver. Unofficial, free, not affiliated with or endorsed by them.
+#
+# kcdus -- the Linux launcher for Kingdom Come: Deliver Us (docs/LINUX.md).
+#
+# The first game runs under Steam's Proton; the mod is a pak the game loads itself, and the agent talks to it over the engine's
+# remote console (TCP 127.0.0.1:4600: a Wine socket is a real host socket) and by reading kcd.log. Nothing is injected, so
+# nothing has to run inside the Proton prefix: this script only installs the mod, starts Steam's game and runs the native agent.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+VERSION="$(tr -d '[:space:]' <"$ROOT/VERSION" 2>/dev/null || echo unknown)"
+APPID=379430
+FOLDER=KingdomComeDeliverance
+RC_PORT=4600
+STATUS_PORT="${KCDUS_STATUS_PORT:-1415}"
+RELAY_PORT="${KCDUS_RELAY_PORT:-7788}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/kcdus"
+mkdir -p "$STATE"
+
+if [[ -t 1 ]]; then G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; N=$'\e[0m'; else G=; R=; Y=; N=; fi
+ok()   { echo "  ${G}ok${N}    $*"; }
+bad()  { echo "  ${R}MISSING${N}  $*"; FAILED=1; }
+warn() { echo "  ${Y}note${N}  $*"; }
+die()  { echo "${R}kcdus: $*${N}" >&2; exit 1; }
+FAILED=0
+
+steam_root() {
+  local c
+  for c in "${STEAM_ROOT:-}" "$HOME/.steam/steam" "$HOME/.local/share/Steam" "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam" "$HOME/.steam/root"; do
+    [[ -n "$c" && ( -d "$c/steamapps" || -f "$c/config/libraryfolders.vdf" ) ]] && { readlink -f "$c"; return 0; }
+  done
+  return 1
+}
+
+libraries() {
+  local s v
+  s="$(steam_root)" || return 0
+  echo "$s"
+  for v in "$s/steamapps/libraryfolders.vdf" "$s/config/libraryfolders.vdf"; do
+    [[ -f "$v" ]] || continue
+    grep -o '"path"[[:space:]]*"[^"]*"' "$v" | sed 's/^"path"[[:space:]]*"//; s/"$//'
+    break
+  done | awk '!seen[$0]++'
+}
+
+game_dir() {
+  if [[ -n "${KCDUS_GAME_DIR:-}" ]]; then echo "$KCDUS_GAME_DIR"; return 0; fi
+  local lib
+  while IFS= read -r lib; do
+    [[ -f "$lib/steamapps/common/$FOLDER/Bin/Win64/KingdomCome.exe" ]] && { echo "$lib/steamapps/common/$FOLDER"; return 0; }
+  done < <(libraries)
+  return 1
+}
+
+tcp_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+game_pid() { pgrep -f 'KingdomCome\.exe' | head -n1 || true; }
+agent_up() { curl -fsS -m 2 "http://127.0.0.1:$STATUS_PORT/status" >/dev/null 2>&1; }
+
+cmd_doctor() {
+  echo "Kingdom Come: Deliver Us $VERSION (Linux) -- checking this machine"
+  local s g
+  if s="$(steam_root)"; then ok "Steam: $s"; else bad "Steam not found (set STEAM_ROOT)"; fi
+  if g="$(game_dir)" && [[ -n "$g" ]]; then ok "game: $g"; else bad "Kingdom Come: Deliverance (the first game) is not installed in any Steam library (set KCDUS_GAME_DIR)"; g=; fi
+  if [[ -n "$g" ]]; then
+    [[ -f "$g/Mods/kcdus/Data/kcdus.pak" ]] && ok "mod installed" || bad "mod not installed: run  kcdus install"
+    [[ -f "$g/Mods/kcdus/mod.cfg" ]] && grep -q 'log_EnableRemoteConsole *= *1' "$g/Mods/kcdus/mod.cfg" && ok "remote console enabled by mod.cfg" || bad "mod.cfg missing or without log_EnableRemoteConsole = 1"
+  fi
+  [[ -x "$ROOT/agent/KcdUsAgent" ]] && ok "agent" || bad "agent/KcdUsAgent missing or not executable"
+  command -v curl >/dev/null && ok "curl" || bad "curl not installed"
+  if [[ -r /dev/input ]] && compgen -G "/dev/input/event*" >/dev/null && [[ -n "$(find /dev/input -name 'event*' -readable 2>/dev/null | head -n1)" ]]; then
+    ok "F11/F12 can be read from the keyboard"
+  else
+    warn "no readable /dev/input device: F11/F12 will not work; use  kcdus join-story  /  kcdus stay-story  (or add yourself to the 'input' group and log in again)"
+  fi
+  if [[ -n "$(game_pid)" ]]; then
+    ok "game running (pid $(game_pid))"
+    tcp_open "$RC_PORT" && ok "engine remote console answers on 127.0.0.1:$RC_PORT" || warn "remote console not answering on $RC_PORT (still loading, or the mod is not installed)"
+    echo "  ${Y}note${N}  the remote console has no password: keep $RC_PORT closed to other machines (kcdus harden)"
+  else
+    warn "game not running"
+  fi
+  [[ $FAILED == 0 ]] && echo "everything needed is in place" || { echo "${R}something is missing (above)${N}"; return 1; }
+}
+
+cmd_install() {
+  local g; g="$(game_dir)" || die "the game was not found (set KCDUS_GAME_DIR)"
+  [[ -n "$(game_pid)" ]] && die "close the game first"
+  rm -rf "$g/Mods/kcdus"; mkdir -p "$g/Mods/kcdus/Data"
+  cp "$ROOT/mod/kcdus/mod.manifest" "$ROOT/mod/kcdus/mod.cfg" "$g/Mods/kcdus/"
+  cp "$ROOT/mod/kcdus/Data/kcdus.pak" "$g/Mods/kcdus/Data/"
+  ok "mod installed to $g/Mods/kcdus"
+  cmd_harden quiet
+}
+
+cmd_uninstall() {
+  local g; g="$(game_dir)" || die "the game was not found"
+  [[ -n "$(game_pid)" ]] && die "close the game first"
+  rm -rf "$g/Mods/kcdus"; echo "mod removed from $g/Mods/kcdus (your saves were never touched)"
+}
+
+cmd_harden() {   # the engine's remote console has no password; it must not be reachable from other machines
+  [[ "${1:-}" == quiet ]] || echo "The engine's remote console (TCP $RC_PORT) listens on every address and has no password. Block it from other machines:"
+  echo "  ufw:       sudo ufw deny in to any port $RC_PORT proto tcp"
+  echo "  firewalld: sudo firewall-cmd --permanent --remove-port=$RC_PORT/tcp && sudo firewall-cmd --reload   (closed unless you opened it)"
+  echo "  iptables:  sudo iptables -A INPUT -p tcp --dport $RC_PORT ! -s 127.0.0.1 -j DROP"
+  echo "(this script never runs sudo; a desktop distro without a firewall enabled is open on your LAN)"
+}
+
+cmd_play() {
+  [[ -n "$(game_pid)" ]] && { echo "the game is already running"; return 0; }
+  pgrep -x steam >/dev/null || { command -v steam >/dev/null && { echo "starting Steam..."; ( nohup steam >/dev/null 2>&1 & ); sleep 8; } || die "start Steam first"; }
+  if command -v steam >/dev/null; then ( nohup steam -applaunch "$APPID" >"$STATE/game.log" 2>&1 & ); else xdg-open "steam://rungameid/$APPID" || die "could not ask Steam to start the game"; fi
+  echo "asked Steam to start Kingdom Come: Deliverance (Proton). Pick your save from the game's menu as usual."
+}
+
+run_agent() {   # run_agent <role> <relay host:port|-> <name>
+  local g; g="$(game_dir)" || die "the game was not found (set KCDUS_GAME_DIR)"
+  local args=(--role "$1" --name "${3:-${USER:-Henry}}" --game-dir "$g" --status-port "$STATUS_PORT")
+  [[ "$1" == host ]] && args+=(--serve) || args+=(--relay "$2")
+  echo "agent: ${args[*]}"
+  exec "$ROOT/agent/KcdUsAgent" "${args[@]}"
+}
+
+cmd_host() { local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  echo "friends join with:  kcdus join ${ip:-<your address>}:$RELAY_PORT   (open TCP $RELAY_PORT; never $RC_PORT)"
+  run_agent host - "${1:-}"; }
+cmd_join() { local t="${1:-}"; [[ -n "$t" ]] || die "usage: kcdus join HOST[:PORT] [NAME]"; [[ "$t" == *:* ]] || t="$t:$RELAY_PORT"; run_agent guest "$t" "${2:-}"; }
+
+agent_post() { agent_up || die "the agent is not running (kcdus host / kcdus join)"; curl -fsS -m 5 -X POST -H "Content-Length: 0" "http://127.0.0.1:$STATUS_PORT$1"; echo; }   # HttpListener wants a length on an empty POST
+cmd_join_story() { agent_post "/choose?join"; }
+cmd_stay_story() { agent_post "/choose?free"; }
+cmd_say() { [[ $# -gt 0 ]] || die "usage: kcdus say TEXT"; agent_post "/say?text=$(printf %s "$*" | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read()))')"; }
+cmd_status() { agent_up || die "the agent is not running"; curl -fsS -m 5 "http://127.0.0.1:$STATUS_PORT/status"; echo; }
+
+usage() {
+  cat <<EOF
+kcdus $VERSION -- Kingdom Come: Deliver Us on Linux (Steam + Proton)
+
+  kcdus doctor                  check Steam, the game, the mod and this package
+  kcdus install | uninstall     put the mod into the game / take it out (game closed)
+  kcdus play                    ask Steam to start the game; load your own save
+  kcdus host [NAME]             host: the agent serves the relay itself
+  kcdus join HOST[:PORT] [NAME] join a host
+  kcdus join-story | stay-story answer the host's "join or stay" question (if F11 / F12 cannot be read)
+  kcdus say TEXT | status       chat line / what the agent sees
+  kcdus harden                  how to keep the engine's remote console (TCP $RC_PORT) off your network
+
+Overrides: STEAM_ROOT KCDUS_GAME_DIR KCDUS_STATUS_PORT KCDUS_RELAY_PORT
+Unofficial: not affiliated with or endorsed by Warhorse Studios or Deep Silver. See docs/LINUX.md.
+EOF
+}
+
+case "${1:-help}" in
+  doctor) cmd_doctor ;;
+  install) cmd_install ;;
+  uninstall) cmd_uninstall ;;
+  play) cmd_play ;;
+  host) shift; cmd_host "$@" ;;
+  join) shift; cmd_join "$@" ;;
+  join-story) cmd_join_story ;;
+  stay-story) cmd_stay_story ;;
+  say) shift; cmd_say "$@" ;;
+  status) cmd_status ;;
+  harden) cmd_harden ;;
+  version|--version) echo "$VERSION" ;;
+  *) usage ;;
+esac

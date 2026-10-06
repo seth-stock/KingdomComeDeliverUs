@@ -84,6 +84,7 @@ public static class GameLocator
     public static bool LooksLikeTheGame(string? dir) =>
         !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, "Bin", "Win64", "KingdomCome.exe")) && Directory.Exists(Path.Combine(dir, "Data"));
 
+
     public static string? Find(string? configured, string? steamPath = null)
     {
         if (LooksLikeTheGame(configured)) return configured;
@@ -105,6 +106,7 @@ public static class GameLocator
         if (!string.IsNullOrEmpty(steamPath) && seen.Add(steamPath)) yield return steamPath;
         if (string.IsNullOrEmpty(steamPath)) yield break;
         var vdf = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+        if (!File.Exists(vdf)) vdf = Path.Combine(steamPath, "config", "libraryfolders.vdf");
         if (!File.Exists(vdf)) yield break;
         foreach (Match m in Regex.Matches(File.ReadAllText(vdf), "\"path\"\\s+\"([^\"]+)\""))
         {
@@ -113,11 +115,28 @@ public static class GameLocator
         }
     }
 
+    /// <summary>Where Steam lives on Linux, most likely first (docs/LINUX.md).</summary>
+    public static IEnumerable<string> LinuxSteamCandidates(string home)
+    {
+        yield return Path.Combine(home, ".steam", "steam");
+        yield return Path.Combine(home, ".local", "share", "Steam");
+        yield return Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam");
+        yield return Path.Combine(home, ".steam", "root");
+    }
+
     public static string? SteamInstall()
     {
         try
         {
-            if (!OperatingSystem.IsWindows()) return null;
+            if (!OperatingSystem.IsWindows())
+            {
+                var env = Environment.GetEnvironmentVariable("STEAM_ROOT");
+                if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return env;
+                string home = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                foreach (var c in LinuxSteamCandidates(home))
+                    if (Directory.Exists(Path.Combine(c, "steamapps"))) return new DirectoryInfo(c).ResolveLinkTarget(true)?.FullName ?? c;
+                return null;
+            }
             using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
             if (k?.GetValue("SteamPath") is string s && s.Length > 0) return s.Replace('/', '\\');
             using var k2 = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam");

@@ -75,7 +75,16 @@ public static class Program
 
         if (cfg.Hotkeys)
         {
-            var hk = new Hotkeys();
+            // Windows: GetAsyncKeyState while the game window is in front. Linux: the kernel's input devices (LinuxKeys).
+            LinuxKeys? lk = null;
+            Hotkeys hk;
+            if (OperatingSystem.IsWindows()) hk = new Hotkeys();
+            else
+            {
+                lk = new LinuxKeys();
+                lk.Start(Log);
+                hk = new Hotkeys(() => true) { IsDown = lk.IsDownVk };
+            }
             hk.Join += () => session.Choose(RailsChoice.Join, "F11");
             hk.Stay += () => session.Choose(RailsChoice.Free, "F12");
             _ = Task.Run(() => hk.RunAsync(cts.Token));
