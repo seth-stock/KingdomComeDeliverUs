@@ -19,7 +19,7 @@ Marks: **(seen)** observed working in the real game on one machine · **(tests)*
 * **The join-or-stay question (seen):** the agent's own text rendered centred on the screen, a **real F11 press** in the game was read by the agent, the answer reached the (bot) host, and the player was brought 100 m to stand beside the host's body. F12, the 45-second default and the tether were exercised by tests only.
 * **The firewall rule on a second machine (not seen).** It is written to exclude loopback so it cannot block the agent; a computer elsewhere on the network being refused has not been tried.
 * **The installer's interactive wizard (not seen).** It compiled and its payload was smoke-tested; a silent install against a stand-in game folder was run (see `INSTALLER.md`).
-* **Long sessions.** The soak is 6 minutes of measuring per configuration on one save (`SOAK.md`); a four-hour session is not observed.
+* **Long sessions.** The soak is 12 minutes on one save (`SOAK.md`); a four-hour session is not observed.
 * **Other game builds.** Written and tested against 1.9.8 (404-504czj4), the last retail build. Older builds may differ.
 
 ## Things that behave in a way you may not expect

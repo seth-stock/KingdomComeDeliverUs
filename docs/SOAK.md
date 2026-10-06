@@ -2,35 +2,38 @@
 
 Kingdom Come: Deliver Us 0.1.0. Unofficial; not affiliated with Warhorse Studios or Deep Silver.
 
-**Result: PASS.** With the mod running and a second player's body in view, the real game's frame rate is **3.5% below vanilla** (limit 5%), its worst seconds **4.3% below** (limit 10%), with **0 script errors**.
+**Result: PASS.** Inside one game session the mod's loop costs **0.6% of the frame rate** (limit 3%) and **1.4% in the worst seconds** (limit 5%), with **0 script errors**.
 
-| | mean fps | median | 5th percentile | worst second | seconds measured |
-|---|---|---|---|---|---|
-| vanilla (2 runs: 96.07, 96.48) | 96.3 | 96.3 | 94.8 | 93.0 | 478 |
-| with the mod + a second player (2 runs: 92.98, 92.85) | 92.9 | 93.0 | 90.8 | 86.8 | 478 |
+| the mod's loop | mean fps | median | 5th percentile | seconds measured |
+|---|---|---|---|---|
+| ON (sampling, the other body, quest polling, agent traffic) | 93.8 | 94.0 | 91.6 | 311 |
+| OFF (`kcdus_off`) | 94.4 | 94.5 | 92.9 | 311 |
 
-* **Noise floor:** the two vanilla runs differ by 0.4%; the two mod runs by 0.1%. The measured gap (3.5%) is well outside it.
-* **Machine:** one PC (20-thread Intel Core Ultra 7 265F class CPU, 1080p, the game's own settings), 2026-10-05, game 1.9.8. One save: the throwaway day-0 new game. Not a benchmark of anyone else's machine.
+12 windows of 60 s, alternating on and off (the first 8 s of each window not counted), after 2 minutes of warm-up, on 2026-10-05, game 1.9.8, one PC (1080p), the throwaway day-0 save.
+Window means: on 95.0, 93.2, 94.8, 94.4, 92.1, 93.3; off 95.4, 94.4, 94.2, 94.3, 94.5, 93.9.
+It agrees with a micro-benchmark taken in the real game: a position read 0.5 microseconds, a whole player sample 4.8, a quest read 1 to 5, a log line 1.6, an idle tick 0.4: in total about a tenth of a millisecond per second.
 
-## How it is measured (`tools/perf/soak.py run`)
+## How it is measured (`tools/perf/soak.py run --onoff`)
 
-* The real game, started with `-devmode` so the same Lua sampler can be injected through the remote console in both configurations. The sampler reads the engine's frame counter once a second (`SOAK|fps|frames|seconds`).
-* **Vanilla, mod, vanilla, mod** (alternating), each run a fresh game start, `Continue` into the same save, 1.5 minutes warm-up, then 4 minutes measured. The verdict compares the means of the two vanilla and the two mod runs and prints the spread between the vanilla runs as the noise floor.
-* **The mod run carries the real workload:** a relay, a bot host (a second player who orbits Henry and keeps the clock), and the guest agent: Henry's game samples himself 10 times a second, moves the other body at 20 Hz, polls the quests, and receives console lines from the agent.
-* The vanilla run moves the mod folder out of `Mods` (and puts it back at the end).
+* The real game with `-devmode` (so a Lua frame counter can be injected through the remote console), `Continue` into the day-0 throwaway save, then a relay, a **bot host** (a second player orbiting Henry, its clock held constant) and the guest agent run beside it: the real workload.
+* The mod's own `kcdus_off` and `kcdus_on` commands stop and start its loop **in the same session**, alternating every minute. Nothing about the world differs between the windows, and slow drift of the machine hits both states equally.
+* The other player's body stays spawned in both states, so this measures the loop, not the body (a feature of the mod).
 * **The guard:** the soak refuses (kills the game) unless the loaded save is the day-0 throwaway (world time under 200000). It never touches a real save.
-* Pass needs: mean within 5%, 5th percentile within 10%, no script error. It prints the numbers either way and never loosens itself. `build\Build-Installer.ps1` refuses to build unless `tools/perf/soak-record.json` says PASS for this version **and for exactly this mod pak** (its sha256 is recorded).
+* Pass needs: mean within 3%, 5th percentile within 5%, no script error, enough samples, and no stalled second (a frame window at more than 1.5 times the median means the game stalled and caught up: the soak calls itself **inconclusive** and does not pass).
+* `tools\Build-Installer.ps1` refuses to build unless `tools/perf/soak-record.json` says PASS for this version **and for exactly this mod pak** (its sha256 is recorded).
 
 ## What happened on the way (kept, because it changed the method)
 
-1. **First soak: FAIL (-6.4% mean).** One vanilla run then one mod run: 98.5 vs 92.2 fps. Not loosened.
-2. The mod's work was cut anyway (quests polled 2 at a time instead of 6, the other body moved at 20 Hz instead of 30, the world check cached): 92.8 fps, still -5.9%.
-3. **A micro-benchmark in the real game** timed each piece of the mod's loop: a position read 0.5 microseconds, a whole player sample 4.8, a quest read 1 to 5, a log line 1.6, an idle tick 0.4. In total about a tenth of a millisecond per second: the Lua cost is negligible. The 4 to 6% gap could not be the Lua.
-4. **The mod with no second player measured 94.4, then 94.8; vanilla re-measured later the same day gave 94.8** (not 98.5). The first vanilla number was a faster session: **the game's frame rate drifts by a few percent between launches**, so one A-then-B run cannot tell an overhead from drift.
-5. The soak was rebuilt to alternate (above). Its result is the table at the top. The second player's body costs about 1.5 to 2% of the 3.5% (94.4 without it, 92.8 with it, same session); the rest is the mod's mount, timers and console connection.
+1. **First soak, one vanilla launch then one mod launch: FAIL, -6.4% mean** (98.5 against 92.2 fps). Not loosened.
+2. The mod's work was cut anyway (quests polled 2 at a time instead of 6, the other body moved at 20 Hz instead of 30, the world check cached): still -5.9%.
+3. **A micro-benchmark** (above) showed the Lua cost is negligible, so the gap could not be the Lua.
+4. **Comparing launches is unreliable on this machine.** The same vanilla game measured 98.5, 94.8, 96.1, 96.5 and later 105.9 and 96.6 fps; the mod without a second player measured 94.4 and 94.8. A launch-to-launch comparison has a noise floor of several percent (sometimes 0.4%, sometimes 9%), larger than the effect being looked for.
+5. An alternating vanilla / mod / vanilla / mod soak passed once (-3.5% with a noise floor of 0.4%). **That pass is withdrawn:** the agent in it was not being heard by the game (the 21-commands-per-connection bug, see `KCD1-MODDING.md`), so the workload was not the real one. Later alternating runs were **inconclusive** (noise floors of 9% and 12%, a mod "faster" than vanilla by 19% to 52%): once the agent worked, it moved the game's clock to the host's daytime in the mod runs while vanilla stayed at night, and the game stalled in two runs when the machine was in use. The soak now refuses such runs.
+6. The method was changed to the in-session on/off comparison above, which cancels both the launch-to-launch drift and the time-of-day difference.
 
 ## Limits
 
-* One machine, one save, 4 minutes per run: a four-hour session and a crowded town are not measured. The workload had one second player; four players is not measured.
-* The measured window is a hut interior at a fixed spot: draw-call-heavy places (Rattay at noon) were not measured.
-* The agent, relay and bot ran on the same CPU as the game in the mod runs; on a real play session the agent runs on the same PC, the relay on the host's.
+* **The mod's loop is measured, not its mere presence.** What a mounted pak, the open remote-console port and one idle script timer cost when no one is playing together was measured only roughly (the mod without a second player: 94.4 and 94.8 fps against a vanilla 94.8 in the same hour: within the noise).
+* **The other player's body costs frame rate** (about 1.5 to 2% in an early same-session comparison: a second animated character on screen). It is the point of the mod.
+* One machine, one save, 12 minutes: not a four-hour session, not a crowded town, not four players. The window is a village outdoor spot at night.
+* The agent, relay and bot ran on the same CPU as the game; in a real session the relay runs only on the host's PC.

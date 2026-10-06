@@ -27,7 +27,7 @@ the mod registers a console command (`kcdus`) for the agent to talk to, and writ
 * 108 offline tests: the relay over real sockets, the real mod Lua under a stubbed engine, the story state machine against every one of the game's 90 locked quests, and whole sessions (a real relay, fake games).
 * In the real game (one machine, a throwaway new game, 1.9.8): a **real F11 key press** answers the question and brings the player to the host; the clock skips forward to the host's time of day; the mod loads from its pak, the remote console command works without `-devmode`, the player is sampled 10 times a second,
   a second player (a bot) appears as a body, follows, chats, and is asked the join-or-stay question; the quest watcher reads the game's quest state; the menu scene is told from the world.
-* A frame-rate soak with and without the mod: see `docs/SOAK.md`.
+* A frame-rate soak in the real game: the mod's loop costs 0.6% of the frame rate (switched on and off inside one session; `docs/SOAK.md`).
 * The installer compiles; the published relay answers a client and the agent starts; a silent install against a stand-in game folder was run and uninstalled (`docs/INSTALLER.md`).
 
 ## Known limits (short)
