@@ -96,7 +96,8 @@ public class WorldTests
             var target = s.InstallWorld(4, "w1", second, "t2", replace: true);
             Assert.Equal(new[] { target }, Directory.GetFiles(s.PlaylineDir(4), "*.whs"));                // the only save there
             Assert.Equal(2.0, s.Newest(4)!.Info.Hours);
-            Assert.True(File.Exists(Path.Combine(root, "_bk", "w1", "t2", "world.whs")));                 // the replaced copy is kept
+            Assert.Contains(Directory.GetFiles(Path.Combine(root, "_bk"), "world.whs", SearchOption.AllDirectories),
+                p => File.ReadAllBytes(p).SequenceEqual(first)); // verified originals live in unique transaction archives
             Assert.Empty(Directory.GetFiles(s.PlaylineDir(4), "*.part"));
         }
         finally { Directory.Delete(root, true); }
@@ -185,7 +186,7 @@ public class WorldTests
             Assert.Equal(new[] { 4 }, again.SlotsInUse());
             Assert.Empty(WorldRegistry.Load(Path.Combine(root, "missing.json")).Worlds);
             File.WriteAllText(path, "{ not json");
-            Assert.Empty(WorldRegistry.Load(path).Worlds);                                // a damaged file is no reason to stop
+            Assert.Throws<InvalidDataException>(() => WorldRegistry.Load(path));          // damaged metadata cannot silently discard world/home bindings
         }
         finally { Directory.Delete(root, true); }
     }

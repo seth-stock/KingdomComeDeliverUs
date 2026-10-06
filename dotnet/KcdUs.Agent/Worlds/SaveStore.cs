@@ -107,23 +107,11 @@ public sealed class SaveStore
     /// </summary>
     public string InstallWorld(int playline, string worldId, byte[] file, string stamp, bool replace)
     {
-        if (playline < 0 || playline >= MaxPlaylines) throw new ArgumentOutOfRangeException(nameof(playline), "the game has playlines 0 to " + (MaxPlaylines - 1));
-        if (!SaveInfo.Validate(file, out var why)) throw new InvalidDataException("not a whole save: " + why);
-        var dir = PlaylineDir(playline);
-        if (!replace && Directory.Exists(dir) && Directory.EnumerateFiles(dir, "*.whs").Any()) throw new InvalidOperationException("playline " + playline + " holds a game of the player's");
-        Directory.CreateDirectory(dir);
-        var backup = System.IO.Path.Combine(BackupRoot, Safe(worldId), stamp);
-        foreach (var old in Directory.EnumerateFiles(dir, "*.whs").ToList())
-        {
-            Directory.CreateDirectory(backup);
-            File.Move(old, System.IO.Path.Combine(backup, System.IO.Path.GetFileName(old)), overwrite: true);
-        }
-        string target = System.IO.Path.Combine(dir, "world.whs");
-        string tmp = target + ".part";
-        File.WriteAllBytes(tmp, file);
-        File.Move(tmp, target, overwrite: true);
-        return target;
+        if (playline < 0 || playline >= MaxPlaylines) throw new ArgumentOutOfRangeException(nameof(playline));
+        return new SaveInstallTransaction(Root, BackupRoot).Install(playline, worldId, file, replace);
     }
+
+    public void RecoverPendingInstalls() => new SaveInstallTransaction(Root, BackupRoot).Recover();
 
     private static string Safe(string s) => Regex.Replace(s, @"[^A-Za-z0-9_-]", "_");
 }

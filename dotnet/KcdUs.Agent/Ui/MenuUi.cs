@@ -210,7 +210,7 @@ public static class MenuUi
         [ActionsDir + PageHenry + ".xml"] = Page("Which Henry", new Button[]
         {
             new("MP_HenryHost", "The host's Henry (as he is)", Menu("henry", "host"), Tooltip: "You play a copy of the host's character"),
-            new("MP_HenryMine", "My own Henry", Menu("henry", "mine"), Tooltip: "Your skills, stats, perks, money and things are put onto the world's Henry (skills are raised, never lowered)"),
+            new("MP_HenryMine", "My own Henry", Menu("henry", "mine"), Tooltip: "Your skills and stats are raised, and missing money and things are added. Perks and exact character replacement are not supported yet"),
         }),
         [ActionsDir + PageResolve + ".xml"] = Page("When we reconnect", new Button[]
         {

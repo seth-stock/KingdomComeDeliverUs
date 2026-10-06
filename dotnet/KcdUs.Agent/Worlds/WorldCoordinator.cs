@@ -57,6 +57,7 @@ public sealed class WorldCoordinator : IDisposable
         Action<MenuUi.Title> title, Func<DateTime>? utcNow = null)
     {
         _cfg = cfg; _game = game; _session = session; _store = store; _reg = reg; _regPath = regPath; _log = log; _title = title; _utc = utcNow ?? (() => DateTime.UtcNow);
+        _store.RecoverPendingInstalls();
         _game.Line += OnGameLine;
         _worker = Task.Run(Work);
     }
@@ -378,7 +379,7 @@ public sealed class WorldCoordinator : IDisposable
         if (target == 0) { Say("Nobody to take a world from."); _title(MenuUi.Title.NeedHost); return; }
         // your own Henry is read now, before the world he is in is replaced
         if (InWorld) await CaptureCardAsync().ConfigureAwait(false);
-        if (_reg.HomePlayline < 0 && _store.NewestAny() is { } home && !_reg.SlotsInUse().Contains(home.Playline)) { _reg.HomePlayline = home.Playline; Persist(); }
+        if (_reg.HomePlayline < 0 && _reg.HomeLeaseId.Length == 0 && _store.NewestAny() is { } home && !_reg.SlotsInUse().Contains(home.Playline)) { _reg.HomePlayline = home.Playline; Persist(); }
         string id = _behind?.Stamp.WorldId ?? "-";
         var known = id == "-" ? _reg.ActiveWorld : _reg.Find(id);
         if (known is not { Slot: true } && _store.FreePlayline(_reg.SlotsInUse()) is null)
@@ -498,6 +499,11 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task HenryHomeAsync()
     {
+        if (_reg.HomeLeaseId.Length > 0)
+        {
+            Say("Your home world is archived. Close the game and restore it with KcdUsAgent --slot-restore " + _reg.HomeLeaseId + " --cloud-sync-paused before sending Henry home.");
+            return;
+        }
         if (_reg.HomePlayline < 0 || _store.Newest(_reg.HomePlayline) is not { } home)
         {
             Say("No home world is known: it is the game you played before joining a shared world.");

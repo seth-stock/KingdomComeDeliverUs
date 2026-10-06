@@ -16,12 +16,15 @@ public static class Program
             Console.WriteLine("KcdUsAgent [--role host|guest] [--relay host[:port]] [--name Henry] [--game-dir <path>] [--password p] [--serve]");
             Console.WriteLine("           [--server-name \"Deliver Us\"] [--status-port 1415] [--pref ask|join|free] [--no-hotkeys] [--idle]");
             Console.WriteLine("KcdUsAgent --build-ui [--game-dir <path>]   (writes the game's Multiplayer tab: Mods/kcdus/Data/kcdus-ui.pak)");
+            Console.WriteLine("KcdUsAgent --slot-list | --slot-archive 1..5 | --slot-restore <lease UUID> | --slot-recover");
+            Console.WriteLine("Slot changes require a closed game and --cloud-sync-paused. Archives preserve original and outgoing worlds.");
             Console.WriteLine("--idle: start doing nothing; the player hosts or joins from the Multiplayer tab in the game.");
             Console.WriteLine("Settings are read from kcdus-agent.json next to this program; the command line overrides them.");
             return 0;
         }
 
         var cfg = AgentConfig.FromArgs(AgentConfig.Load(), args);
+        if (Worlds.SlotCommands.Requested(args)) return Worlds.SlotCommands.Run(args, cfg);
         if (args.Contains("--build-ui")) return BuildUi(cfg);
         string release = Release.Current;
         string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "logs", "agent.log");

@@ -1,5 +1,7 @@
 # Kingdom Come: Deliver Us
 
+> Reliability development branch: modified community build. Implementation is incomplete; see [implementation status](docs/IMPLEMENTATION-STATUS.md) before testing. This branch is not a full shared-simulation release.
+
 A free, unofficial co-op mod for **Kingdom Come: Deliverance** (the first game): see your friends in the world, talk to them, share the world's clock, and, when the host's
 story puts them "on rails", **choose whether to join them or to stay in the open world**.
 

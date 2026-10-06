@@ -1,0 +1,305 @@
+{
+  "schema": 1,
+  "status": "unproven",
+  "moduleHashes": {
+    "Data\\Scripts.pak": "93acfd3f0cc8afde9f0e71781e76643e225f523c227a2310298327d9b8109fcd",
+    "Data\\GameData.pak": "676b5eea461924693564592f6835f944f6e8af050f214e9b27ef6abf7b5cbd47",
+    "Bin\\Win64\\KingdomCome.exe": "cde5c7d03e76abef91b5dfbcd4e2ccf070ab4811a0fc652b429dacf5559bca73",
+    "Bin\\Win64\\WHGame.dll": "cf9f6dc384edcf35c20647a912745ddb8adb5ba65953e329c24e89dd9c4381aa"
+  },
+  "candidates": [
+    {
+      "method": "AddPerk",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "AddSkillXP",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Trainers.lua"
+      ]
+    },
+    {
+      "method": "AdvanceToSkillLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/Haste/hasteInstruction_setSkill.lua"
+      ]
+    },
+    {
+      "method": "AdvanceToStatLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/Haste/hasteInstruction_setStat.lua"
+      ]
+    },
+    {
+      "method": "ChangeAnimGraph",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua"
+      ]
+    },
+    {
+      "method": "DamageInfo",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/GameRules/SinglePlayer.lua"
+      ]
+    },
+    {
+      "method": "DealDamage",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Quick.lua"
+      ]
+    },
+    {
+      "method": "EquipClothingPreset",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/Haste/hasteInstruction_createItem.lua",
+        "Scripts/Quests/DebugPlayerFightSkills.lua",
+        "Scripts/Sequence/Radek_test_sequence.lua"
+      ]
+    },
+    {
+      "method": "EquipInventoryItem",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/FlowNodes/InventoryWeapon.lua",
+        "Scripts/Haste/hasteInstruction_createItem.lua",
+        "Scripts/Quests/DebugPlayerFightSkills.lua",
+        "Scripts/Quests/TalkPersuade.lua",
+        "Scripts/Script/Crime.lua"
+      ]
+    },
+    {
+      "method": "EquipItemInSlot",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/FlowNodes/InventoryWeapon.lua"
+      ]
+    },
+    {
+      "method": "EquipWeaponPreset",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Haste/hasteInstruction_createItem.lua",
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "GetDerivedStat",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/TalkPersuade.lua",
+        "Scripts/Script/Negotiation.lua"
+      ]
+    },
+    {
+      "method": "GetHealth",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/AI/Boar_x.lua",
+        "Scripts/Entities/AI/Cow_x.lua",
+        "Scripts/Entities/AI/DeerDoe_x.lua",
+        "Scripts/Entities/AI/Dog_x.lua",
+        "Scripts/Entities/AI/Hare_x.lua",
+        "Scripts/Entities/AI/Hen_x.lua",
+        "Scripts/Entities/AI/Horse_x.lua",
+        "Scripts/Entities/AI/Pig_x.lua",
+        "Scripts/Entities/AI/RedDeer_x.lua",
+        "Scripts/Entities/AI/RoeBuck_x.lua",
+        "Scripts/Entities/AI/Shared/BasicAIActions.lua",
+        "Scripts/Entities/AI/Shared/BasicAIEvent.lua",
+        "Scripts/Entities/AI/Sheep_x.lua",
+        "Scripts/Entities/Multiplayer/ForbiddenArea.lua",
+        "Scripts/Entities/Vehicles/VehicleBase.lua",
+        "Scripts/Entities/WH_Lister.lua",
+        "Scripts/Entities/actor/BasicActor.lua",
+        "Scripts/GameRules/SinglePlayer.lua"
+      ]
+    },
+    {
+      "method": "GetLowHealthThreshold",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/GameRules/SinglePlayer.lua"
+      ]
+    },
+    {
+      "method": "GetMaxHealth",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/AI/Shared/BasicAIEvent.lua"
+      ]
+    },
+    {
+      "method": "GetNextLevelSkillXP",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Trainers.lua"
+      ]
+    },
+    {
+      "method": "GetSkillLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/Quests/DebugPlayerFightSkills.lua",
+        "Scripts/Quests/TA04Quests.lua",
+        "Scripts/Quests/TalkPersuade.lua",
+        "Scripts/Script/Crime.lua",
+        "Scripts/Script/Trainers.lua"
+      ]
+    },
+    {
+      "method": "GetStatLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/player.lua",
+        "Scripts/Quests/DebugPlayerFightSkills.lua",
+        "Scripts/Quests/TalkPersuade.lua",
+        "Scripts/Script/Horsetraders.lua"
+      ]
+    },
+    {
+      "method": "GetState",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Horsetraders.lua"
+      ]
+    },
+    {
+      "method": "HaveSkill",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/AI/Shared/BasicAIActions.lua"
+      ]
+    },
+    {
+      "method": "OnPerkUsed",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Negotiation.lua"
+      ]
+    },
+    {
+      "method": "RemoveAllItems",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "RemoveBuff",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "RemoveMetaRole",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/NpcIntroductions.lua"
+      ]
+    },
+    {
+      "method": "RemoveMetaRoleByName",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Crime.lua"
+      ]
+    },
+    {
+      "method": "RemovePerk",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "SetAnimationInput",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/BasicActor.lua"
+      ]
+    },
+    {
+      "method": "SetHealth",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/AI/Shared/BasicAIEvent.lua",
+        "Scripts/Entities/WH_Lister.lua",
+        "Scripts/Entities/actor/BasicActor.lua",
+        "Scripts/GameRules/SinglePlayer.lua"
+      ]
+    },
+    {
+      "method": "SetMaxHealth",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Entities/actor/BasicActor.lua",
+        "Scripts/GameRules/Assault.lua"
+      ]
+    },
+    {
+      "method": "SetSkillLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/TalkPersuade.lua"
+      ]
+    },
+    {
+      "method": "SetSkillLevelDebug",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "SetStatLevel",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/TalkPersuade.lua"
+      ]
+    },
+    {
+      "method": "SetStatLevelDebug",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Quests/DebugPlayerFightSkills.lua"
+      ]
+    },
+    {
+      "method": "SetState",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Haste/hasteInstruction_setState.lua"
+      ]
+    },
+    {
+      "method": "UnequipInventoryItem",
+      "status": "unproven",
+      "scriptReferences": [
+        "Scripts/Script/Crime.lua"
+      ]
+    }
+  ],
+  "requiredProof": [
+    "binding callable on installed build",
+    "runtime readback",
+    "save/reload persistence",
+    "repeated application",
+    "failure recovery"
+  ]
+}

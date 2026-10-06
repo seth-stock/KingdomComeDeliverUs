@@ -17,6 +17,7 @@ public sealed record WorldStamp(string WorldId, double Hours, long SavedUnix, st
         var c = System.Globalization.CultureInfo.InvariantCulture;
         if (f.Length < at + 3 || f[at].Length == 0 || f[at] == "-") return null;
         if (!double.TryParse(f[at + 1], System.Globalization.NumberStyles.Float, c, out var h) || !long.TryParse(f[at + 2], System.Globalization.NumberStyles.None, c, out var u)) return null;
+        if (!double.IsFinite(h) || h < 0 || u < 0) return null;
         return new WorldStamp(Safe.Clean(f[at], 40), h, u, f.Length > at + 3 ? f[at + 3] : "");
     }
 }
@@ -72,6 +73,9 @@ public sealed class WorldRecord
     public string Card { get; set; } = "";
     /// <summary>The player's own game that this copy replaced (so it can be found again).</summary>
     public int HomePlayline { get; set; } = -1;
+    public string ArchivedLeaseId { get; set; } = "";
+    public bool ArchivedWasSlot { get; set; }
+    public string HomeLeaseId { get; set; } = "";
     public WorldStamp Stamp => new(Id, Hours, SavedUnix, Name);
 }
 
@@ -85,6 +89,7 @@ public sealed class WorldRegistry
     public string MyCard { get; set; } = "";
     /// <summary>The playline of the game this player had before a shared world replaced it, where "send my Henry home" goes (-1: none known).</summary>
     public int HomePlayline { get; set; } = -1;
+    public string HomeLeaseId { get; set; } = "";
 
     public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "worlds.json");
 
@@ -93,9 +98,15 @@ public sealed class WorldRegistry
         try
         {
             path ??= DefaultPath;
-            if (File.Exists(path)) return JsonSerializer.Deserialize<WorldRegistry>(File.ReadAllText(path), Json) ?? new();
+            if (File.Exists(path))
+            {
+                var registry = JsonSerializer.Deserialize<WorldRegistry>(File.ReadAllText(path), Json);
+                if (registry?.Worlds is null || registry.HomeLeaseId is null || registry.Worlds.Any(w => w is null || w.Id is null || w.ArchivedLeaseId is null || w.HomeLeaseId is null))
+                    throw new InvalidDataException("The shared-world registry is incomplete; restore a verified copy before changing saves.");
+                return registry;
+            }
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { }
+        catch (JsonException e) { throw new InvalidDataException("The shared-world registry is damaged; restore a verified copy before changing saves.", e); }
         return new();
     }
 
@@ -103,9 +114,15 @@ public sealed class WorldRegistry
     {
         path ??= DefaultPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string tmp = path + ".part";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
-        File.Move(tmp, path, overwrite: true);
+        string tmp = path + "." + Guid.NewGuid().ToString("N") + ".part";
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(this, Json);
+        try
+        {
+            using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { stream.Write(bytes); stream.Flush(true); }
+            if (!File.ReadAllBytes(tmp).AsSpan().SequenceEqual(bytes)) throw new IOException("World registry readback failed.");
+            File.Move(tmp, path, overwrite: true);
+        }
+        finally { if (File.Exists(tmp)) File.Delete(tmp); }
     }
 
     public WorldRecord? Find(string id) => Worlds.FirstOrDefault(w => w.Id == id);
@@ -119,7 +136,7 @@ public sealed class WorldRegistry
         return w;
     }
 
-    public static string NewId() => Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
+    public static string NewId() => Guid.NewGuid().ToString("N");
 
     /// <summary>The slots shared worlds took (taken even if their folder is empty for a moment).</summary>
     public IEnumerable<int> SlotsInUse() => Worlds.Where(w => w.Slot && w.Playline >= 0).Select(w => w.Playline);
@@ -157,7 +174,15 @@ public static class WorldTransfer
         public bool Add(int index, string base64)
         {
             if (index < 0 || index >= _parts.Length) return false;
-            try { _parts[index] = Convert.FromBase64String(base64); return true; }
+            int expected = Math.Min(ChunkBytes, Offer.Bytes - index * ChunkBytes);
+            if (base64.Length != ((expected + 2) / 3) * 4) return false;
+            try
+            {
+                var bytes = Convert.FromBase64String(base64);
+                if (bytes.Length != expected) return false;
+                if (_parts[index] is { } previous) return previous.AsSpan().SequenceEqual(bytes);
+                _parts[index] = bytes; return true;
+            }
             catch (FormatException) { return false; }
         }
         public IEnumerable<int> Missing() { for (int i = 0; i < _parts.Length; i++) if (_parts[i] is null) yield return i; }

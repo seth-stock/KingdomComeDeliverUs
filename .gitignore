@@ -25,3 +25,5 @@ _extracted/
 
 # Soak raw runs (the committed record carries the tables)
 tools/perf/runs/
+# Local diagnostics and disposable fixtures
+_work/

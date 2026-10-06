@@ -107,7 +107,15 @@ public sealed class AgentHost : IAsyncDisposable
             store = new SaveStore(root, Config.BackupDir.Length > 0 ? Config.BackupDir : SaveStore.DefaultBackupRoot());
         }
         string? list = WorldListPath ?? (Config.WorldsFile.Length > 0 ? Config.WorldsFile : null);
-        _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, Title) { SavePath = SavePath };
+        try
+        {
+            _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, Title) { SavePath = SavePath };
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log("worlds: shared-world operations are disabled until recovery is resolved: " + e.Message);
+            _world = null;
+        }
         _log("worlds: saves in " + store.Root);
     }
 
