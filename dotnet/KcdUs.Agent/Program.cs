@@ -14,12 +14,15 @@ public static class Program
         if (args.Contains("--help") || args.Contains("-h"))
         {
             Console.WriteLine("KcdUsAgent [--role host|guest] [--relay host[:port]] [--name Henry] [--game-dir <path>] [--password p] [--serve]");
-            Console.WriteLine("           [--server-name \"Deliver Us\"] [--status-port 1415] [--pref ask|join|free] [--no-hotkeys]");
+            Console.WriteLine("           [--server-name \"Deliver Us\"] [--status-port 1415] [--pref ask|join|free] [--no-hotkeys] [--idle]");
+            Console.WriteLine("KcdUsAgent --build-ui [--game-dir <path>]   (writes the game's Multiplayer tab: Mods/kcdus/Data/kcdus-ui.pak)");
+            Console.WriteLine("--idle: start doing nothing; the player hosts or joins from the Multiplayer tab in the game.");
             Console.WriteLine("Settings are read from kcdus-agent.json next to this program; the command line overrides them.");
             return 0;
         }
 
         var cfg = AgentConfig.FromArgs(AgentConfig.Load(), args);
+        if (args.Contains("--build-ui")) return BuildUi(cfg);
         string release = Release.Current;
         string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "logs", "agent.log");
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
@@ -45,33 +48,15 @@ public static class Program
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-        RelayServer? relayServer = null;
-        if (cfg.Serve)
-        {
-            relayServer = new RelayServer(new RelayOptions { Port = cfg.RelayPort, ServerName = cfg.ServerName, Password = cfg.Password, MaxPlayers = cfg.MaxPlayers, Release = release },
-                l => Log("relay: " + l));
-            try { relayServer.Start(); }
-            catch (Exception e) { Log($"ERROR: the relay cannot listen on port {cfg.RelayPort}: {e.Message}"); return 2; }
-            cfg.RelayHost = "127.0.0.1";
-        }
-
         await using var game = new ConsoleGameLink(gameDir, "127.0.0.1", cfg.ConsolePort, null, Log);
-        await using var relay = new RelayClient(new RelayEndpoint { Host = cfg.RelayHost, Port = cfg.RelayPort, Name = cfg.PlayerName, Role = cfg.Role, Password = cfg.Password, Release = release });
-        var session = new Session(new SessionOptions
-        {
-            Role = cfg.Role,
-            PlayerName = cfg.PlayerName,
-            Pref = RailsRules.ParsePref(cfg.RailsPref) ?? RailsPref.Ask,
-            TetherMeters = cfg.TetherMeters,
-            GameVersion = release,
-        }, game, relay, () => Environment.TickCount64, Log);
+        await using var host = new AgentHost(cfg, game, release, cfg.StatusPort, Log, () => cts.Cancel()) { GameDir = gameDir };
 
-        await using var status = new StatusServer(session, cfg.StatusPort, () => cts.Cancel());
+        await using var status = new StatusServer(() => host.Session, cfg.StatusPort, () => cts.Cancel(), host);
         try { status.Start(); Log($"status on http://127.0.0.1:{cfg.StatusPort}/status"); }
-        catch (Exception e) { Log($"warning: the status port {cfg.StatusPort} is not available ({e.Message}); the launcher cannot see this agent"); }
+        catch (Exception e) { Log($"warning: the status port {cfg.StatusPort} is not available ({e.Message}); the launcher and the settings page cannot see this agent"); }
 
         game.Start(cts.Token);
-        relay.Start(cts.Token);
+        await host.StartAsync(cts.Token);
 
         if (cfg.Hotkeys)
         {
@@ -85,22 +70,33 @@ public static class Program
                 lk.Start(Log);
                 hk = new Hotkeys(() => true) { IsDown = lk.IsDownVk };
             }
-            hk.Join += () => session.Choose(RailsChoice.Join, "F11");
-            hk.Stay += () => session.Choose(RailsChoice.Free, "F12");
+            hk.Join += () => host.Session.Choose(RailsChoice.Join, hk.JoinName);
+            hk.Stay += () => host.Session.Choose(RailsChoice.Free, hk.StayName);
+            host.Keys = hk;
+            host.ApplyKeys();
             _ = Task.Run(() => hk.RunAsync(cts.Token));
         }
 
         string last = "";
         while (!cts.IsCancellationRequested)
         {
-            session.Tick();
-            var m = session.GetStatus().Message;
+            host.Tick();
+            var m = host.GetStatus().Message;
             if (m != last) { Log("status: " + m); last = m; }
             try { await Task.Delay(100, cts.Token); } catch { break; }
         }
 
         Log("stopping");
-        if (relayServer != null) await relayServer.DisposeAsync();
         return 0;
+    }
+
+    /// <summary>--build-ui: the game's Multiplayer tab is a patch of the player's own menu files, made here at install time (docs/MENU.md).</summary>
+    private static int BuildUi(AgentConfig cfg)
+    {
+        string? gameDir = GameLocator.Find(cfg.GameDir);
+        if (gameDir is null) { Console.Error.WriteLine("Kingdom Come: Deliverance was not found. Pass --game-dir <path>."); return 2; }
+        var r = Ui.MenuUi.Build(Path.Combine(gameDir, "Data", "GameData.pak"), Path.Combine(gameDir, "Mods", "kcdus", "Data", Ui.MenuUi.PakName));
+        Console.WriteLine(r.Message);
+        return r.Ok ? 0 : 1;
     }
 }

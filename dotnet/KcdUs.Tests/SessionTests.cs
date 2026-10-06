@@ -17,7 +17,8 @@ internal sealed class FakeGame : IGameLink
     public bool ConsoleConnected { get; set; } = true;
     public event Action<GameLine>? Line;
     public event Action<bool>? ConsoleStateChanged;
-    public void Send(string record) { lock (Sent) Sent.Add(record); }
+    public Action<string>? OnSend;
+    public void Send(string record) { lock (Sent) Sent.Add(record); OnSend?.Invoke(record); }
     public void SendLatest(string key, string record) { lock (Sent) Sent.Add(record); }
     public void Start(CancellationToken ct) { }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

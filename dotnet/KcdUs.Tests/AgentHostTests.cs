@@ -1,0 +1,201 @@
+// Copyright (C) 2026 the Kingdom Come: Deliver Us contributors (AUTHORS). SPDX-License-Identifier: GPL-3.0-only
+// GPLv3 section 7 additional terms: NOTICE. This project's own code only; Kingdom Come: Deliverance and its content
+// belong to Warhorse Studios and Deep Silver. Unofficial, free, not affiliated with or endorsed by them.
+using System.Collections.Specialized;
+using System.Net;
+using System.Net.Sockets;
+using KcdUs.Agent;
+using Xunit;
+
+namespace KcdUs.Tests;
+
+/// <summary>The agent side of the game's Multiplayer tab (docs/MENU.md): menu lines from the game become host / join / leave / settings. (synthetic: a fake game, real sockets on loopback)</summary>
+public class AgentHostTests
+{
+    private static int FreePort()
+    {
+        var l = new TcpListener(IPAddress.Loopback, 0);
+        l.Start();
+        int p = ((IPEndPoint)l.LocalEndpoint).Port;
+        l.Stop();
+        return p;
+    }
+
+    private sealed class Rig : IAsyncDisposable
+    {
+        public readonly FakeGame Game = new();
+        public readonly AgentHost Host;
+        public readonly List<string> Opened = new();
+        public readonly string Dir = Path.Combine(Path.GetTempPath(), "kcdus-host-" + Guid.NewGuid().ToString("N")[..8]);
+        public readonly int StatusPort = FreePort();
+        private readonly CancellationTokenSource _cts = new();
+
+        public Rig(Action<AgentConfig>? tweak = null)
+        {
+            Directory.CreateDirectory(Dir);
+            var cfg = new AgentConfig { Idle = true, RelayPort = FreePort(), PlayerName = "Henry" };
+            tweak?.Invoke(cfg);
+            Host = new AgentHost(cfg, Game, "0.1.0", StatusPort, _ => { }) { SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = u => { lock (Opened) Opened.Add(u); } };
+            Host.StartAsync(_cts.Token).GetAwaiter().GetResult();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _cts.Cancel();
+            await Host.DisposeAsync();
+            try { Directory.Delete(Dir, true); } catch { }
+        }
+    }
+
+    private static async Task Until(Func<bool> cond, int ms = 4000)
+    {
+        var end = DateTime.UtcNow.AddMilliseconds(ms);
+        while (DateTime.UtcNow < end) { if (cond()) return; await Task.Delay(10); }
+        Assert.True(cond(), "timed out");
+    }
+
+    [Fact]
+    public async Task An_idle_agent_is_in_no_session_and_says_so()
+    {
+        await using var r = new Rig();
+        Assert.Equal(AgentHost.Idle, r.Host.Mode);
+        Assert.Contains("not in a session", r.Host.Describe());
+    }
+
+    [Fact]
+    public async Task A_menu_line_from_the_game_is_a_command()
+    {
+        await using var r = new Rig();
+        r.Game.Emit("KCDUS|MENU|status|");
+        await Until(() => r.Game.Has("NOTE|Multiplayer: not in a session"));
+    }
+
+    [Fact]
+    public async Task Opening_the_page_puts_the_agents_state_in_its_title()
+    {
+        await using var r = new Rig();
+        r.Game.Emit("KCDUS|MENU|page|");
+        await Until(() => r.Game.Has("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.Idle));
+        await r.Host.HandleAsync("host", "");
+        Assert.Equal("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.Hosting, r.Game.Last("MENUTEXT|"));
+    }
+
+    [Fact]
+    public async Task Host_a_game_listens_and_leave_lets_go_of_the_port()
+    {
+        await using var r = new Rig();
+        await r.Host.HandleAsync("host", "");
+        Assert.Equal(AgentHost.HostMode, r.Host.Mode);
+        Assert.True(r.Host.Session.IsHost);
+        await Until(() => r.Host.Session.GetStatus().RelayConnected);
+        Assert.Contains("hosting", r.Host.Describe());
+        Assert.True(r.Game.Has("NOTE|Multiplayer: hosting"));
+
+        await r.Host.HandleAsync("leave", "");
+        Assert.Equal(AgentHost.Idle, r.Host.Mode);
+        using var l = new TcpListener(IPAddress.Loopback, r.Host.Config.RelayPort);
+        l.Start();   // the port is free again
+        l.Stop();
+    }
+
+    [Fact]
+    public async Task Join_without_a_host_address_asks_for_one_and_opens_the_settings_page()
+    {
+        await using var r = new Rig();
+        await r.Host.HandleAsync("join", "");
+        Assert.Equal(AgentHost.Idle, r.Host.Mode);
+        Assert.True(r.Game.Has("NOTE|Enter your host's address"));
+        Assert.Single(r.Opened);
+        Assert.Contains("/settings?t=" + r.Host.SettingsToken, r.Opened[0]);
+    }
+
+    [Fact]
+    public async Task A_friend_joins_a_host_started_from_the_tab()
+    {
+        await using var hostRig = new Rig();
+        await hostRig.Host.HandleAsync("host", "");
+        await Until(() => hostRig.Host.Session.GetStatus().RelayConnected);
+
+        await using var friend = new Rig(c => { c.RelayHost = "127.0.0.1"; c.RelayPort = hostRig.Host.Config.RelayPort; c.PlayerName = "Hans"; });
+        friend.Host.AllowLoopbackJoin = true;
+        await friend.Host.HandleAsync("join", "");
+        Assert.Equal(AgentHost.GuestMode, friend.Host.Mode);
+        await Until(() => friend.Host.Session.GetStatus().RelayConnected);
+        await Until(() => hostRig.Host.Session.GetStatus().Players.Count == 1);
+        Assert.Equal("Hans", hostRig.Host.Session.GetStatus().Players[0].Name);
+    }
+
+    [Fact]
+    public async Task The_standing_answer_and_the_keys_are_set_from_the_tab_and_saved()
+    {
+        await using var r = new Rig();
+        r.Host.Keys = new Hotkeys(() => true);
+        await r.Host.HandleAsync("pref", "free");
+        Assert.Equal("free", r.Host.Config.RailsPref);
+        await r.Host.HandleAsync("keys", "f9f10");
+        Assert.Equal(0x78, r.Host.Keys.JoinVk);
+        Assert.Equal(0x79, r.Host.Keys.StayVk);
+        Assert.Equal("F9", r.Host.Keys.JoinName);
+        await r.Host.HandleAsync("keys", "off");
+        Assert.Equal(0, r.Host.Keys.JoinVk);
+        await r.Host.HandleAsync("keys", "bogus");
+        Assert.Equal("off", r.Host.Config.KeyPreset);   // an unknown preset changes nothing
+
+        var saved = AgentConfig.Load(Path.Combine(r.Dir, "cfg.json"));
+        Assert.Equal("free", saved.RailsPref);
+        Assert.Equal("off", saved.KeyPreset);
+    }
+
+    [Fact]
+    public async Task The_settings_form_changes_what_it_is_given_and_nothing_else()
+    {
+        await using var r = new Rig();
+        var form = new NameValueCollection { ["name"] = "Hans", ["relay"] = "100.64.1.2:7800", ["password"] = "swordfish", ["pref"] = "join", ["keys"] = "nonsense", ["port"] = "" };
+        var changed = r.Host.ApplySettings(form);
+        var c = r.Host.Config;
+        Assert.Equal("Hans", c.PlayerName);
+        Assert.Equal("100.64.1.2", c.RelayHost);
+        Assert.Equal(7800, c.RelayPort);
+        Assert.Equal("swordfish", c.Password);
+        Assert.Equal("join", c.RailsPref);
+        Assert.Equal(KeyPreset.Default, c.KeyPreset);   // the unknown keys value is ignored
+        Assert.Contains("host address", changed);
+        Assert.Equal("", r.Host.ApplySettings(new NameValueCollection()));   // an empty form changes nothing
+        Assert.Equal("", r.Host.ApplySettings(new NameValueCollection { ["relay"] = "not an address!" }));
+    }
+
+    [Fact]
+    public async Task The_settings_page_needs_the_agents_own_link()
+    {
+        await using var r = new Rig();
+        await using var srv = new StatusServer(() => r.Host.Session, r.StatusPort, () => { }, r.Host);
+        srv.Start();
+        using var http = new HttpClient();
+        var bad = await http.GetAsync($"http://127.0.0.1:{r.StatusPort}/settings");
+        Assert.Equal(HttpStatusCode.Forbidden, bad.StatusCode);
+        var ok = await http.GetAsync(r.Host.SettingsUrl);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Contains("name=\"relay\"", await ok.Content.ReadAsStringAsync());
+
+        var post = await http.PostAsync($"http://127.0.0.1:{r.StatusPort}/settings", new FormUrlEncodedContent(new Dictionary<string, string> { ["t"] = "wrong", ["name"] = "Mallory" }));
+        Assert.Equal(HttpStatusCode.Forbidden, post.StatusCode);
+        Assert.Equal("Henry", r.Host.Config.PlayerName);
+        var post2 = await http.PostAsync($"http://127.0.0.1:{r.StatusPort}/settings", new FormUrlEncodedContent(new Dictionary<string, string> { ["t"] = r.Host.SettingsToken, ["name"] = "Hans" }));
+        Assert.Equal(HttpStatusCode.OK, post2.StatusCode);
+        Assert.Equal("Hans", r.Host.Config.PlayerName);
+    }
+
+    [Fact]
+    public void The_key_presets_name_their_keys()
+    {
+        Assert.Equal((0x7A, 0x7B), KeyPreset.Parse("f11f12"));
+        Assert.Equal((0x78, 0x79), KeyPreset.Parse(" F9F10 "));
+        Assert.Equal((0, 0), KeyPreset.Parse("off"));
+        Assert.Equal((0x7A, 0x7B), KeyPreset.Parse("garbage"));
+        Assert.Equal("join F9, stay F10", KeyPreset.Describe("f9f10"));
+        Assert.Equal(59, LinuxKeys.CodeForVk(0x70));   // F1
+        Assert.Equal(68, LinuxKeys.CodeForVk(0x79));   // F10
+        Assert.Equal(87, LinuxKeys.CodeForVk(0x7A));   // F11
+        Assert.Equal(0, LinuxKeys.CodeForVk(0x41));    // 'A' is not an F-key
+    }
+}

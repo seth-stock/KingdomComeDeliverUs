@@ -380,4 +380,123 @@ public class LuaModTests
         // 10 ST + 1 HB per second, and nothing else
         Assert.InRange(m.Log().Count, 100, 130);
     }
+
+    [Fact]
+    public void A_menu_button_reaches_the_agent_as_one_line_and_cannot_break_the_line()
+    {
+        var m = new LuaMod();
+        m.ClearLog();
+        m.Do("KCDUS_Menu('host', '')");
+        m.Do("KCDUS_Menu('pref', 'a|b' .. string.char(10) .. 'c')");
+        Assert.Contains("KCDUS|MENU|host|", m.Lines("KCDUS|MENU"));
+        foreach (var l in m.Lines("KCDUS|MENU")) Assert.Equal(4, l.Split('|').Length);   // a '|' in an argument cannot add a field
+        Assert.Empty(m.Lines("KCDUS|ERR"));
+    }
+
+    [Fact]
+    public void The_agent_can_ask_the_game_to_load_a_save_by_its_list_position()
+    {
+        var m = new LuaMod();
+        m.ClearLog();
+        m.Send("1~LOAD|3|1");
+        Assert.Equal(3, m.Num("__globals.KCDUS_LoadSaveId"));
+        Assert.Equal(1, m.Num("__globals.KCDUS_LoadPlayLine"));
+        Assert.Equal("MP_Load", m.Str("__actions[1]"));
+        Assert.Contains("KCDUS|LOADING|3|1|1|", m.Lines("KCDUS|LOADING"));
+    }
+
+    [Fact]
+    public void A_load_the_game_refuses_is_reported_not_thrown()
+    {
+        var m = new LuaMod();
+        m.Do("__world.actionFails = true");
+        m.ClearLog();
+        m.Send("1~LOAD|0|1");
+        Assert.Single(m.Lines("KCDUS|LOADING|0|1|0|"));
+        Assert.Empty(m.Lines("KCDUS|ERR"));
+    }
+
+    [Fact]
+    public void A_world_save_is_one_engine_call_and_its_failure_is_reported()
+    {
+        var m = new LuaMod();
+        m.ClearLog();
+        m.Send("1~SAVEWORLD|x");
+        Assert.True(m.Bool("__calls[#__calls] == 'SaveGameViaResting'"));
+        Assert.Single(m.Lines("KCDUS|SAVEWORLD|x|1"));
+        m.Do("__world.saveFails = true");
+        m.Send("2~SAVEWORLD|y");
+        Assert.Single(m.Lines("KCDUS|SAVEWORLD|y|0"));
+    }
+
+    [Fact]
+    public void The_agents_title_code_starts_the_title_graph_of_that_code()
+    {
+        var m = new LuaMod();
+        m.Send("1~MENUTEXT|1");
+        Assert.Equal("MP_Title1", m.Str("__actions[1]"));
+        m.Do("__world.actionFails = true");
+        m.Send("2~MENUTEXT|2");   // a game without the page (not installed) is no error
+        Assert.Empty(m.Lines("KCDUS|ERR"));
+    }
+
+    [Fact]
+    public void A_Henrys_card_is_read_in_pieces_and_every_piece_is_one_safe_log_line()
+    {
+        var m = new LuaMod();
+        m.Do("__henry.stats.str = 12; __henry.skills.fencing = 7.5; for i = 1, 60 do __henry.items[#__henry.items + 1] = { class = string.format('aaaaaaaa-0000-0000-0000-%012d', i), health = 0.5, amount = 2 } end");
+        m.ClearLog();
+        m.Send("1~CARDGET|c1");
+        var pieces = m.Lines("KCDUS|CARD|c1|");
+        Assert.True(pieces.Count > 3);                                    // a big pack is several pieces
+        var text = new System.Text.StringBuilder();
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            var f = pieces[i].Split('|');
+            Assert.Equal(6, f.Length);                                    // KCDUS|CARD|id|i|n|text: nothing in the text can add a field
+            Assert.Equal(i.ToString(), f[3]);
+            Assert.Equal(pieces.Count.ToString(), f[4]);
+            Assert.True(f[5].Length <= 380);
+            text.Append(f[5]);
+        }
+        var card = text.ToString();
+        Assert.Contains("t:str=12", card);
+        Assert.Contains("s:fencing=7.5", card);
+        Assert.Contains("i:aaaaaaaa-0000-0000-0000-000000000060,0.50,2", card);
+        Assert.DoesNotContain("~", card);
+    }
+
+    [Fact]
+    public void A_card_raises_levels_and_adds_things_but_never_lowers_or_removes()
+    {
+        var m = new LuaMod();
+        m.Do("__henry.stats.str = 9; __henry.skills.fencing = 4");   // the world's Henry is already stronger than the card in these two
+        m.ClearLog();
+        // the card: str 5 (lower: ignored), agi 6 (higher: raised), fencing 2 (lower), sword skill 3 (raised), 1500 groschen, two swords, the thing he already has
+        var card = "t:str=5;t:agi=6;s:fencing=2;s:weapon_sword=3;i:5ef63059-322e-4e1b-abe8-926e100c770e,1.00,1500;i:bbbbbbbb-0000-0000-0000-000000000001,0.80,2;i:aaaaaaaa-0000-0000-0000-000000000001,1.00,1";
+        m.Send("1~CARDSET|c2|0|2|" + card[..40]);
+        Assert.Empty(m.Lines("KCDUS|CARDSET"));                             // not applied until every piece is here
+        m.Send("2~CARDSET|c2|1|2|" + card[40..]);
+        Assert.Equal(9, m.Num("__henry.stats.str"));                     // never lowered
+        Assert.Equal(6, m.Num("__henry.stats.agi"));
+        Assert.Equal(4, m.Num("__henry.skills.fencing"));
+        Assert.Equal(3, m.Num("__henry.skills.weapon_sword"));
+        Assert.Equal(1500, m.Num("(function() local n = 0; for _, it in ipairs(__henry.items) do if it.class == '5ef63059-322e-4e1b-abe8-926e100c770e' then n = n + it.amount end end return n end)()"));
+        Assert.Equal(2, m.Num("(function() local n = 0; for _, it in ipairs(__henry.items) do if string.sub(it.class, 1, 8) == 'bbbbbbbb' then n = n + 1 end end return n end)()"));   // two single swords
+        Assert.Equal(1, m.Num("(function() local n = 0; for _, it in ipairs(__henry.items) do if it.class == 'aaaaaaaa-0000-0000-0000-000000000001' then n = n + it.amount end end return n end)()"));   // not doubled
+        Assert.Single(m.Lines("KCDUS|CARDSET|c2|2|2|0"));                  // two levels raised, two things added, none failed
+        Assert.Empty(m.Lines("KCDUS|ERR"));
+    }
+
+    [Fact]
+    public void A_damaged_card_is_ignored_piece_by_piece()
+    {
+        var m = new LuaMod();
+        m.ClearLog();
+        m.Send("1~CARDSET|c3|0|1|t:str=notanumber;s:nosuchskill=3;i:zz,x,y;garbage;i:5ef63059-322e-4e1b-abe8-926e100c770e,1.00,10");
+        Assert.Empty(m.Lines("KCDUS|ERR"));
+        Assert.Single(m.Lines("KCDUS|CARDSET|c3|"));
+        m.Send("2~CARDSET|c4|7|3|x");                                        // a piece that cannot be right
+        Assert.Empty(m.Lines("KCDUS|CARDSET|c4"));
+    }
 }

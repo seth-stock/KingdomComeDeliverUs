@@ -35,7 +35,7 @@ public sealed class PeerInfo
 /// the relay. All of the logic is here and takes its clock and both links from outside, so a test drives it with a fake game, a real
 /// relay and a fake clock. Every entry point takes the same lock.
 /// </summary>
-public sealed class Session
+public sealed class Session : IDisposable
 {
     public const int StateStaleMs = 3000;
     public const int BeatRepeatMs = 30_000;
@@ -98,7 +98,37 @@ public sealed class Session
         _relay.ConnectionChanged += OnRelayConnection;
     }
 
+    /// <summary>Lets go of the game link and the relay link (the Multiplayer tab swaps sessions when the player hosts, joins or leaves).</summary>
+    public void Dispose()
+    {
+        _game.Line -= OnGameLine;
+        _game.ConsoleStateChanged -= OnConsole;
+        _relay.Frame -= OnRelayFrame;
+        _relay.ConnectionChanged -= OnRelayConnection;
+    }
+
     public bool IsHost => _o.Role == "host";
+    public int HostId { get { lock (_gate) return _hostId; } }
+    /// <summary>The player is in the open world right now (not in a menu or loading).</summary>
+    public bool InWorld { get { lock (_gate) return _inWorld; } }
+
+    /// <summary>A shared-world message from another player (docs/SHARED-WORLDS.md): its sender and its fields, f[0] being the kind ("wstamp", "woffer", ...).
+    /// Raised inside the session's lock: handlers must only queue the work.</summary>
+    public event Action<int, string[]>? WorldEvent;
+
+    /// <summary>Kinds the shared-world code sends; any other event kind is not passed on.</summary>
+    public static bool IsWorldKind(string kind) => kind is "wstamp" or "wnew" or "wreq" or "woffer" or "wchunk" or "wdone" or "wmiss";
+
+    /// <summary>Sends an event to the other players (false when not connected).</summary>
+    public bool SendEvent(string text)
+    {
+        lock (_gate)
+        {
+            if (_myId == 0) return false;
+            _relay.Send(MessageType.Event, text);
+            return true;
+        }
+    }
     public int MyId { get { lock (_gate) return _myId; } }
 
     // ================================================================ the game's side
@@ -381,6 +411,7 @@ public sealed class Session
     private void OnPeerEvent(int from, string[] f, long now)
     {
         if (!_peers.TryGetValue(from, out var p)) return;
+        if (IsWorldKind(f[0])) { WorldEvent?.Invoke(from, f); return; }
         switch (f[0])
         {
             case "world":
@@ -539,7 +570,8 @@ public sealed class Session
         _game.Send(string.Create(CultureInfo.InvariantCulture, $"TIME|{_local.WorldTime + skip:0}"));
     }
 
-    private void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 160));
+    /// <summary>A line of text on the player's screen in the game.</summary>
+    public void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 160));
 
     // ================================================================ the clock
 

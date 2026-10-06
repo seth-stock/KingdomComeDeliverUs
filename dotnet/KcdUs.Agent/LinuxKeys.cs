@@ -13,6 +13,10 @@ public sealed class LinuxKeys : IDisposable
 {
     // linux/input-event-codes.h
     public const int KeyF11 = 87, KeyF12 = 88;
+
+    /// <summary>The kernel's key code for a Windows F-key virtual-key (F1..F10 are 59..68, F11 87, F12 88); 0 when it is not an F-key.</summary>
+    public static int CodeForVk(int vk) => vk is >= 0x70 and <= 0x79 ? 59 + (vk - 0x70) : vk == 0x7A ? KeyF11 : vk == 0x7B ? KeyF12 : 0;
+    private static bool Watched(int code) => code is >= 59 and <= 68 or KeyF11 or KeyF12;
     public const int EvKey = 1;
     /// <summary>struct input_event on 64-bit Linux: timeval (2 x 8), type u16, code u16, value i32.</summary>
     public const int EventSize = 24;
@@ -43,12 +47,7 @@ public sealed class LinuxKeys : IDisposable
     public bool IsDownLinux(int keyCode) { lock (_gate) return _down.Contains(keyCode); }
 
     /// <summary>The Windows virtual-key the shared Hotkeys class asks about, answered from the Linux key state.</summary>
-    public bool IsDownVk(int vk) => vk switch
-    {
-        Hotkeys.VkF11 => IsDownLinux(KeyF11),
-        Hotkeys.VkF12 => IsDownLinux(KeyF12),
-        _ => false,
-    };
+    public bool IsDownVk(int vk) => CodeForVk(vk) is var c && c != 0 && IsDownLinux(c);
 
     /// <summary>Opens every readable keyboard-ish event device and starts one reader per device. Returns how many opened.</summary>
     public int Start(Action<string>? log = null, string inputDir = "/dev/input")
@@ -83,7 +82,7 @@ public sealed class LinuxKeys : IDisposable
                     if (n <= 0) return;
                     got += n;
                 }
-                if (TryParse(buf, out int code, out int value) && (code == KeyF11 || code == KeyF12)) Apply(code, value);
+                if (TryParse(buf, out int code, out int value) && Watched(code)) Apply(code, value);
             }
         }
         catch { /* device unplugged or the agent is stopping */ }

@@ -60,6 +60,16 @@ Game = {
     IsLoadingEngineSaveGame = function() return __world.loading end,
     ShowNotification = function(t) __notes[#__notes + 1] = t end,
     SendInfoText = function(t, a, b, secs) __infos[#__infos + 1] = { text = t, secs = secs } end,
+    SaveGameViaResting = function() __calls[#__calls + 1] = "SaveGameViaResting"; if __world.saveFails then error("no save") end end,
+}
+__globals = {}
+Variables = {
+    SetGlobal = function(k, v) __globals[k] = v end,
+    GetGlobal = function(k) return __globals[k] end,
+}
+__actions = {}
+UIAction = {
+    StartAction = function(name, args) if __world.actionFails then error("no such action") end __actions[#__actions + 1] = name end,
 }
 Calendar = {
     GetWorldTime = function() return __world.worldTime end,
@@ -90,6 +100,18 @@ player = {
     soul = {
         GetState = function(self, k) if k == "health" then return __world.health end return __world.stamina end,
         IsInCombatDanger = function(self) return __world.danger end,
+        GetStatLevel = function(self, n) local v = __henry.stats[n]; if v == nil then error("no stat " .. tostring(n)) end return v end,
+        GetSkillLevel = function(self, n) local v = __henry.skills[n]; if v == nil then error("no skill " .. tostring(n)) end return v end,
+        AdvanceToStatLevel = function(self, n, v) if v > __henry.stats[n] then __henry.stats[n] = v end end,
+        AdvanceToSkillLevel = function(self, n, v) if v > __henry.skills[n] then __henry.skills[n] = v end end,
+    },
+    inventory = {
+        GetInventoryTable = function(self) local t = {}; for i, it in ipairs(__henry.items) do t[i - 1] = it end return t end,
+        GetCountOfClass = function(self, c) local n = 0; for _, it in ipairs(__henry.items) do if it.class == c then n = n + it.amount end end return n end,
+        AddItem = function(self, it)
+            -- a stack of the same class and health merges; a non-stackable one (class prefix "sword") ignores the amount, like the real game
+            __henry.items[#__henry.items + 1] = it
+        end,
     },
     actor = { GetCurrentAnimationState = function(self) return __world.anim end },
     human = {
@@ -97,6 +119,20 @@ player = {
         IsMounted = function(self) return __world.mounted end,
         IsInDialog = function(self) return __world.dialog end,
     },
+}
+
+-- the player's Henry as the card reads it: levels, and things (class, health, amount)
+__henry = {
+    stats = { str = 1, agi = 1, vit = 1, spc = 3 },
+    skills = { fencing = 0, weapon_sword = 0, stealth = 0, alchemy = 0 },
+    items = { { class = "aaaaaaaa-0000-0000-0000-000000000001", health = 1, amount = 1 } },
+}
+ItemManager = {
+    GetItem = function(id) return id end,
+    CreateItem = function(class, health, amount)
+        if string.sub(class, 1, 8) == "bbbbbbbb" then amount = 1 end   -- a sword: the amount is ignored
+        return { class = class, health = health, amount = amount }
+    end,
 }
 
 Player = {}

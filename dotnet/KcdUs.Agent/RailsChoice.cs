@@ -46,6 +46,14 @@ public static class RailsRules
     /// <summary>"join" | "free" (the mod's words) or null.</summary>
     public static RailsChoice? ParseChoiceWord(string? s) => s switch { "join" => RailsChoice.Join, "free" => RailsChoice.Free, _ => null };
 
+    /// <summary>What a preference means, for the player's eyes.</summary>
+    public static string PrefText(RailsPref p) => p switch
+    {
+        RailsPref.Join => "you join your host automatically",
+        RailsPref.Free => "you stay in the open world automatically",
+        _ => "you are asked each time",
+    };
+
     public static string PrefName(RailsPref p) => p switch { RailsPref.Join => "join", RailsPref.Free => "free", _ => "ask" };
     public static string ChoiceName(RailsChoice c) => c switch { RailsChoice.Join => "join", RailsChoice.Free => "free", _ => "pending" };
 

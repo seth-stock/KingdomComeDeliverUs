@@ -18,6 +18,12 @@ public sealed class Hotkeys
 
     public const int VkF11 = 0x7A, VkF12 = 0x7B;
 
+    /// <summary>The virtual-key codes of the two answers (0 = that answer has no key). The Multiplayer tab's Keys page sets them (KeyPreset).</summary>
+    public int JoinVk { get; set; } = VkF11;
+    public int StayVk { get; set; } = VkF12;
+    public string JoinName => KeyPreset.Name(JoinVk);
+    public string StayName => KeyPreset.Name(StayVk);
+
     private readonly Func<bool> _gameInFront;
     private bool _f11, _f12;
 
@@ -46,7 +52,7 @@ public sealed class Hotkeys
     public void Poll()
     {
         bool front = _gameInFront();
-        bool f11 = front && IsDown(VkF11), f12 = front && IsDown(VkF12);
+        bool f11 = front && JoinVk != 0 && IsDown(JoinVk), f12 = front && StayVk != 0 && IsDown(StayVk);
         if (f11 && !_f11) Join?.Invoke();
         if (f12 && !_f12) Stay?.Invoke();
         _f11 = f11; _f12 = f12;

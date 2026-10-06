@@ -27,16 +27,40 @@ public sealed class AgentConfig
     public string RailsPref { get; set; } = "ask";
     public float TetherMeters { get; set; } = 120f;
     public bool Hotkeys { get; set; } = true;
+    /// <summary>f11f12 | f9f10 | off: the keys that answer the host's join-or-stay question (the Multiplayer tab's Keys page).</summary>
+    public string KeyPreset { get; set; } = KcdUs.Agent.KeyPreset.Default;
+    /// <summary>Start doing nothing: the player hosts or joins from the game's Multiplayer tab (the installer's setting).</summary>
+    public bool Idle { get; set; }
+    /// <summary>The name of the shared world this player starts (Game world page).</summary>
+    public string WorldName { get; set; } = "Our world";
+    /// <summary>host | mine: whose Henry goes into a world that is received (the Which Henry page).</summary>
+    public string HenryMode { get; set; } = "host";
+    /// <summary>furthest | host | newest: which copy of a world goes on when two have been played apart (the When we reconnect page).</summary>
+    public string ResolvePolicy { get; set; } = "furthest";
+    /// <summary>Take a friend's further-along world by itself when the player is at a menu (never while they are in the open world).</summary>
+    public bool AutoSync { get; set; } = true;
+    /// <summary>Where the game keeps its saves; empty: found automatically.</summary>
+    public string SavesDir { get; set; } = "";
+    /// <summary>Where the list of shared worlds and the backups of replaced copies are kept; empty: under the player's local application data.</summary>
+    public string WorldsFile { get; set; } = "";
+    public string BackupDir { get; set; } = "";
+    /// <summary>Allow "join" to name this very computer (127.0.0.1): only for testing two agents on one machine.</summary>
+    public bool AllowLoopbackJoin { get; set; }
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
 
     public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, "kcdus-agent.json");
 
+    /// <summary>Where a player's own changes go when the program's folder is not writable (a Program Files install).</summary>
+    public static string UserPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "kcdus-agent.json");
+
+    /// <summary>The settings file: the one next to the exe, or the player's own copy when that is newer (the Multiplayer tab saved there).</summary>
     public static AgentConfig Load(string? path = null)
     {
-        path ??= DefaultPath;
         try
         {
+            if (path is null && File.Exists(UserPath) && (!File.Exists(DefaultPath) || File.GetLastWriteTimeUtc(UserPath) > File.GetLastWriteTimeUtc(DefaultPath))) path = UserPath;
+            path ??= DefaultPath;
             if (File.Exists(path))
                 return JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(path), Json) ?? new AgentConfig();
         }
@@ -44,7 +68,17 @@ public sealed class AgentConfig
         return new AgentConfig();
     }
 
-    public void Save(string? path = null) => File.WriteAllText(path ?? DefaultPath, JsonSerializer.Serialize(this, Json));
+    /// <summary>Saves next to the exe, or in the player's own folder when that is not allowed. Returns where it went (null: nowhere).</summary>
+    public string? Save(string? path = null)
+    {
+        string json = JsonSerializer.Serialize(this, Json);
+        foreach (var p in path is null ? new[] { DefaultPath, UserPath } : new[] { path })
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, json); return p; }
+            catch (Exception e) when (e is UnauthorizedAccessException or IOException) { }
+        }
+        return null;
+    }
 
     /// <summary>--role host --relay 100.64.1.2:7788 --name Henry --game-dir X --password p --serve --status-port 1415 --pref free</summary>
     public static AgentConfig FromArgs(AgentConfig c, string[] args)
@@ -69,6 +103,7 @@ public sealed class AgentConfig
                 case "--status-port" when next != null: c.StatusPort = int.Parse(next); i++; break;
                 case "--pref" when next != null: c.RailsPref = next; i++; break;
                 case "--no-hotkeys": c.Hotkeys = false; break;
+                case "--idle": c.Idle = true; break;
             }
         }
         return c;
