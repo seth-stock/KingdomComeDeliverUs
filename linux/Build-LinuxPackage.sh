@@ -26,15 +26,18 @@ chmod +x "$PKG/agent/KcdUsAgent"
 echo "== launcher + docs"
 cp "$REPO/linux/kcdus" "$PKG/kcdus"; chmod +x "$PKG/kcdus"
 cp "$REPO/VERSION" "$REPO/LICENSE" "$REPO/NOTICE" "$REPO/AUTHORS" "$PKG/"
-for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
+for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md MENU.md SHARED-WORLDS.md FEATURE-PARITY.md WARHORSE-MODDING-EULA.txt; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
+[[ -f "$PKG/docs/WARHORSE-MODDING-EULA.txt" ]] || { echo "the Warhorse modding EULA is missing from docs/: the package must carry it (EULA 4.7)" >&2; exit 1; }
 cat >"$PKG/READ-ME-FIRST.txt" <<EOF
 Kingdom Come: Deliver Us $VERSION -- Linux build (unofficial, community)
 
 1. Needs: Steam with the first game, "Kingdom Come: Deliverance", installed (it runs under Proton).
 2. ./kcdus doctor          shows what is missing
-3. ./kcdus install         (game closed)
-4. ./kcdus play            then pick your own save in the game
-5. ./kcdus host   or   ./kcdus join HOST[:PORT]
+3. ./kcdus install         (game closed) asks you to accept Warhorse's modding EULA (docs/WARHORSE-MODDING-EULA.txt), installs the mod and
+                           builds the game's "Multiplayer" menu tab from YOUR OWN game files (nothing of Warhorse's is in this package)
+4. ./kcdus play            starts the game and the agent; in the game open  Multiplayer  (main menu or pause menu):
+                           host, join, the game world (join a host's world, new world together, which Henry), keys, settings
+5. Without the tab:  ./kcdus host   or   ./kcdus join HOST[:PORT]
 6. F11 / F12 answer the host's question if your user can read /dev/input; otherwise: ./kcdus join-story | stay-story
 
 New and not run under a real Proton by its authors: read docs/LINUX.md ("What is and is not tested").

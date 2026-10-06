@@ -23,7 +23,8 @@ public sealed class MainForm : Form
 
     private readonly TextBox _gameDir = new() { ReadOnly = true };
     private readonly TextBox _name = new();
-    private readonly RadioButton _host = new() { Text = "Host a game", Checked = true, AutoSize = true };
+    private readonly RadioButton _tab = new() { Text = "Decide in the game (its Multiplayer tab)", Checked = true, AutoSize = true };
+    private readonly RadioButton _host = new() { Text = "Host a game", AutoSize = true };
     private readonly RadioButton _join = new() { Text = "Join a friend", AutoSize = true };
     private readonly TextBox _address = new();
     private readonly TextBox _port = new();
@@ -71,7 +72,7 @@ public sealed class MainForm : Form
             if (cb != null) { cb.Dock = DockStyle.Fill; grid.Controls.Add(cb); } else grid.Controls.Add(new Label());
         }
         Row("Game folder", _gameDir, "Your name", _name);
-        var modes = new FlowLayoutPanel { AutoSize = true }; modes.Controls.Add(_host); modes.Controls.Add(_join);
+        var modes = new FlowLayoutPanel { AutoSize = true }; modes.Controls.Add(_tab); modes.Controls.Add(_host); modes.Controls.Add(_join);
         grid.Controls.Add(new Label { Text = "Mode", AutoSize = true, Anchor = AnchorStyles.Left }); grid.Controls.Add(modes);
         grid.Controls.Add(new Label()); grid.Controls.Add(_address2);
         Row("Relay address", _address, "Port", _port);
@@ -80,6 +81,7 @@ public sealed class MainForm : Form
         Row("When my host is on rails", _pref);
         _password.UseSystemPasswordChar = false;
         _host.CheckedChanged += (_, _) => ApplyMode();
+        _join.CheckedChanged += (_, _) => ApplyMode();
         _start.Click += (_, _) => StartAgent();
         _stop.Click += (_, _) => StopAgent();
         _game.Click += (_, _) => StartGame();
@@ -123,7 +125,7 @@ public sealed class MainForm : Form
         _password.Text = _cfg.Password;
         _serverName.Text = _cfg.ServerName;
         _pref.SelectedIndex = RailsRules.ParsePref(_cfg.RailsPref) switch { RailsPref.Join => 1, RailsPref.Free => 2, _ => 0 };
-        (_cfg.Role == "host" ? _host : _join).Checked = true;
+        (_cfg.Idle ? _tab : _cfg.Role == "host" ? _host : _join).Checked = true;
         ApplyMode();
         _status.Text = GameLocator.LooksLikeTheGame(_cfg.GameDir) ? "Ready. Press 1 to start the co-op agent." : "Kingdom Come: Deliverance was not found.";
     }
@@ -131,8 +133,9 @@ public sealed class MainForm : Form
     private void ApplyMode()
     {
         bool host = _host.Checked;
-        _address.Enabled = !host; _serverName.Enabled = host;
-        _address2.Text = host ? "Tell your friends: " + string.Join("  or  ", MyAddresses()) : "Ask your host for their address and port.";
+        _address.Enabled = _join.Checked; _serverName.Enabled = host;
+        _address2.Text = _tab.Checked ? "In the game: Multiplayer > Host a game / Join a game. Friends use: " + string.Join("  or  ", MyAddresses())
+            : host ? "Tell your friends: " + string.Join("  or  ", MyAddresses()) : "Ask your host for their address and port.";
     }
 
     /// <summary>The addresses a friend could use: a Tailscale 100.x address first, then the LAN ones. Never "localhost".</summary>
@@ -154,9 +157,14 @@ public sealed class MainForm : Form
     private void SaveSettings()
     {
         _cfg.PlayerName = Safe.Name(_name.Text);
-        _cfg.Role = _host.Checked ? "host" : "guest";
-        _cfg.Serve = _host.Checked;
-        _cfg.RelayHost = _host.Checked ? "127.0.0.1" : _address.Text.Trim();
+        _cfg.Idle = _tab.Checked;
+        if (!_tab.Checked)
+        {
+            _cfg.Role = _host.Checked ? "host" : "guest";
+            _cfg.Serve = _host.Checked;
+            _cfg.RelayHost = _host.Checked ? "127.0.0.1" : _address.Text.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(_address.Text)) _cfg.RelayHost = _address.Text.Trim();   // the tab joins the address saved here
         _cfg.RelayPort = int.TryParse(_port.Text, out var p) ? p : Proto.DefaultPort;
         _cfg.Password = _password.Text;
         _cfg.ServerName = Safe.Clean(_serverName.Text, 40) is { Length: > 0 } s ? s : "Deliver Us";
@@ -167,13 +175,13 @@ public sealed class MainForm : Form
     private void StartAgent()
     {
         if (!GameLocator.LooksLikeTheGame(_cfg.GameDir)) { MessageBox.Show("Kingdom Come: Deliverance was not found. Install it in Steam first."); return; }
-        if (!_host.Checked && string.IsNullOrWhiteSpace(_address.Text))
+        if (_join.Checked && string.IsNullOrWhiteSpace(_address.Text))
         {
             MessageBox.Show("Enter your host's address (for example 100.64.12.3). Ask them: it is shown in their launcher.", "Address needed");
             return;
         }
         var bad = _address.Text.Trim().ToLowerInvariant();
-        if (!_host.Checked && (bad == "localhost" || bad.StartsWith("127.")))
+        if (_join.Checked && (bad == "localhost" || bad.StartsWith("127.")))
         {
             MessageBox.Show("That address is this computer. Use your host's address (their launcher shows it).", "Not localhost");
             return;

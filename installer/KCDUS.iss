@@ -9,7 +9,10 @@
 ; What it does:
 ;   * finds Kingdom Come: Deliverance through Steam (the registry, then every library in libraryfolders.vdf), shows the
 ;     folder it found and lets the player correct it, and refuses a folder that is not the game;
-;   * deploys the mod into <game>\Mods\kcdus (mod.manifest, mod.cfg, Data\kcdus.pak): ONLY these three files, never the sources;
+;   * makes the player accept Warhorse's modding EULA (its section 4.7: a mod that is passed on must carry the EULA and the recipient must agree);
+;   * deploys the mod into <game>\Mods\kcdus (mod.manifest, mod.cfg, Data\kcdus.pak, the EULA): ONLY these files, never the sources;
+;   * builds the game's "Multiplayer" menu tab ON THIS COMPUTER from the player's own GameData.pak (Data\kcdus-ui.pak, by KcdUsAgent --build-ui):
+;     nothing of Warhorse's is shipped in this installer, and nobody needs the Modding Tools;
 ;   * installs the launcher, the agent and the relay into %LocalAppData%\KCDUS (no administrator rights needed);
 ;   * writes the agent's settings with the game folder it found, so the first start needs no setup;
 ;   * optionally (a task, ticked by default) blocks the game's remote-console port 4600 from every other computer. That one
@@ -41,7 +44,9 @@ PrivilegesRequired=lowest
 UsePreviousAppDir=yes
 DefaultGroupName={#ShortcutName}
 DisableProgramGroupPage=yes
-LicenseFile=..\LICENSE
+; The player must accept Warhorse's modding EULA (the mod has to carry it: its section 4.7). Our own license (GPL-3.0) is shown right after.
+LicenseFile=..\docs\WARHORSE-MODDING-EULA.txt
+InfoBeforeFile=..\LICENSE
 OutputDir=..\release
 OutputBaseFilename=KingdomComeDeliverUs-Setup-{#AppVersion}
 Compression=lzma2/max
@@ -73,11 +78,17 @@ Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly
 Source: "..\AUTHORS"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\PLAYING-TOGETHER.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\KNOWN-LIMITS.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
+Source: "..\docs\MENU.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
+Source: "..\docs\SHARED-WORLDS.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
+Source: "..\docs\FEATURE-PARITY.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
+Source: "..\docs\WARHORSE-MODDING-EULA.txt"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly
 ; The game mod: these three files and nothing else. uninsneveruninstall: the uninstaller must not delete files in the player's game
 ; folder unasked; removal is the explicit question in CurUninstallStepChanged.
 Source: "..\build\mod\kcdus\mod.manifest"; DestDir: "{code:GameModDir}"; Flags: ignoreversion overwritereadonly uninsneveruninstall
 Source: "..\build\mod\kcdus\mod.cfg"; DestDir: "{code:GameModDir}"; Flags: ignoreversion overwritereadonly uninsneveruninstall
 Source: "..\build\mod\kcdus\Data\kcdus.pak"; DestDir: "{code:GameModDir}\Data"; Flags: ignoreversion overwritereadonly uninsneveruninstall
+; the mod carries the EULA it was made under (EULA 4.7)
+Source: "..\docs\WARHORSE-MODDING-EULA.txt"; DestDir: "{code:GameModDir}"; Flags: ignoreversion overwritereadonly uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#ShortcutName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Comment: "{#Disclaimer}"
@@ -220,6 +231,17 @@ begin
   Result := AddBackslash(ChosenGameDir) + 'Mods\kcdus';
 end;
 
+{ The Multiplayer tab is a patch of the player's own menu files; it is made here, by the program that was just installed. Failing is not fatal:
+  everything except the tab works (the agent tries again by itself at every start). }
+procedure BuildMenuTab();
+var
+  Code: Integer;
+begin
+  if not Exec(ExpandConstant('{app}\KcdUsAgent.exe'), '--build-ui --game-dir "' + ChosenGameDir + '"', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    SuppressibleMsgBox('The mod is installed, but the Multiplayer tab could not be added to the game''s menu (the game''s menu files are not the ones this version knows).' + #13#10#13#10 +
+      'Everything else works: use the launcher to host or join. Run  KcdUsAgent.exe --build-ui  again after the game or the mod is updated.', mbInformation, MB_OK, IDOK);
+end;
+
 { The launcher reads this on first start: the game folder is already filled in. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -229,9 +251,11 @@ begin
   begin
     Path := ChosenGameDir;
     StringChangeEx(Path, '\', '\\', True);
-    Json := '{' + #13#10 + '  "gameDir": "' + Path + '",' + #13#10 + '  "playerName": "Henry",' + #13#10 + '  "role": "guest"' + #13#10 + '}';
+    { idle: the agent waits for the game's Multiplayer tab (host / join / world options are chosen there) }
+    Json := '{' + #13#10 + '  "gameDir": "' + Path + '",' + #13#10 + '  "playerName": "Henry",' + #13#10 + '  "role": "guest",' + #13#10 + '  "idle": true' + #13#10 + '}';
     if not FileExists(ExpandConstant('{app}\kcdus-agent.json')) then
       SaveStringToFile(ExpandConstant('{app}\kcdus-agent.json'), Json, False);
+    BuildMenuTab();
   end;
 end;
 
@@ -249,6 +273,8 @@ begin
                 mbConfirmation, MB_YESNO, IDYES) = IDYES then
       begin
         DeleteFile(ModDir + '\Data\kcdus.pak');
+        DeleteFile(ModDir + '\Data\kcdus-ui.pak');
+        DeleteFile(ModDir + '\WARHORSE-MODDING-EULA.txt');
         DeleteFile(ModDir + '\mod.manifest');
         DeleteFile(ModDir + '\mod.cfg');
         RemoveDir(ModDir + '\Data');

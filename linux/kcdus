@@ -66,6 +66,7 @@ cmd_doctor() {
   if g="$(game_dir)" && [[ -n "$g" ]]; then ok "game: $g"; else bad "Kingdom Come: Deliverance (the first game) is not installed in any Steam library (set KCDUS_GAME_DIR)"; g=; fi
   if [[ -n "$g" ]]; then
     [[ -f "$g/Mods/kcdus/Data/kcdus.pak" ]] && ok "mod installed" || bad "mod not installed: run  kcdus install"
+    [[ -f "$g/Mods/kcdus/Data/kcdus-ui.pak" ]] && ok "Multiplayer tab built" || warn "no Multiplayer tab yet (kcdus install builds it from your own game files; the mod works without it)"
     [[ -f "$g/Mods/kcdus/mod.cfg" ]] && grep -q 'log_EnableRemoteConsole *= *1' "$g/Mods/kcdus/mod.cfg" && ok "remote console enabled by mod.cfg" || bad "mod.cfg missing or without log_EnableRemoteConsole = 1"
   fi
   [[ -x "$ROOT/agent/KcdUsAgent" ]] && ok "agent" || bad "agent/KcdUsAgent missing or not executable"
@@ -85,13 +86,29 @@ cmd_doctor() {
   [[ $FAILED == 0 ]] && echo "everything needed is in place" || { echo "${R}something is missing (above)${N}"; return 1; }
 }
 
+# Warhorse's modding EULA (its section 4.7): a mod that is passed on carries the EULA, and the person who gets it must agree.
+accept_eula() {
+  [[ -f "$STATE/eula-accepted" ]] && return 0
+  [[ "${KCDUS_ACCEPT_EULA:-}" == yes ]] && { date -u +%FT%TZ >"$STATE/eula-accepted"; return 0; }
+  echo "This mod is made under Warhorse Studios' Kingdom Come: Deliverance End User License Agreement, including its Modding Terms."
+  echo "Read it first:  $ROOT/docs/WARHORSE-MODDING-EULA.txt"
+  [[ -t 0 ]] || die "to accept it without a terminal, run:  KCDUS_ACCEPT_EULA=yes ./kcdus install"
+  read -r -p "Do you agree to be bound by it? [yes/no] " a
+  [[ "$a" == yes ]] || die "not accepted: nothing was installed"
+  date -u +%FT%TZ >"$STATE/eula-accepted"
+}
+
 cmd_install() {
   local g; g="$(game_dir)" || die "the game was not found (set KCDUS_GAME_DIR)"
   [[ -n "$(game_pid)" ]] && die "close the game first"
+  accept_eula
   rm -rf "$g/Mods/kcdus"; mkdir -p "$g/Mods/kcdus/Data"
   cp "$ROOT/mod/kcdus/mod.manifest" "$ROOT/mod/kcdus/mod.cfg" "$g/Mods/kcdus/"
   cp "$ROOT/mod/kcdus/Data/kcdus.pak" "$g/Mods/kcdus/Data/"
+  cp "$ROOT/docs/WARHORSE-MODDING-EULA.txt" "$g/Mods/kcdus/"
   ok "mod installed to $g/Mods/kcdus"
+  # the Multiplayer tab is a patch of the game's own menu files, made on this computer (nothing of Warhorse's is in this package)
+  if "$ROOT/agent/KcdUsAgent" --build-ui --game-dir "$g"; then ok "Multiplayer tab built"; else warn "the Multiplayer tab could not be built; everything else works (the agent tries again at every start)"; fi
   cmd_harden quiet
 }
 
@@ -109,17 +126,28 @@ cmd_harden() {   # the engine's remote console has no password; it must not be r
   echo "(this script never runs sudo; a desktop distro without a firewall enabled is open on your LAN)"
 }
 
-cmd_play() {
+cmd_start_game() {
   [[ -n "$(game_pid)" ]] && { echo "the game is already running"; return 0; }
   pgrep -x steam >/dev/null || { command -v steam >/dev/null && { echo "starting Steam..."; ( nohup steam >/dev/null 2>&1 & ); sleep 8; } || die "start Steam first"; }
   if command -v steam >/dev/null; then ( nohup steam -applaunch "$APPID" >"$STATE/game.log" 2>&1 & ); else xdg-open "steam://rungameid/$APPID" || die "could not ask Steam to start the game"; fi
-  echo "asked Steam to start Kingdom Come: Deliverance (Proton). Pick your save from the game's menu as usual."
+  echo "asked Steam to start Kingdom Come: Deliverance (Proton)."
 }
 
-run_agent() {   # run_agent <role> <relay host:port|-> <name>
+# play: start the game and run the agent that the game's Multiplayer tab talks to (Ctrl-C stops it)
+cmd_play() {
+  cmd_start_game
+  echo "In the game: Multiplayer > Host a game / Join a game / Game world. Keep this window open while you play."
+  run_agent idle - "${1:-}"
+}
+
+run_agent() {   # run_agent <role|idle> <relay host:port|-> <name>
   local g; g="$(game_dir)" || die "the game was not found (set KCDUS_GAME_DIR)"
-  local args=(--role "$1" --name "${3:-${USER:-Henry}}" --game-dir "$g" --status-port "$STATUS_PORT")
-  [[ "$1" == host ]] && args+=(--serve) || args+=(--relay "$2")
+  local args=(--name "${3:-${USER:-Henry}}" --game-dir "$g" --status-port "$STATUS_PORT")
+  if [[ "$1" == idle ]]; then args+=(--idle)   # the game's Multiplayer tab chooses host or join
+  else
+    args+=(--role "$1")
+    [[ "$1" == host ]] && args+=(--serve) || args+=(--relay "$2")
+  fi
   echo "agent: ${args[*]}"
   exec "$ROOT/agent/KcdUsAgent" "${args[@]}"
 }
@@ -141,7 +169,8 @@ kcdus $VERSION -- Kingdom Come: Deliver Us on Linux (Steam + Proton)
 
   kcdus doctor                  check Steam, the game, the mod and this package
   kcdus install | uninstall     put the mod into the game / take it out (game closed)
-  kcdus play                    ask Steam to start the game; load your own save
+  kcdus play [NAME]             start the game and the agent; use the game's Multiplayer tab (host, join, worlds, keys, settings)
+  kcdus start-game              only ask Steam to start the game
   kcdus host [NAME]             host: the agent serves the relay itself
   kcdus join HOST[:PORT] [NAME] join a host
   kcdus join-story | stay-story answer the host's "join or stay" question (if F11 / F12 cannot be read)
@@ -157,7 +186,8 @@ case "${1:-help}" in
   doctor) cmd_doctor ;;
   install) cmd_install ;;
   uninstall) cmd_uninstall ;;
-  play) cmd_play ;;
+  play) shift; cmd_play "$@" ;;
+  start-game) cmd_start_game ;;
   host) shift; cmd_host "$@" ;;
   join) shift; cmd_join "$@" ;;
   join-story) cmd_join_story ;;

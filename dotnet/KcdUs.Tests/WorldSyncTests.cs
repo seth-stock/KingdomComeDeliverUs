@@ -13,7 +13,7 @@ namespace KcdUs.Tests;
 /// Two players, each with their own copy of a shared world, meet over a real relay on loopback (docs/SHARED-WORLDS.md). The "game" is a fake that answers
 /// SAVEWORLD by writing a save and LOAD by remembering it; saves are real files in temporary save folders. (synthetic game, real relay, real files)
 /// </summary>
-public class WorldSyncTests
+public partial class WorldSyncTests
 {
     private static int FreePort() { var l = new TcpListener(IPAddress.Loopback, 0); l.Start(); int p = ((IPEndPoint)l.LocalEndpoint).Port; l.Stop(); return p; }
 
@@ -41,6 +41,7 @@ public class WorldSyncTests
             // the fake game: a save request writes a save into the playline in use; a load request is only remembered
             Game.OnSend = r =>
             {
+                if (r.StartsWith("CARDGET|")) Game.Emit("KCDUS|CARD|" + r.Split('|')[1] + "|0|1|" + CardText);
                 if (r.StartsWith("SAVEWORLD|"))
                 {
                     long unix = 1_799_000_000L + (++_saves);
@@ -53,6 +54,8 @@ public class WorldSyncTests
             _pump = Task.Run(async () => { while (!_cts.IsCancellationRequested) { try { Host.Tick(); await Task.Delay(100, _cts.Token); } catch { } } });
         }
 
+        public string CardText = "t:str=9;s:fencing=4";
+        public void EnterWorld() { Game.Emit("KCDUS|HELLO|0.1.0|1|pak"); Game.Emit("KCDUS|READY|1"); }
         private int _saves;
         public int CurrentPlayline = 0;
         public double CurrentHours = 1;
@@ -80,6 +83,8 @@ public class WorldSyncTests
             try { Directory.Delete(Dir, true); } catch { }
         }
     }
+
+    private static int Port() => FreePort();
 
     private static async Task Until(Func<bool> cond, int ms = 8000, string what = "condition", params Rig[] rigs)
     {

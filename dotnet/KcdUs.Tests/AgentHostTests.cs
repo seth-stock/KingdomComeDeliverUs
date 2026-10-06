@@ -165,6 +165,25 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task The_settings_form_also_sets_the_world_options()
+    {
+        await using var r = new Rig();
+        var c = r.Host.Config;
+        var changed = r.Host.ApplySettings(new NameValueCollection { ["worldname"] = "The Skalitz run", ["autosync"] = "0", ["henry"] = "mine", ["resolve"] = "host", ["savesdir"] = Path.Combine(r.Dir, "nope") });
+        Assert.Equal("The Skalitz run", c.WorldName);
+        Assert.False(c.AutoSync);
+        Assert.Equal("mine", c.HenryMode);
+        Assert.Equal("host", c.ResolvePolicy);
+        Assert.Equal("", c.SavesDir);                                   // a folder that does not exist is not taken
+        Assert.DoesNotContain("saves folder", changed);
+        r.Host.ApplySettings(new NameValueCollection { ["autosync"] = "maybe", ["henry"] = "everyone", ["resolve"] = "coinflip" });
+        Assert.False(c.AutoSync); Assert.Equal("mine", c.HenryMode); Assert.Equal("host", c.ResolvePolicy);   // nonsense changes nothing
+        string real = Path.Combine(r.Dir, "saves"); Directory.CreateDirectory(real);
+        r.Host.ApplySettings(new NameValueCollection { ["savesdir"] = real });
+        Assert.Equal(real, c.SavesDir);
+    }
+
+    [Fact]
     public async Task The_settings_page_needs_the_agents_own_link()
     {
         await using var r = new Rig();

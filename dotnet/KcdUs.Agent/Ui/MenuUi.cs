@@ -319,7 +319,28 @@ public static class MenuUi
             catch (InvalidDataException) { /* the main menu still has the tab */ }
         }
         foreach (var (k, v) in Pages()) files[k] = v;
+        files[StampFile] = Stamp;
         return files;
+    }
+
+    /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
+    public const int Revision = 4;
+    public const string StampFile = "kcdus-ui-version.txt";
+    public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
+
+    /// <summary>Is the pak on disk the one this agent would build, and not older than the game's own menu files (a game update replaces GameData.pak)?</summary>
+    public static bool IsCurrent(string gameDataPak, string uiPak)
+    {
+        try
+        {
+            if (!File.Exists(uiPak) || File.GetLastWriteTimeUtc(gameDataPak) > File.GetLastWriteTimeUtc(uiPak)) return false;
+            using var z = ZipFile.OpenRead(uiPak);
+            var e = z.GetEntry(StampFile);
+            if (e is null) return false;
+            using var r = new StreamReader(e.Open(), Encoding.ASCII);
+            return r.ReadToEnd().Trim() == Stamp;
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>Reads the player's GameData.pak and writes <paramref name="outPak"/>. Never throws: the answer says why there is no tab.</summary>

@@ -44,6 +44,7 @@ public static class Program
             return 2;
         }
         Log("game folder: " + gameDir);
+        EnsureMenuTab(gameDir, Log);
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -88,6 +89,15 @@ public static class Program
 
         Log("stopping");
         return 0;
+    }
+
+    /// <summary>The tab is made from the player's own menu files: after a game update or a new mod version it is made again, by itself (the game must be restarted to show it).</summary>
+    private static void EnsureMenuTab(string gameDir, Action<string> log)
+    {
+        string src = Path.Combine(gameDir, "Data", "GameData.pak"), dst = Path.Combine(gameDir, "Mods", "kcdus", "Data", Ui.MenuUi.PakName);
+        if (!Directory.Exists(Path.Combine(gameDir, "Mods", "kcdus")) || Ui.MenuUi.IsCurrent(src, dst)) return;
+        var r = Ui.MenuUi.Build(src, dst);
+        log("menu tab: " + r.Message + (r.Ok ? " (restart the game to see it)" : ""));
     }
 
     /// <summary>--build-ui: the game's Multiplayer tab is a patch of the player's own menu files, made here at install time (docs/MENU.md).</summary>

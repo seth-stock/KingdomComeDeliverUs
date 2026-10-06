@@ -68,6 +68,12 @@ Warhorse Studios or Deep Silver.
 | The host is a still figure | that is how it is in this version: bodies glide without walking animation |
 | Logs | `%LocalAppData%\KCDUS\logs\agent.log` and the game's `kcd.log` (lines that start `KCDUS|`). Remove your public IP before posting them |
 
+## 7b. The Multiplayer tab and shared worlds
+
+The game's main and pause menus have a **Multiplayer** entry with everything above (host, join, leave, the join-or-stay answer, the keys, a browser page for the settings) and the
+**Game world** pages: join a host's world (even a 100-hour one), start a new world together with new characters, which Henry you are, what happens when two copies were played apart,
+send your Henry home. All of it is explained in [MENU.md](MENU.md) and [SHARED-WORLDS.md](SHARED-WORLDS.md); what was and was not seen with two real people is in [KNOWN-LIMITS.md](KNOWN-LIMITS.md).
+
 ## 8. Safety and privacy
 
 * The mod switches on the engine's **remote console** (TCP 4600). The installer's firewall rule blocks other computers from it; the agent only ever talks to it on `127.0.0.1`.

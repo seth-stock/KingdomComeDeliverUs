@@ -270,6 +270,11 @@ public sealed class AgentHost : IAsyncDisposable
         { Config.RelayPort = rp; changed.Add("port"); }
         if ((v = f["pref"]) is { Length: > 0 } && RailsRules.ParsePref(v) is { } p) { Config.RailsPref = v; Session.SetPref(p); changed.Add("story answer"); }
         if ((v = f["keys"]) is { Length: > 0 } && KeyPreset.IsKnown(v)) { Config.KeyPreset = v.ToLowerInvariant(); ApplyKeys(); changed.Add("keys"); }
+        if ((v = f["worldname"]) is { Length: > 0 } && Safe.Clean(v, 40) != Config.WorldName) { Config.WorldName = Safe.Clean(v, 40); changed.Add("world name"); }
+        if ((v = f["autosync"]) is "1" or "0" && (v == "1") != Config.AutoSync) { Config.AutoSync = v == "1"; changed.Add("automatic world sync"); }
+        if ((v = f["henry"]) is "host" or "mine" && !string.Equals(v, Config.HenryMode, StringComparison.OrdinalIgnoreCase)) { Config.HenryMode = v; changed.Add("which Henry"); }
+        if ((v = f["resolve"]) is { Length: > 0 } && WorldResolve.ParsePolicy(v) is { } rp0 && WorldResolve.PolicyName(rp0) != Config.ResolvePolicy) { Config.ResolvePolicy = WorldResolve.PolicyName(rp0); changed.Add("reconnect rule"); }
+        if ((v = f["savesdir"]) is not null && v.Trim() != Config.SavesDir && (v.Trim().Length == 0 || Directory.Exists(v.Trim()))) { Config.SavesDir = v.Trim(); changed.Add("saves folder (restart the agent)"); }
         if (changed.Count > 0) Persist();
         return changed.Count == 0 ? "" : string.Join(", ", changed);
     }

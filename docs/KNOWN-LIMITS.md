@@ -4,12 +4,12 @@ Marks: **(seen)** observed working in the real game on one machine · **(tests)*
 
 ## What is NOT in this version (by design: KCD1 has no native-plugin route)
 
-* **No shared world.** Each player plays their own save. Enemies, NPCs, loot, quest state and combat are not shared; a friend does not see the host's fights.
+* **No shared simulation.** Each player's game simulates its own copy. Enemies, NPCs, loot, quest state and combat are not shared; a friend does not see the host's fights. What *is* shared is the world itself: a friend can take the host's save (even a 100-hour one) and each player keeps their own copy that they play alone or together, reconciled when they meet again: [SHARED-WORLDS.md](SHARED-WORLDS.md).
 * **No walking animation on the other players' bodies.** They are plain NPC bodies moved by script. They glide in an idle pose. **(seen)**
 * **No appearance sync.** Every body wears Henry's base-game clothing preset (a dark tunic with a scarf), whatever the real player wears. **(seen)**
 * **No quest mirroring.** The host's quest progress decides what the friend is *asked*; it is not copied onto the friend. A friend who joins a stretch is brought
   beside the host, nothing more.
-* **No loading of the host's world.** The retail game has no load command and the mod never edits a save: everybody loads their own save from the menu.
+* **Loading a received world is done by the mod, not by hand**: a menu graph of the mod starts the game's own load (retail has no load *command*). The mod never edits a save; a world that arrives is put in an empty one of the game's five playline slots.
 * **No voice, no dice minigame sync, no horse sync, no NPC drive, no damage between players.**
 * **Time:** only the time of day is shared, and only **forward**: the game ignores a request to set an earlier time, so a friend whose clock is ahead of the host's keeps their own, and one who would need to skip more than 12 hours does not sync. Time does nothing while the game has paused it (the prologue). Weather and the sky follow each game's own state.
 

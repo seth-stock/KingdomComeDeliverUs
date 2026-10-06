@@ -6,9 +6,11 @@ A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/King
 You and your host must all run THIS version (0.1.0): a different version is refused.
 
 WHAT IT IS (and is not)
-  Each of you plays your OWN save. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
+  Each of you plays your OWN copy of the world. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
   and when the host's story locks them in (a battle, the monastery, a tournament...) you are asked: join them (F11) or stay in the open world (F12).
-  Enemies, quests and loot are NOT shared. Nobody has played this with two people yet: please send logs if something looks wrong.
+  SHARED WORLDS: a friend can take the host's save (even a 100-hour one) and load it; or you start a new world together with new characters; each of you can then play it alone and
+  when you meet again the copy that is behind takes the other's (the old one is kept), each with their own Henry. Enemies, quests and loot are still NOT simulated together.
+  Everything is in the game's new "Multiplayer" menu (main menu and pause menu). Nobody has played this with two people yet: please send logs if something looks wrong.
 
 WHAT YOU NEED (in Steam)
   Kingdom Come: Deliverance (the first game), up to date (1.9.8). Steam must be RUNNING before the game starts.
@@ -18,15 +20,20 @@ STEP 1 -- install
         Get-FileHash .\KingdomComeDeliverUs-Setup-0.1.0.exe -Algorithm SHA256
     It must equal the number in SHA256.txt.
   * Run KingdomComeDeliverUs-Setup-0.1.0.exe. Windows will warn it is unsigned: click "More info", then "Run anyway".
+  * The first page is Warhorse Studios' modding licence (EULA): the mod has to carry it and you have to agree to it. Read it and accept, or the setup stops.
+  * Setup builds the game's "Multiplayer" menu entry from YOUR OWN game files: nothing of Warhorse's is in the installer and you need no modding tools.
   * It finds the game through Steam and shows the folder: correct it if wrong. Leave the "Block the game's remote-console port" box ticked
     (it asks for administrator permission once; it keeps other computers from sending your game console commands).
 
 STEP 2 -- connect (the host first)
-  * Open "Kingdom Come Deliver Us" (desktop shortcut).
-  * HOST: pick "Host a game". The launcher shows your addresses: give your friend the 100.x one if you both use Tailscale (free), e.g. 100.64.12.3:7788.
-  * FRIEND: pick "Join a friend", type the host's address and port. Never use "localhost".
-  * Click "1. START CO-OP", then "2. START THE GAME" (Steam starts the game). At the main menu LOAD YOUR OWN SAVE.
-  * The launcher says "Connected as host/guest". The other player appears as a figure near where they are. To meet, be at the same place on the map.
+  * Open "Kingdom Come Deliver Us" (desktop shortcut). Leave the first choice on "Decide in the game (its Multiplayer tab)".
+  * Click "1. START CO-OP", then "2. START THE GAME" (Steam starts the game).
+  * In the game, open "Multiplayer" (main menu, between Help and DLCs; or the pause menu):
+      HOST:   "Host a game". Give your friend the address the launcher shows: the 100.x one if you both use Tailscale (free), e.g. 100.64.12.3:7788.
+      FRIEND: "Settings in your browser": type the host's address and port and save; then "Join a game". Never use "localhost".
+  * "Game world": "Join the host's world" (the host's save comes to you and loads), "Start a new world together", "Play my shared world", "Save the world for everyone", which Henry you are, and
+    what happens when your two copies were played apart. Needs one EMPTY playline (the game has five). Details: docs\SHARED-WORLDS.md, docs\MENU.md.
+  * Without a shared world: load your own save as usual. The other player appears as a figure near where they are. To meet, be at the same place on the map.
 
 PLAYING
   * Chat: type in the launcher's chat box, Enter.

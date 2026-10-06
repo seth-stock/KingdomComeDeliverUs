@@ -154,6 +154,11 @@ button {{ margin-top:18px; padding:10px 18px; font:inherit; background:var(--acc
 <label>Your game's name<small>To host: the name friends see.</small><input name=""servername"" value=""{E(cfg.ServerName)}"" maxlength=""40""></label>
 <label>Port to host on<small>Friends connect to this port on your computer.</small><input name=""port"" value=""{cfg.RelayPort}"" inputmode=""numeric""></label>
 <label>When the host's story goes on rails<select name=""pref"">{Sel(cfg.RailsPref, "ask", "Ask me each time")}{Sel(cfg.RailsPref, "join", "Always join my host")}{Sel(cfg.RailsPref, "free", "Always stay in the open world")}</select></label>
+<label>Shared world: its name<small>The name a new shared world gets.</small><input name=""worldname"" value=""{E(cfg.WorldName)}"" maxlength=""40""></label>
+<label>When a friend's copy of the world is further along<select name=""autosync"">{Sel(cfg.AutoSync ? "1" : "0", "1", "Take it by myself while I am at a menu (mine is kept as a backup)")}{Sel(cfg.AutoSync ? "1" : "0", "0", "Only when I choose it in the game")}</select></label>
+<label>Which Henry goes into a world I receive<select name=""henry"">{Sel(cfg.HenryMode.ToLowerInvariant(), "host", "The world's own Henry")}{Sel(cfg.HenryMode.ToLowerInvariant(), "mine", "My Henry: levels raised to mine, my things added")}</select></label>
+<label>Which copy goes on after we played apart<select name=""resolve"">{Sel(cfg.ResolvePolicy, "furthest", "The further-played one")}{Sel(cfg.ResolvePolicy, "host", "The host's")}{Sel(cfg.ResolvePolicy, "newest", "The newest save")}</select></label>
+<label>The game's save folder<small>Leave empty to find it by itself.</small><input name=""savesdir"" value=""{E(cfg.SavesDir)}""></label>
 <label>Keys for join / stay<select name=""keys"">{Sel(cfg.KeyPreset, "f11f12", "F11 join, F12 stay")}{Sel(cfg.KeyPreset, "f9f10", "F9 join, F10 stay")}{Sel(cfg.KeyPreset, "off", "No keys (use the menu)")}</select></label>
 <button type=""submit"">Save</button>
 </form></main></body></html>";

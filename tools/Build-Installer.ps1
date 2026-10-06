@@ -46,6 +46,15 @@ Write-Host "   $out"
 $pakPath = Join-Path $root 'build\mod\kcdus\Data\kcdus.pak'
 $pakHash = (Get-FileHash $pakPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
+Step '4b. what ships: our files only, and the EULA'
+$eula = Join-Path $root 'docs\WARHORSE-MODDING-EULA.txt'
+if (-not (Test-Path $eula)) { Fail 'docs\WARHORSE-MODDING-EULA.txt is missing: a mod that is passed on must carry Warhorse''s modding EULA (its section 4.7)' }
+foreach ($d in 'MENU.md', 'SHARED-WORLDS.md', 'FEATURE-PARITY.md') { if (-not (Test-Path (Join-Path $root "docs\$d"))) { Fail "docs\$d is missing (the installer ships it)" } }
+$modFiles = Get-ChildItem (Join-Path $root 'build\mod') -Recurse -File | ForEach-Object { $_.FullName.Substring((Join-Path $root 'build\mod').Length + 1) } | Sort-Object
+$expected = @('kcdus\Data\kcdus.pak', 'kcdus\mod.cfg', 'kcdus\mod.manifest') | Sort-Object
+if (($modFiles -join '|') -ne ($expected -join '|')) { Fail ("the built mod folder holds more or less than the three files it should: " + ($modFiles -join ', ')) }
+Write-Host '   the mod folder is exactly mod.manifest, mod.cfg and Data\kcdus.pak; the Multiplayer tab (kcdus-ui.pak) is built on the player''s computer from the player''s own game files'
+
 Step '5. the frame-rate soak'
 $recPath = Join-Path $root 'tools\perf\soak-record.json'
 if ($SkipSoakGate) { Write-Host '   SKIPPED by -SkipSoakGate (the installer is not release-grade)' -ForegroundColor Yellow }
@@ -70,6 +79,8 @@ foreach ($proj in 'KcdUs.Agent', 'KcdUs.Relay', 'KcdUs.Launcher') {
 }
 foreach ($exe in 'KcdUsAgent.exe', 'KcdUsRelay.exe', 'KcdUsLauncher.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { Fail "$exe is missing from the publish folder" } }
 Get-ChildItem $pub -Filter *.pdb | Remove-Item -Force
+$foreign = Get-ChildItem $pub -Recurse -File | Where-Object { $_.Extension -in '.pak', '.gfx', '.tbl', '.whs' -or $_.Name -match '^(GameData|Tables|Scripts)' }
+if ($foreign) { Fail ("the publish folder holds files that look like the game's own: " + (($foreign | ForEach-Object Name) -join ', ')) }
 Write-Host ("   {0:N1} MB in {1} files" -f ((Get-ChildItem $pub -Recurse | Measure-Object Length -Sum).Sum / 1MB), (Get-ChildItem $pub -Recurse -File).Count)
 
 Step '7. installer'

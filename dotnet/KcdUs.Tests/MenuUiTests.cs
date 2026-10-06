@@ -158,6 +158,32 @@ public class MenuUiTests
     }
 
     [Fact]
+    public void The_pak_remembers_what_built_it_and_is_rebuilt_when_the_game_or_the_mod_is_newer()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "kcdus-ui-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string game = Path.Combine(dir, "GameData.pak");
+            using (var z = ZipFile.Open(game, ZipArchiveMode.Create))
+            {
+                using var w = new StreamWriter(z.CreateEntry(MenuUi.MainMenu).Open(), Encoding.ASCII); w.Write(Main);
+            }
+            string ui = Path.Combine(dir, "kcdus-ui.pak");
+            Assert.False(MenuUi.IsCurrent(game, ui));                                   // nothing built yet
+            Assert.True(MenuUi.Build(game, ui).Ok);
+            Assert.True(MenuUi.IsCurrent(game, ui));
+            File.SetLastWriteTimeUtc(game, DateTime.UtcNow.AddMinutes(5));              // the game was updated after the tab was made
+            Assert.False(MenuUi.IsCurrent(game, ui));
+            File.SetLastWriteTimeUtc(game, DateTime.UtcNow.AddDays(-1));
+            Assert.True(MenuUi.IsCurrent(game, ui));
+            using (var z = ZipFile.Open(ui, ZipArchiveMode.Update)) z.GetEntry(MenuUi.StampFile)!.Delete();   // a pak of some other version
+            Assert.False(MenuUi.IsCurrent(game, ui));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void A_missing_pak_or_a_changed_game_is_an_answer_not_an_exception()
     {
         string dir = Path.Combine(Path.GetTempPath(), "kcdus-ui-" + Guid.NewGuid().ToString("N")[..8]);
