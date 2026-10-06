@@ -6,7 +6,7 @@ A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/King
 You and your host must all run THIS version (0.1.0): a different version is refused.
 
 WHAT IT IS (and is not)
-  Each of you plays your OWN save. You see each other as figures that follow each other around, you can chat, you share the clock,
+  Each of you plays your OWN save. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
   and when the host's story locks them in (a battle, the monastery, a tournament...) you are asked: join them (F11) or stay in the open world (F12).
   Enemies, quests and loot are NOT shared. Nobody has played this with two people yet: please send logs if something looks wrong.
 
