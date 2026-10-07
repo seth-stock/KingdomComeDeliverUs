@@ -368,14 +368,17 @@ public sealed class RelayServer : IAsyncDisposable
         peer.Hello = true;
 
         int hostId = HostId ?? 0;
-        Send(peer, MessageType.Welcome, $"{id}|{hostId}|{Proto.ProtocolVersion}|{_o.Release}|{_o.ServerName}|{ModeWord(room.Mode)}|{string.Join(',', room.Missing)}");
+        Send(peer, MessageType.Welcome, $"{id}|{hostId}|{Proto.ProtocolVersion}|{_o.Release}|{_o.ServerName}|{ModeWord(room.Mode)}|{string.Join(',', room.Missing)}|{FlagsOf(room)}");
         var others = string.Join(';', _peers.Values.Where(p => p.Hello && p.Id != id).OrderBy(p => p.Id).Select(p => $"{p.Id}:{p.Name}:{p.Role}"));
         Send(peer, MessageType.PlayerList, others);
-        Broadcast(MessageType.PlayerJoined, $"{id}|{name}|{role}|{ModeWord(room.Mode)}", except: id);
+        Broadcast(MessageType.PlayerJoined, $"{id}|{name}|{role}|{ModeWord(room.Mode)}|{FlagsOf(room)}", except: id);
         _log($"#{id} {name} joined as {role} ({remote}); {PlayerCount}/{_o.MaxPlayers}");
         return true;
         }
     }
+
+    /// <summary>"content" when the two installs' DLC or other mods differ (Coop.Contract warns, it does not refuse a presence room).</summary>
+    public static string FlagsOf(NegotiationResult room) => room.Notes.Any(n => n.StartsWith("different game content", StringComparison.Ordinal)) ? "content" : "";
 
     public static string ModeWord(RoomMode m) => m switch { RoomMode.Partial => "partial", RoomMode.SharedSimulation => "shared", _ => "presence" };
 

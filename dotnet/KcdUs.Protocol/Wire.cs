@@ -23,10 +23,11 @@ namespace KcdUs.Wire;
 ///         0x07 Bye         reason
 ///         0x08 InfoRequest (empty)                answered without a Hello: the server list's ping
 /// S to C  0x8C Challenge   nonce                  sent first, before the Hello is read
-///         0x81 Welcome     id|hostId|proto|release|serverName|mode|missing     mode: refused never; presence, partial or shared; missing = capabilities that keep it from being shared
+///         0x81 Welcome     id|hostId|proto|release|serverName|mode|missing|flags     mode: refused never; presence, partial or shared; missing = capabilities that keep it from being shared;
+///                          flags: "content" when this player's DLC/mods differ from the host's (worlds and characters are then not moved between them)
 ///         0x82 Reject      code|detail            code: version, password, full, host-taken, protocol
 ///         0x83 PlayerList  id:name:role;id:name:role;...
-///         0x84 PlayerJoined id|name|role|mode
+///         0x84 PlayerJoined id|name|role|mode|flags
 ///         0x85 PlayerLeft  id|reason
 ///         0x86 PState      id|state fields as sent
 ///         0x87 PChat       id|name|text

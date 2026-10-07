@@ -341,6 +341,7 @@ public sealed class Session : IDisposable
                     _hostId = int.Parse(f[1], CultureInfo.InvariantCulture);
                     _serverName = f.Length > 4 ? f[4] : "";
                     _roomMissing = f.Length > 6 ? f[6] : "";
+                    _contentDiffers = f.Length > 7 && f[7].Contains("content");
                     _peerModes[_myId] = f.Length > 5 ? f[5] : "presence";
                     _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\", room: {RoomWord()}");
                     Notify($"Connected to {_serverName}. {RoomSentence()}");
@@ -369,6 +370,7 @@ public sealed class Session : IDisposable
                         _peers[id] = new PeerInfo { Id = id, Name = f[1], Role = f[2] };
                         if (f[2] == "host") _hostId = id;
                         if (f.Length > 3) _peerModes[id] = f[3];
+                        if (f.Length > 4 && f[4].Contains("content")) { _contentDiffers = true; Notify($"{f[1]}'s game has other DLC or mods: worlds and characters will not be moved between you."); }
                         _log($"{f[1]} joined as {f[2]} (room: {RoomWord()})");
                         Notify($"{f[1]} joined");
                         if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
@@ -683,6 +685,10 @@ public sealed class Session : IDisposable
 
     private readonly Dictionary<int, string> _peerModes = new();
     private string _roomMissing = "";
+    private bool _contentDiffers;
+
+    /// <summary>False when a player in the room has other DLC or mods: a world or a Henry must not be moved between differently-equipped installs.</summary>
+    public bool ContentMatches { get { lock (_gate) return !_contentDiffers; } }
 
     /// <summary>The room's mode: the weakest negotiated mode among the players (presence, partial or shared).</summary>
     private string RoomWord()

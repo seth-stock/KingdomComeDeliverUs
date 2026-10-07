@@ -43,7 +43,8 @@ public static class HandshakeFactory
                     sb.Append("M:").Append(d!.ToLowerInvariant()).Append('\n');
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
-        return sb.Length == 0 ? "" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
+        // an install with no extra DLC or mods still has a profile (of nothing): "" would mean "unknown" and hide a real difference
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
     }
 
     public static Fingerprint Measure(string? gameDir, string? nativeDll = null)

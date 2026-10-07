@@ -149,7 +149,7 @@ public class RelayTests
         Assert.Equal("1:Henry:host", (await guest.Next(MessageType.PlayerList)).Text);
 
         var joined = await host.Next(MessageType.PlayerJoined);
-        Assert.Equal("2|Hans|guest|presence", joined.Text);
+        Assert.Equal("2|Hans|guest|presence|", joined.Text);
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class RelayTests
         await using var b = await TestClient.Connect(relay.Port);
         await b.Hello("Henry", release: Rel);
         await b.Next(MessageType.Welcome);
-        Assert.Equal("2|Henry (2)|guest|presence", (await a.Next(MessageType.PlayerJoined)).Text);
+        Assert.Equal("2|Henry (2)|guest|presence|", (await a.Next(MessageType.PlayerJoined)).Text);
     }
 
     [Fact]

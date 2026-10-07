@@ -225,6 +225,30 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task A_friend_with_other_dlc_or_mods_is_admitted_but_no_world_or_henry_is_moved_between_you()
+    {
+        string a = FakeGame("build-1"), b = FakeGame("build-1");
+        Directory.CreateDirectory(Path.Combine(b, "Mods", "someothermod"));          // only the guest has another mod
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a; guest.Host.GameDir = b;
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().RelayConnected);
+            await Until(() => !guest.Host.Session.ContentMatches);
+            await Until(() => !host.Host.Session.ContentMatches);                            // the host is told as well
+            await guest.Host.HandleAsync("world", "join");
+            await Until(() => guest.Game.Has("NOTE|Your game has other DLC or mods"));
+            Assert.False(guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // no request was sent
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    [Fact]
     public async Task A_guest_with_another_mod_payload_is_refused_and_the_status_says_why()
     {
         string a = FakeGame("build-1"), b = FakeGame("build-2");

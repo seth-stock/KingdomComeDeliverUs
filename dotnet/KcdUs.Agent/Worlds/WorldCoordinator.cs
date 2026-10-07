@@ -456,12 +456,15 @@ public sealed class WorldCoordinator : IDisposable
 
     // ================================================================ taking a world
 
+    private const string ContentRefusal = "Your game has other DLC or mods than your friend's, so a world or a Henry cannot be moved between you safely. Install the same DLC and mods on both, or play without sharing a world.";
+
     private async Task RequestAsync()
     {
         if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before receiving another world."); return; }
         if (_requestedFrom != 0 || _rx is not null) { Say("A world transfer is already pending."); return; }
         var s = _session();
         if (s.MyId == 0) { Say("Join a game first."); _title(MenuUi.Title.NeedHost); return; }
+        if (!s.ContentMatches) { Say(ContentRefusal); _title(MenuUi.Title.WorldBusy); return; }
         int target = _behind?.From ?? (s.IsHost ? s.Peers.FirstOrDefault(p => p.Id != s.MyId)?.Id ?? 0 : s.HostId);
         if (target == 0) { Say("Nobody to take a world from."); _title(MenuUi.Title.NeedHost); return; }
         string id = _behind?.Stamp.WorldId ?? "-";
@@ -499,6 +502,7 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task ServeAsync(int to, string worldId)
     {
+        if (!_session().ContentMatches) { _session().SendEvent($"wdone|{to}|-|0|different DLC or mods"); return; }
         if (Interlocked.Exchange(ref _sending, 1) == 1) { _session().SendEvent($"wdone|{to}|-|0|busy"); return; }
         try
         {
