@@ -18,13 +18,14 @@ public static class Program
             Console.WriteLine("KcdUsAgent --build-ui [--game-dir <path>]   (writes the game's Multiplayer tab: Mods/kcdus/Data/kcdus-ui.pak)");
             Console.WriteLine("KcdUsAgent --slot-list | --slot-archive 1..5 | --slot-restore <lease UUID> | --slot-recover");
             Console.WriteLine("KcdUsAgent --prepare-exact-traits --character-save <whs> --world-save <whs> --output <new staged whs>");
+            Console.WriteLine("KcdUsAgent --prepare-exact-inventory [--with-traits] --character-save <whs> --world-save <whs> --output <new staged whs>");
             Console.WriteLine("Slot changes require a closed game and --cloud-sync-paused. Archives preserve original and outgoing worlds.");
             Console.WriteLine("--idle: start doing nothing; the player hosts or joins from the Multiplayer tab in the game.");
             Console.WriteLine("Settings are read from kcdus-agent.json next to this program; the command line overrides them.");
             return 0;
         }
 
-        if (args.Contains("--prepare-exact-traits")) return Worlds.TraitsCommands.Run(args);
+        if (args.Contains("--prepare-exact-traits") || args.Contains("--prepare-exact-inventory")) return Worlds.TraitsCommands.Run(args);
         var cfg = AgentConfig.FromArgs(AgentConfig.Load(), args);
         if (Worlds.SlotCommands.Requested(args)) return Worlds.SlotCommands.Run(args, cfg);
         if (args.Contains("--build-ui")) return BuildUi(cfg);

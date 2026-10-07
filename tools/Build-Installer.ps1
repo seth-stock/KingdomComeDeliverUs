@@ -68,6 +68,8 @@ else {
 }
 
 Step '6. publish (self-contained win-x64)'
+& (Join-Path $root 'tools\Build-Engine.ps1')
+if($LASTEXITCODE -ne 0){Fail 'engine adapter build failed'}
 $rel = Join-Path $root 'release'
 $pub = Join-Path $rel 'KCDUS'
 if (Test-Path $pub) { Remove-Item $pub -Recurse -Force }
@@ -78,6 +80,7 @@ foreach ($proj in 'KcdUs.Agent', 'KcdUs.Relay', 'KcdUs.Launcher') {
     if ($LASTEXITCODE -ne 0) { Fail "publish of $proj failed" }
 }
 foreach ($exe in 'KcdUsAgent.exe', 'KcdUsRelay.exe', 'KcdUsLauncher.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { Fail "$exe is missing from the publish folder" } }
+Copy-Item -LiteralPath (Join-Path $root 'build\engine\KcdUsEngineBridge.dll') -Destination $pub
 Get-ChildItem $pub -Filter *.pdb | Remove-Item -Force
 $foreign = Get-ChildItem $pub -Recurse -File | Where-Object { $_.Extension -in '.pak', '.gfx', '.tbl', '.whs' -or $_.Name -match '^(GameData|Tables|Scripts)' }
 if ($foreign) { Fail ("the publish folder holds files that look like the game's own: " + (($foreign | ForEach-Object Name) -join ', ')) }

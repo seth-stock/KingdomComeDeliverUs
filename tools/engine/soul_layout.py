@@ -51,6 +51,10 @@ for tag,begin,end in records:
             sub=children(start,stop)
             print('Group:',hex(tag),[(hex(t),e-s) for t,s,e in sub])
             for t,s,e in sub:
+                if t in (0x934,0x931,0x935,0x936,0x926):
+                    print('Character field:',hex(t),'prefix',raw[s:min(e,s+48)].hex())
+                    try:print('Character field children:',hex(t),[(hex(ct),ce-cs) for ct,cs,ce in children(s,e)][:8])
+                    except ValueError:print('Character field is opaque:',hex(t))
                 if t in (0x927,0x92a):
                     try:
                         core=children(s,e)

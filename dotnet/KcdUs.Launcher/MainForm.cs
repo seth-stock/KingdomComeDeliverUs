@@ -208,10 +208,12 @@ public sealed class MainForm : Form
 
     private void StartGame()
     {
-        // The retail game starts through Steam (it must be running); the mod's mod.cfg opens the remote console, no switches needed.
-        try { Process.Start(new ProcessStartInfo("steam://rungameid/" + GameLocator.SteamAppId) { UseShellExecute = true }); }
-        catch (Exception e) { MessageBox.Show("Could not start Steam: " + e.Message); }
-        _status.Text = "Starting the game through Steam. Wait for the main menu, then LOAD YOUR SAVE (a host) or the co-op save (a guest).";
+        try
+        {
+            EngineGameStart.Start(_cfg.GameDir,Path.Combine(AppContext.BaseDirectory,"KcdUsEngineBridge.dll"));
+            _status.Text = "Starting the game. Wait for the main menu, then load your save or the received co-op save.";
+        }
+        catch(Exception e) { MessageBox.Show("Could not start the game: "+e.Message); }
     }
 
     private int StatusPort => _cfg.StatusPort;

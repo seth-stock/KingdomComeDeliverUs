@@ -2,14 +2,23 @@
 
 Marks: **(seen)** observed working in the real game on one machine · **(tests)** covered by offline tests only · **(not seen)** built, never observed.
 
-## What is NOT in this version (by design: KCD1 has no native-plugin route)
+## Development branch status
+
+Walking and peer equipment replication have been implemented on
+`codex/coop-reliability`. Equipment requires the rebuilt Windows launcher and
+its adapter for the verified retail engine. Offline inventory/progression
+preparation is available; regular joins still use additive cards. These changes
+are not a complete shared-simulation release. See
+[the current implementation status](IMPLEMENTATION-STATUS.md).
+
+## Remaining limits
 
 * **No shared simulation.** Each player's game simulates its own copy. Enemies, NPCs, loot, quest state and combat are not shared; a friend does not see the host's fights. What *is* shared is the world itself: a friend can take the host's save (even a 100-hour one) and each player keeps their own copy that they play alone or together, reconciled when they meet again: [SHARED-WORLDS.md](SHARED-WORLDS.md).
-* **No walking animation on the other players' bodies.** They are plain NPC bodies moved by script. They glide in an idle pose. **(seen)**
-* **No appearance sync.** Every body wears Henry's base-game clothing preset (a dark tunic with a scarf), whatever the real player wears. **(seen)**
+* Walking/idle on ordinary peer NPCs has been observed. Other poses and two-computer behavior require playtesting.
+* Equipment classes and condition synchronize with the Windows adapter. Unsupported engines retain default clothing; hair/dirt synchronization is incomplete.
 * **No quest mirroring.** The host's quest progress decides what the friend is *asked*; it is not copied onto the friend. A friend who joins a stretch is brought
   beside the host, nothing more.
-* **Loading a received world is done by the mod, not by hand**: a menu graph of the mod starts the game's own load (retail has no load *command*). The mod never edits a save; a world that arrives is put in an empty one of the game's five playline slots.
+* **Loading a received world is done by the mod**: a menu graph starts the game's own load. Offline character preparation creates a separate edited save; regular received-world transfers retain the five-playline requirement.
 * **No voice, no dice minigame sync, no horse sync, no NPC drive, no damage between players.**
 * **Time:** only the time of day is shared, and only **forward**: the game ignores a request to set an earlier time, so a friend whose clock is ahead of the host's keeps their own, and one who would need to skip more than 12 hours does not sync. Time does nothing while the game has paused it (the prologue). Weather and the sky follow each game's own state.
 

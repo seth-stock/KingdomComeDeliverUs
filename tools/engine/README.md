@@ -35,6 +35,17 @@ DLLs/executables on disk. Cloud saving must report zero before any test save.
 The shadow root references the user's installed game data; no game data is
 redistributed.
 
+For a smoke test through the production C# startup path, build
+`NativeStartSmoke/NativeStartSmoke.csproj` and the runtime engine adapter, then
+set `KCDUS_PROBE_NATIVE_START=1` before `launch`. The helper refuses any root
+outside the harness's UUID-marked private profile. `KCDUS_PROBE_ITEMS=1` is an
+optional read-only native-layout experiment for the exact gated engine hash;
+do not combine it with the runtime adapter. Its raw metadata stays under `_work`.
+
+`runtime_walk_probe.lua`, `runtime_outfit_probe.lua` and `outfit_probe.lua`
+mutate only disposable NPCs in a verified private loaded world. They are not
+included in the mod pak. `inventory_readback.lua` is read-only.
+
 Read-only tools: `search_scripts.py`, `animation_catalog.py`,
 `binding_disasm.py`, `save_layout.py`, `soul_layout.py`, `bindings.lua`,
 `item_fields.lua`, `traits_readback.lua`, `world_readback.lua`.

@@ -12,7 +12,8 @@ Warhorse Studios or Deep Silver.
 
 | | |
 |---|---|
-| See each other | every other player is a body that follows their position and heading (it glides, in an idle pose: no walking animation) |
+| See each other | ordinary NPC bodies follow peer positions/headings with walking and idle animation on the development branch |
+| Equipment | peer equipment replicates when started with the rebuilt Windows launcher and supported engine adapter; see `IMPLEMENTATION-STATUS.md` for limits |
 | Talk | type in the launcher's chat box; messages appear at the top of the game screen |
 | Time of day | a friend whose game is behind the host's time of day skips forward (up to 12 game hours) to match it. **The game cannot turn its clock back**, so a friend who is ahead keeps their own clock (the agent log says so) |
 | **Join or stay** | when the host is in a stretch of the story that locks them in (a battle, the monastery, a duel, a tournament, Theresa's flashback...) each friend is asked: **F11 join** (be brought beside the host and, in a staged stretch, kept within 120 m) or **F12 stay** in the open world. No answer in 30 seconds counts as joining. **F11 joins at any time** |

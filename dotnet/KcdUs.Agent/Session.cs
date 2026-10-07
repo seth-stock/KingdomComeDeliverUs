@@ -65,6 +65,7 @@ public sealed class Session : IDisposable
     private long _localAtMs;
     private bool _inWorld;
     private string _gameModVersion = "";
+    private string? _localOutfit;
     private int _gameFps;
     private int _gameErrors;
 
@@ -186,6 +187,7 @@ public sealed class Session : IDisposable
                         }
                         else
                         {
+                            _localOutfit=null;
                             _local = null;
                             if (_myId != 0) _relay.Send(MessageType.Event, "world|0");
                             _story.Reset();
@@ -205,6 +207,14 @@ public sealed class Session : IDisposable
                         if (_myId != 0) _relay.Send(MessageType.State, s.Encode());
                         break;
                     }
+
+                case "OUT":
+                    if(_inWorld && f.Length==2 && OutfitSnapshot.Valid(f[1]))
+                    {
+                        _localOutfit=f[1];
+                        if(_myId!=0)_relay.Send(MessageType.Event,"outfit|"+f[1]);
+                    }
+                    break;
 
                 case "HB":
                     // HB|lastSeq|fps|ticks|errors
@@ -332,6 +342,7 @@ public sealed class Session : IDisposable
                     _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\"");
                     Notify($"Connected to {_serverName}");
                     if (_inWorld) { _relay.Send(MessageType.Event, "world|1"); _game.Send("QSNAP"); _awaitingBaseline = true; _seedPending = true; _baselineUntilMs = now + BaselineMs; }
+                    if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
                     break;
 
                 case MessageType.Reject:
@@ -356,6 +367,7 @@ public sealed class Session : IDisposable
                         if (f[2] == "host") _hostId = id;
                         _log($"{f[1]} joined as {f[2]}");
                         Notify($"{f[1]} joined");
+                        if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
                         break;
                     }
 
@@ -414,6 +426,9 @@ public sealed class Session : IDisposable
         if (IsWorldKind(f[0])) { WorldEvent?.Invoke(from, f); return; }
         switch (f[0])
         {
+            case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
+                if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
+                break;
             case "world":
                 if (f.Length > 1 && f[1] == "0")
                 {

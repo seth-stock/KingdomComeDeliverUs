@@ -29,16 +29,20 @@ public static class TraitsCommands
                 if (stream.Length > ExactTraitsSave.MaxFileBytes) throw new InvalidDataException("Save exceeds bounds.");
                 var data = new byte[checked((int)stream.Length)]; stream.ReadExactly(data); return data;
             }
-            var traits = ExactTraitsSave.Capture(Read(character));
-            var staged = ExactTraitsSave.Prepare(Read(world), traits);
+            var source=Read(character);var staged=Read(world);
+            bool inventory=args.Contains("--prepare-exact-inventory");
+            if(!inventory || args.Contains("--with-traits")) staged=ExactTraitsSave.Prepare(staged,ExactTraitsSave.Capture(source));
+            if(inventory)staged=ExactTraitsSave.PrepareInventory(staged,ExactTraitsSave.CaptureInventory(source));
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 file.Write(staged); file.Flush(true);
             }
-            Console.WriteLine($"Prepared progression save: {output}");
+            Console.WriteLine($"Prepared {(inventory?"inventory":"progression")} save: {output}");
             Console.WriteLine($"SHA256: {Convert.ToHexString(SHA256.HashData(staged))}");
-            Console.WriteLine("Stat/skill XP and perk state prepared. Inventory/equipment remain from the world save. Engine acceptance is unproven.");
+            Console.WriteLine(inventory
+                ?"Native inventory/equipment prepared. Resources, other soul state and story remain from the world save. Validate in an isolated game before installation."
+                :"Stat/skill XP and perk state prepared. Inventory/equipment remain from the world save. Engine acceptance is unproven.");
             return 0;
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException or OverflowException)

@@ -2,6 +2,7 @@
 from pathlib import Path
 import struct
 import sys
+import re
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 data = Path(sys.argv[1]).read_bytes()
 pe = struct.unpack_from('<I',data,0x3c)[0]
@@ -21,6 +22,32 @@ def va(offset):
     return None
 decoder=Cs(CS_ARCH_X86,CS_MODE_64)
 for term in sys.argv[2:]:
+    if term.startswith('?'):
+        value=int(term[1:],16);pattern=struct.pack('<I',value)
+        functions=[]
+        for name,rva,offset,size in sections:
+            if name=='.pdata':
+                for at in range(offset,offset+size-11,12):
+                    begin,end,_=struct.unpack_from('<III',data,at)
+                    if begin:functions.append((base+begin,base+end))
+        import bisect
+        functions.sort();begins=[f[0] for f in functions]
+        for name,rva,offset,size in sections:
+            if name!='.text':continue
+            code=data[offset:offset+size];at=0
+            while True:
+                at=code.find(pattern,at)
+                if at<0:break
+                pc=base+rva+at;index=bisect.bisect_right(begins,pc)-1
+                if index>=0 and functions[index][0]<=pc<functions[index][1]:
+                    begin,end=functions[index];start=offset+begin-base-rva
+                    instructions=list(decoder.disasm(data[start:offset+at+70],begin))
+                    selected=next((i for i,ins in enumerate(instructions) if ins.address<=pc<ins.address+ins.size),None)
+                    if selected is not None and re.search(r'(?<![\da-f])0x'+format(value,'x')+r'(?![\da-f])',instructions[selected].op_str):
+                        print('Constant:',hex(value),'at',hex(pc),'function',hex(begin))
+                        for ins in instructions[max(0,selected-7):selected+9]:print(hex(ins.address),ins.mnemonic,ins.op_str)
+                at+=1
+        continue
     if term.startswith('%'):
         target=int(term[1:],16)
         for _,rva,offset,size in sections:

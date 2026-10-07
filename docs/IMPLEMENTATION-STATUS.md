@@ -14,6 +14,9 @@ This is a development branch. It must not be distributed as a complete co-op rel
 - Read-only engine investigation: `tools/Inspect-EngineCapabilities.py` and the in-game `kcdus_capabilities` command. The committed report identifies 35 API candidates from this installed game's scripts and hashes the relevant modules. Candidate presence is deliberately **unproven**, never equivalent to working engine support.
 - Corrected the in-game Henry tooltip: the existing additive card does not transfer perks or exactly replace a character.
 - Added offline `--prepare-exact-traits` progression preparation. A disposable prepared world loaded in retail KCD1 with lower stat/skill levels; its skill XP and perk-state bytes survived native saving. This is not full character/inventory restoration or the normal live join flow. See [engine evidence and unresolved gates](ENGINE-INTEGRATION-20261006.md).
+- Enabled walking on ordinary NPCs using full-body looping animation clips. No native Player/channel proxy is created. Idle transitions, removal and rendered foot/knee movement were observed in the retail engine. Entity-name checks protect against stale IDs after a load.
+- Implemented equipment snapshots, validation, relay transport and application to peer NPCs. A small original C++ adapter exposes the equipped bit on the verified Windows retail engine only. Launch through the rebuilt launcher to load it during suspended startup. Item classes/conditions matched native readback and replicated plate armor/helmet rendered in game.
+- Added offline `--prepare-exact-inventory [--with-traits]`. It replaces Henry's native inventory record, preserves instance metadata/extensions, and refuses carried instance IDs already owned by other inventories. An early six-item Henry replaced the destination's 127-item inventory; the engine loaded and saved that inventory record byte for byte. It is not wired into live joins.
 
 ## Offline slot commands
 
@@ -36,7 +39,7 @@ For a disposable profile, configure all three paths explicitly; never use your r
 |---|---|
 | Stable participant identities / compatibility | Persistent identity integration, verified content profiles, and complete artifact provenance |
 | Checkpoint publication | Consistent live world/character/inventory capture barrier; engine-load acknowledgement; registry/install transaction coordination |
-| Walking and outfits | Player proxy animation reaches walking/idle, but removal crashes; establish safe lifecycle, outfit capture and replication |
+| Walking and outfits | Implemented on ordinary NPCs; native outfit adapter supports the verified Windows engine only. Two-computer, load/reconnect soak, additional poses, dirt/hair and content compatibility acceptance remain |
 | Exact characters and perks | Wire verified progression staging into capture/install/acknowledgement; cover ability flags, inventory, equipment, perk accounting and gameplay effects; replace additive cards |
 | Shared simulation | Real damage/AI/inventory/quest interception, persistent entity identity, host authority, interest management, transitions and checkpoint recovery |
 | Slot UI/lifecycle | Launcher/menu UI and uninstall restoration; automatic startup recovery for directory switches while the game is stopped |
@@ -48,4 +51,4 @@ Claude's original checkout remains on `main` at bd17e95. This worktree is `../co
 
 ## Verification on 2026-10-06
 
-The .NET/Lua-stub suite passed 200 tests (baseline 167), including five progression-staging tests. Engine probes ran in a private process/profile with cloned saves; positive and negative results are recorded in the linked engine report. Walking proxies and negative-XP/goal-pipe routes remain excluded from the normal mod. No two-computer multiplayer test was performed.
+The .NET/Lua-stub suite passed 224 tests (baseline 167), including progression/inventory staging, locomotion, stale-handle protection and outfit transport tests. Engine probes ran in private processes/profiles with cloned saves; positive and negative results are recorded in the linked engine report. Native Player proxies and negative-XP/goal-pipe routes remain excluded. No two-computer multiplayer test was performed. No complete co-op release was published.

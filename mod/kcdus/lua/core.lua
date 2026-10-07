@@ -215,9 +215,11 @@ function K.hookPlayer()
     end
     K.hooked = true
     for _, name in ipairs({ "OnLoad", "OnReset", "OnSpawn", "OnInit", "OnResetLoad" }) do
+        local callbackName=name
         local old = Player[name]
         if type(old) == "function" then
             Player[name] = function(...)
+                if K.Ghosts and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Ghosts.onWorldReset() end
                 K.try("hook:" .. name, K.kick)
                 return old(...)
             end

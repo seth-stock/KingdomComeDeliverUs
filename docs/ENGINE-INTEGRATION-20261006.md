@@ -1,7 +1,8 @@
 # KCD1 engine integration evidence, 6 October 2026
 
-This development branch does not yet implement full shared simulation or exact
-inventory/equipment restoration. The normal Henry card remains additive. No
+This development branch does not yet implement full shared simulation or full
+character restoration during live joins. Offline inventory/equipment preparation
+and runtime peer outfits are implemented. The normal Henry card remains additive. No
 experimental player proxy is enabled in the runtime mod.
 
 ## Implemented progression preparation
@@ -36,7 +37,37 @@ recovery, skill/ability-flag coverage, inventory/equipment references and
 duplicate-item handling. Perk transfer also needs tests with deliberately
 different chosen perks and their gameplay effects.
 
-## Walking prototype and rejected routes
+## Enabled walking and equipment replication
+
+Ordinary NPCs now use `StartAnimation(0, clip, 0, 0.2, rate, true, true)` with
+`relaxed_walk_medium`, `relaxed_run_medium` and `relaxed_sprint_fast`. Idle
+relinquishes the layer with `StopAnimation`. The tested walking route showed
+substantial foot/knee changes, returned to idle and removed the entity without
+losing world readiness. Clothing changes rebuild the skeleton; animation waits
+half a second after spawn/equipment application. Name checks prevent a stale
+entity handle moving or removing a world NPC after loading.
+
+The retail engine omits equipped-slot enumeration and disables `package.loadlib`.
+The original `native/KcdUs.EngineBridge` adapter extends item readback with an
+equipped bit. It checks the complete WHGame.dll SHA-256
+`CF9F6DC384EDCF35C20647A912745DDB8ADB5BA65953E329C24E89DD9C4381AA`
+and a function signature before installing its in-process startup hook. It
+does not patch game files on disk or attach to an existing running game.
+The rebuilt launcher owns a suspended child, loads the adapter and resumes it.
+The same C# startup path was exercised with a private profile isolation module.
+
+Equipment capture, relay forwarding and peer application are in the runtime.
+Native readback matched all 16 equipped classes/conditions in one test; the
+copied plate armor and helmet rendered on an ordinary NPC. A packaged peer
+handler applied another 15-item outfit while walking. Saving with a nonpersistent
+peer body left no peer name in the save and retained the original 2673 soul
+records. Inventory-manager record counts can grow during play; this test does
+not establish absence of orphan inventory records or a long-session soak.
+
+Windows startup and the exact engine hash are currently required for outfits.
+Hair/dirt, additional poses and two-computer acceptance remain unverified.
+
+## Rejected Player/channel routes
 
 The retail `human:PlayAnim` binding requires **two strings**, fragment and tag.
 The installed animation database supplies `MotionMovement`, `MotionIdle` and
@@ -59,7 +90,30 @@ evidence and must not be used in normal play.
 `alive`; it does not establish collision-free proxies. Ordinary NPC
 `SimulateOnAction`/animation calls did not establish reliable locomotion.
 
-## Exact characters, outfits and shared simulation
+## Native inventory preparation and remaining character work
+
+`--prepare-exact-inventory --character-save <source.whs> --world-save
+<destination.whs> --output <new.whs>` replaces only Henry's native inventory.
+Add `--with-traits` for the verified XP/perk preparation as well. All output
+guards from progression preparation apply. The parser validates inventory
+ownership, counts, instance uniqueness, item condition/amount and native item
+framing. It preserves equipment flags, stolen-state bytes and item extensions
+verbatim. A source instance already present in another destination inventory
+is refused before output or installation.
+
+In a private retail session, the staged 52-hour world loaded with the early
+Henry's six items instead of the destination's 127. Native item readback matched
+the six classes, conditions, amounts and equipped flags. Strength/agility/vitality
+were 1, speech 3 and tested skill XP was zero. Native saving preserved the
+1002-byte inventory record exactly (SHA-256
+`caa55edc71946ae9cf880983599bb8eaf61ffa2832c623b8d7477f20f9d9d600`).
+
+This is offline staging, not live capture/install acknowledgement. Resources,
+ability flags, companions, timed effects and drawn-weapon references still need
+specific restoration rules and engine tests. Perishable/stolen timers across
+different world clocks and item conflicts also require policy and validation.
+
+## Shared simulation remains unimplemented
 
 Retail Lua has no observed level setters or perk enumeration. Adding negative
 reading XP raised the disposable Henry from level 3 to 20; never use negative XP

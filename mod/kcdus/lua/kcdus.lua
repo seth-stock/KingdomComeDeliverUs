@@ -4,7 +4,7 @@
 -- Modified version of the Kingdom Come: Together mod (https://github.com/DeepFriedDepp/KingdomCome-Together).
 KCDUS = KCDUS or {}
 
-local parts = { "version", "kcdus_quests", "core", "local", "ghosts", "quests", "ui", "menu", "card", "capabilities", "boot" }
+local parts = { "version", "kcdus_quests", "core", "local", "locomotion", "outfits", "ghosts", "quests", "ui", "menu", "card", "capabilities", "boot" }
 for _, name in ipairs(parts) do
     local path = "Scripts/Mods/kcdus/" .. name .. ".lua"
     local ok, err = pcall(Script.ReloadScript, path)

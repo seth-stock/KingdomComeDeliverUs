@@ -40,10 +40,33 @@ function System.SpawnEntity(params)
     function e:SetWorldPos(p) self.pos = { x = p.x, y = p.y, z = p.z }; self.moves = (self.moves or 0) + 1 end
     function e:SetWorldAngles(a) self.angles = { x = a.x, y = a.y, z = a.z } end
     function e:GetWorldPos() return self.pos end
+    function e:GetName() return self.name end
+    function e:StartAnimation(slot,clip,layer,blend,speed,loop)
+        if __world.failAnimation then return false end
+        self.animation={clip=clip,layer=layer,speed=speed,loop=loop}
+        self.animationStarts=(self.animationStarts or 0)+1
+        return true
+    end
+    function e:SetAnimationSpeed(slot,layer,speed) self.animation.speed=speed end
+    function e:StopAnimation(slot,layer) self.animation={clip='relaxed_idle_both',layer=layer,speed=1,loop=true} end
+    function e:SetFlags(flag,mode) self.flags.noSave=flag==32768 end
     function e:Event_MakeInvulnerable() self.flags.invulnerable = true end
     function e:DisableBehaviorTreeEvaluation() self.flags.btOff = true end
     e.soul = { RestrictDialog = function(self, v) e.flags.noDialog = v end }
-    e.actor = { EquipClothingPreset = function(self, g) e.flags.clothes = g end }
+    e.items={}
+    e.inventory={
+        GetInventoryTable=function(self) return e.items end,
+        RemoveAllItems=function(self) e.items={} end,
+        AddItem=function(self,it) e.items[#e.items+1]=it end,
+    }
+    e.actor = {
+        EquipClothingPreset = function(self, g)
+            e.flags.clothes = g
+            e.items={{class='aaaaaaaa-0000-0000-0000-000000000001',health=1,amount=1,
+                kcdusBridge=__world.engineBridge and 1 or nil,kcdusEquipped=1}}
+        end,
+        EquipInventoryItem=function(self,it) it.kcdusEquipped=1 end,
+    }
     __entities[e.id] = e
     __spawned[#__spawned + 1] = e
     return e
@@ -76,6 +99,7 @@ Calendar = {
     SetWorldTime = function(t) __world.worldTime = t; __calls[#__calls + 1] = "SetWorldTime:" .. tostring(t) end,
 }
 AIPARAM_INVISIBLE = 77
+ENTITY_FLAG_NO_SAVE=32768
 AI = {
     SetBehaviorTreeEvaluationEnabled = function(id, v) __calls[#__calls + 1] = "bt:" .. tostring(id) .. ":" .. tostring(v) end,
     ChangeParameter = function(id, p, v) __calls[#__calls + 1] = "param:" .. tostring(id) .. ":" .. tostring(p) .. ":" .. tostring(v) end,
@@ -131,8 +155,10 @@ ItemManager = {
     GetItem = function(id) return id end,
     CreateItem = function(class, health, amount)
         if string.sub(class, 1, 8) == "bbbbbbbb" then amount = 1 end   -- a sword: the amount is ignored
-        return { class = class, health = health, amount = amount }
+        if __world.failCreate then return nil end
+        return { class = class, health = health, amount = amount,kcdusBridge=__world.engineBridge and 1 or nil,kcdusEquipped=0 }
     end,
+    RemoveItem=function(id) __calls[#__calls+1]='RemoveItem' end,
 }
 
 Player = {}

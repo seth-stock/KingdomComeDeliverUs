@@ -13,10 +13,15 @@ local function entityOf(g)
     if g.id == nil then
         return nil
     end
-    return System.GetEntity(g.id)
+    local ent=System.GetEntity(g.id)
+    -- Entity IDs can be reused by a save load. Never move/remove a world NPC
+    -- merely because it inherited an old peer body's numeric handle.
+    if ent and ent:GetName()=="kcdus_ghost_"..g.key then return ent end
+    return nil
 end
 
 local function configure(ent)
+    if ENTITY_FLAG_NO_SAVE~=nil then K.try('ghost:no-save',function() ent:SetFlags(ENTITY_FLAG_NO_SAVE,0) end) end
     K.try("ghost:invulnerable", function() ent:Event_MakeInvulnerable() end)
     K.try("ghost:bt-off", function() ent:DisableBehaviorTreeEvaluation() end)
     K.try("ghost:bt-off2", function() AI.SetBehaviorTreeEvaluationEnabled(ent.id, false) end)
@@ -47,6 +52,7 @@ local function spawn(g, now)
     g.id = ent.id
     G.spawnedN = G.spawnedN + 1
     configure(ent)
+    g.animationReadyAt=now+0.5 -- equipping the preset can rebuild the skeleton after spawn
     K.out("GHOST", "spawned", g.key, g.name)
     return ent
 end
@@ -69,9 +75,15 @@ K.handlers["P"] = function(f)
     local pos = K.split(f[4] or "0,0,0", ",")
     local vel = K.split(f[6] or "0,0,0", ",")
     local x, y, z = K.num(pos[1]), K.num(pos[2]), K.num(pos[3])
+    local now=K.now()
     if g == nil then
         g = { key = key, cx = x, cy = y, cz = z, cyaw = K.num(f[5]) }
         G.list[key] = g
+    end
+    if g.tx and g.stamp and now>g.stamp then
+        local dx,dy=x-g.tx,y-g.ty
+        local distance=math.sqrt(dx*dx+dy*dy)
+        g.observedSpeed=distance<G.SNAP_DISTANCE and math.min(8,distance/(now-g.stamp)) or 0
     end
     g.name = f[3] or key
     g.tx, g.ty, g.tz = x, y, z
@@ -80,7 +92,7 @@ K.handlers["P"] = function(f)
     g.flags = K.num(f[7])
     g.hp = K.num(f[8])
     g.anim = f[10] or ""
-    g.stamp = K.now()
+    g.stamp = now
 end
 
 function G.remove(key)
@@ -93,6 +105,7 @@ function G.remove(key)
         K.try("ghost:remove", function() System.RemoveEntity(ent.id) end)
     end
     G.list[key] = nil
+    K.Outfits.pending[key]=nil
     K.out("GHOST", "removed", key, g.name or "")
 end
 
@@ -104,6 +117,12 @@ function G.removeAll()
     for _, key in ipairs(keys) do
         G.remove(key)
     end
+end
+
+function G.onWorldReset()
+    -- The engine owns destruction during reset/loading. Discard stale handles;
+    -- subsequent fresh peer samples recreate nonpersistent bodies.
+    G.list={};G.lastUpdate=nil;K.Outfits.pending={};K.Outfits.last=nil
 end
 
 K.handlers["PD"] = function(f)
@@ -146,6 +165,8 @@ function G.update(now)
                 ent = spawn(g, now)
             end
             if ent ~= nil then
+                K.Outfits.update(ent,g,now)
+                K.Locomotion.drive(ent,g,now)
                 K.try("ghost:move", function()
                     ent:SetWorldPos({ x = g.cx, y = g.cy, z = g.cz })
                     ent:SetWorldAngles({ x = 0, y = 0, z = g.cyaw })

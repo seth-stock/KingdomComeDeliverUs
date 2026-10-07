@@ -96,6 +96,18 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task EquipmentTravelsToOnlyTheSendersProxyAndMalformedDataIsRefused()
+    {
+        var (relay,host,guest,_) = await Pair();
+        await using var _r=relay;await using var _h=host;await using var _g=guest;
+        const string gear="1;bbbbbbbb-0000-0000-0000-000000000001,0.50000";
+        guest.Game.Emit("KCDUS|OUT|"+gear);
+        await Until(()=>host.Game.Has("OUT|2|"),what:"guest equipment");
+        Assert.Equal("OUT|2|"+gear,host.Game.Last("OUT|2|"));
+        host.Game.Clear();guest.Game.Emit("KCDUS|OUT|1;invalid,1~PA");
+        await Task.Delay(80);Assert.False(host.Game.Has("OUT|"));
+    }
+    [Fact]
     public async Task Players_see_each_other_and_are_told_who_joined()
     {
         var (relay, host, guest, _) = await Pair();

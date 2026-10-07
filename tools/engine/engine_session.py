@@ -92,7 +92,9 @@ def run_file(path):
     send('KCDUS_ENGINE_SRC=""')
     for at in range(0, len(source), 700):
         send('KCDUS_ENGINE_SRC=KCDUS_ENGINE_SRC..' + json.dumps(source[at:at+700]))
-    return send('local f,e=loadstring(KCDUS_ENGINE_SRC); if not f then System.LogAlways("KCDUS|ENGINE|compile|"..tostring(e)) else f() end', 1)
+    result=send('local f,e=loadstring(KCDUS_ENGINE_SRC); if not f then System.LogAlways("KCDUS|ENGINE|compile|"..tostring(e)) else local ok,err=pcall(f);if not ok then System.LogAlways("KCDUS|ENGINE|runtime-error|"..tostring(err)) end end', 2)
+    if 'KCDUS|ENGINE|runtime-error|' in result or 'KCDUS|ENGINE|compile|' in result:raise RuntimeError(result)
+    return result
 
 
 def key(name):
@@ -120,6 +122,11 @@ def isolated_process(args, cwd, save_root):
     dll = ROOT / '_work' / 'engine-native' / 'ProfileIsolation.dll'
     if not dll.is_file():
         raise RuntimeError('Build tools/engine/native/ProfileIsolation.vcxproj first')
+    if os.environ.get('KCDUS_PROBE_NATIVE_START')=='1':
+        runner=ROOT/'tools'/'engine'/'NativeStartSmoke'/'bin'/'Debug'/'net8.0'/'NativeStartSmoke.dll'
+        env=dict(os.environ,KCDUS_PROBE_SAVE_ROOT=str(save_root))
+        output=subprocess.check_output(['dotnet',str(runner),str(cwd),str(dll),str(ROOT/'build'/'engine'/'KcdUsEngineBridge.dll')],env=env,text=True)
+        return int(output.strip())
     class SI(ctypes.Structure):
         _fields_ = [('cb', wintypes.DWORD), ('reserved', wintypes.LPWSTR), ('desktop', wintypes.LPWSTR),
                     ('title', wintypes.LPWSTR), ('x', wintypes.DWORD), ('y', wintypes.DWORD),
@@ -146,6 +153,10 @@ def isolated_process(args, cwd, save_root):
     close = bind('CloseHandle', wintypes.BOOL, wintypes.HANDLE)
     terminate = bind('TerminateProcess', wintypes.BOOL, wintypes.HANDLE, wintypes.UINT)
     env = dict(os.environ, KCDUS_PROBE_SAVE_ROOT=str(save_root))
+    if env.get('KCDUS_PROBE_ITEMS')=='1':
+        actual=hashlib.sha256((GAME/'Bin'/'Win64'/'WHGame.dll').read_bytes()).hexdigest()
+        if actual!='cf9f6dc384edcf35c20647a912745ddb8adb5ba65953e329c24e89dd9c4381aa':
+            raise RuntimeError('Optional item probe does not support this engine binary')
     env_block = ctypes.create_unicode_buffer('\0'.join(f'{key}={value}' for key, value in sorted(env.items())) + '\0\0')
     si = SI(); si.cb = ctypes.sizeof(si); pi = PI()
     command = ctypes.create_unicode_buffer(subprocess.list2cmdline(args))
@@ -160,6 +171,15 @@ def isolated_process(args, cwd, save_root):
         thread = remote(pi.process, None, 0, address(module('kernel32.dll'), b'LoadLibraryW'), memory, 0, None)
         if not thread or wait(thread, 30000) != 0 or not (save_root / 'isolation-installed.txt').is_file():
             raise RuntimeError('Private profile hook did not install; owned suspended process terminated')
+        if os.environ.get('KCDUS_PROBE_BRIDGE')=='1':
+            close(thread);thread=None
+            bridge=ROOT/'build'/'engine'/'KcdUsEngineBridge.dll'
+            if not bridge.is_file():raise RuntimeError('Build the runtime engine bridge first')
+            payload=ctypes.create_unicode_buffer(str(bridge))
+            memory=alloc(pi.process,None,ctypes.sizeof(payload),0x3000,0x04)
+            if not memory or not write(pi.process,memory,payload,ctypes.sizeof(payload),None):raise ctypes.WinError(ctypes.get_last_error())
+            thread=remote(pi.process,None,0,address(module('kernel32.dll'),b'LoadLibraryW'),memory,0,None)
+            if not thread or wait(thread,30000)!=0:raise RuntimeError('Bridge startup did not complete')
         if resume(pi.thread) == 0xFFFFFFFF:
             raise ctypes.WinError(ctypes.get_last_error())
         return pi.pid
@@ -187,7 +207,8 @@ def launch(source):
     game_root.mkdir()
     # The process-local hook handles early folder discovery. Config disables cloud.
     config = (GAME / 'system.cfg').read_text()
-    config += f'\nsys_user_folder = "{profile}"\nsys_useSteamCloudForPlatformSaving = 0\nlog_EnableRemoteConsole = 1\n'
+    user_folder='KingdomCome' if os.environ.get('KCDUS_PROBE_NATIVE_START')=='1' else profile
+    config += f'\nsys_user_folder = "{user_folder}"\nsys_useSteamCloudForPlatformSaving = 0\nlog_EnableRemoteConsole = 1\nr_Fullscreen = 0\nr_width = 1280\nr_height = 720\n'
     (game_root / 'system.cfg').write_text(config)
     for folder in ('Data', 'Engine', 'Localization', 'Bin'):
         if (GAME / folder).is_dir():

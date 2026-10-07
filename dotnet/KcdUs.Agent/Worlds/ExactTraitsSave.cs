@@ -7,7 +7,7 @@ namespace KcdUs.Agent.Worlds;
 
 /// <summary>Offline progression preparation for the observed KCD1 stream version 20.
 /// Does not install saves or acknowledge engine acceptance. Inventory stays in the destination.</summary>
-public static class ExactTraitsSave
+public static partial class ExactTraitsSave
 {
     public const int MaxRawBytes = 256 * 1024 * 1024;
     public const int MaxFileBytes = 64 * 1024 * 1024;
