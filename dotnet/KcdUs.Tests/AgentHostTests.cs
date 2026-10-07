@@ -211,6 +211,7 @@ public class AgentHostTests
             await Until(() => host.Host.Session.GetStatus().RelayConnected);
             await guest.Host.HandleAsync("join", "");
             await Until(() => guest.Host.Session.GetStatus().RelayConnected);
+            await Until(() => guest.Host.Session.GetStatus().RoomNote.Contains("authority.combat"));    // the Welcome has been read
             var s = guest.Host.Session.GetStatus();
             Assert.Equal("presence", s.RoomMode);
             Assert.Contains("NOT active", s.RoomNote);
