@@ -26,7 +26,8 @@ public class CoopContractTests
         Hash(e.TryGetProperty("agent", out var a) ? a.GetString() : ""), Hash(e.TryGetProperty("lua", out var l) ? l.GetString() : ""),
         Hash(e.TryGetProperty("native", out var n) ? n.GetString() : ""), Hash(e.TryGetProperty("engine", out var en) ? en.GetString() : ""),
         Hash(e.TryGetProperty("content", out var c) ? c.GetString() : ""),
-        e.GetProperty("caps").EnumerateObject().ToDictionary(o => o.Name, o => (CapabilityLevel)o.Value.GetInt32()));
+        e.GetProperty("caps").EnumerateObject().ToDictionary(o => o.Name, o => (CapabilityLevel)o.Value.GetInt32()),
+        e.TryGetProperty("dlc", out var dl) ? dl.EnumerateArray().Select(x => x.GetString()!).ToList() : null);
 
     [Fact]
     public void The_handshake_encodes_exactly_as_the_shared_vectors_say_and_decodes_back()
@@ -39,9 +40,9 @@ public class CoopContractTests
             var back = RoomHandshake.TryDecode(encoded)!;
             Assert.Equal(h.GameId, back.GameId);
             Assert.Equal(h.LuaHash, back.LuaHash);
-            Assert.Equal(CapabilityLevel.EngineVerified, back.Level("presence.bodies"));
-            Assert.Equal(CapabilityLevel.Candidate, back.Level("authority.npc"));
+            foreach (var cap in v.GetProperty("caps").EnumerateObject()) Assert.Equal((CapabilityLevel)cap.Value.GetInt32(), back.Level(cap.Name));
             Assert.Equal(CapabilityLevel.Absent, back.Level("authority.quest"));        // absent is not sent and reads as absent
+            Assert.Equal(h.Dlc?.OrderBy(x => x, StringComparer.Ordinal), back.Dlc);
             Assert.Equal(encoded, back.Encode());
         }
     }
@@ -78,6 +79,15 @@ public class CoopContractTests
             Assert.Equal(expected != RoomMode.Refused, r.Admitted);
             if (expected == RoomMode.Refused) Assert.NotEmpty(r.Refusals);
             if (expected is RoomMode.Presence or RoomMode.Partial) Assert.True(r.Missing.Count > 0 || r.Notes.Count > 0);   // it says what is missing or why
+            if (v.TryGetProperty("localExtra", out var extra))
+            {
+                Assert.Equal(extra.EnumerateArray().Select(x => x.GetString()), r.LocalExtraDlc);
+                Assert.Equal(v.GetProperty("localLacks").EnumerateArray().Select(x => x.GetString()), r.LocalLacksDlc);
+                // the other end sees the mirror image
+                var back = Negotiation.Negotiate(remote, local);
+                Assert.Equal(r.LocalExtraDlc, back.LocalLacksDlc);
+                Assert.Equal(r.LocalLacksDlc, back.LocalExtraDlc);
+            }
         }
     }
 
@@ -356,5 +366,58 @@ public class CoopContractTests
             Assert.Equal(2, text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
         }
         finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
+
+    // ------------------------------------------------------------------ DLC from the game's log
+
+    private const string Kcd1Log = """
+        Initializing default materials...
+        DLC list:
+        ERROR: operation 'Do platform authorization' takes too much time. Duration 0.500444 sec (should be less than 0.500000 sec), start at 17:35:36.908, finished at 17:35:37.409.
+        [1 TreasuresOfThePast] 768530, Kingdom Come: Deliverance - Treasures of the Past, active: N, save: Y
+        [2 HDTextures] 836890, Kingdom Come: Deliverance - HD Texture Pack, active: Y, save: N
+        [4 NewHomes] 883150, Kingdom Come: Deliverance - From the Ashes, active: Y, save: Y
+        [9 ExpeditionaryRides] 977420, Kingdom Come: Deliverance - Band of Bastards, active: Y, save: Y
+        Running machine spec auto detect (64 bit)...
+        [10 NotADlcLine] 1, after the block, active: Y, save: Y
+        """;
+
+    private const string Kcd2Log = """
+        DLC list:
+        [1 QuestForValor] 3118100, ui_dlc_quest_for_valor, active: N, free: N, save: Y
+        [2 Barber] 219957777, ui_dlc_barber, active: Y, free: Y, save: N
+        [3 HorseRacing] 219957777, ui_dlc_horse_racing, active: Y, free: Y, save: N
+        [7 MysteriaEcclesiae] 3368620, ui_dlc_mysteria_ecclesiae, active: Y, free: N, save: Y
+        [9 BanditCamps] 3368600, ui_dlc_bandit_camps, active: N, free: N, save: Y
+        """;
+
+    [Fact]
+    public void The_dlc_that_matters_is_read_from_the_games_own_log_in_both_games()
+    {
+        Assert.Equal(new[] { "ExpeditionaryRides", "NewHomes" }, DlcLog.ActiveSaveAffecting(Kcd1Log.Split('\n')));   // active and affects saves: not packs, not inactive DLC, not what follows the block
+        Assert.Equal(new[] { "MysteriaEcclesiae" }, DlcLog.ActiveSaveAffecting(Kcd2Log.Split('\n')));                // free DLC and inactive DLC are not content to match
+        Assert.Null(DlcLog.ActiveSaveAffecting(new[] { "no block here", "[1 X] 1, y, active: Y, save: Y" }));       // a game that has not started far enough says "unknown", not "none"
+        Assert.Empty(DlcLog.ActiveSaveAffecting(new[] { "DLC list:", "Running machine spec" })!);
+    }
+
+    [Fact]
+    public void The_last_dlc_block_wins_when_a_log_holds_two_sessions()
+    {
+        var lines = new[] { "DLC list:", "[4 A] 1, x, active: Y, save: Y", "start of a new session", "DLC list:", "[5 B] 2, y, active: Y, save: Y" };
+        Assert.Equal(new[] { "B" }, DlcLog.ActiveSaveAffecting(lines));
+    }
+
+    [Fact]
+    public void The_dlc_set_travels_in_the_handshake_and_unknown_stays_unknown()
+    {
+        var caps = new Dictionary<string, CapabilityLevel>();
+        string Enc(IReadOnlyList<string>? d) => new RoomHandshake("g", "1", 2, 2, "", "", "", "", "", caps, d).Encode();
+        Assert.Contains(";dl=?;", Enc(null));
+        Assert.Contains(";dl=-;", Enc(Array.Empty<string>()));
+        Assert.Contains(";dl=A+B;", Enc(new[] { "B", "A" }));
+        Assert.Null(RoomHandshake.TryDecode(Enc(null))!.Dlc);
+        Assert.Empty(RoomHandshake.TryDecode(Enc(Array.Empty<string>()))!.Dlc!);
+        Assert.Equal(new[] { "A", "B" }, RoomHandshake.TryDecode(Enc(new[] { "B", "A" }))!.Dlc);
+        Assert.DoesNotContain('|', Enc(new[] { "evil|name;x=y" }));
     }
 }

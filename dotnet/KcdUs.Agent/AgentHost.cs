@@ -87,6 +87,7 @@ public sealed class AgentHost : IAsyncDisposable
     public RoomHandshake Handshake()
     {
         _fingerprint ??= HandshakeFactory.Measure(GameDir, Path.Combine(AppContext.BaseDirectory, "KcdUsEngineBridge.dll"));
+        if (_fingerprint.Dlc is null && HandshakeFactory.ReadDlc(GameDir) is { } dlc) _fingerprint = _fingerprint with { Dlc = dlc };   // the game logs its DLC when it starts; ask again until it has
         return HandshakeFactory.Build(_release, _fingerprint, AdapterLoaded);
     }
 

@@ -14,7 +14,7 @@ public static class HandshakeFactory
 {
     public const string GameId = "kcd1";
 
-    public sealed record Fingerprint(string Agent, string Lua, string Native, string Engine, string Content);
+    public sealed record Fingerprint(string Agent, string Lua, string Native, string Engine, string Content, IReadOnlyList<string>? Dlc = null);
 
     private static string FileHash(string? path)
     {
@@ -27,23 +27,40 @@ public static class HandshakeFactory
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
 
-    /// <summary>The DLC and other mods installed with the game, as one hash: another computer with other DLC or other mods must not share authority over a world.</summary>
+    /// <summary>
+    /// The DLC that is active and affects saves, as the game itself logged it at startup (kcd.log, "DLC list:"). null while the game has not logged it yet.
+    /// A save names the DLC it needs and the engine refuses to load it without them, so this decides who can load whose world.
+    /// </summary>
+    public static IReadOnlyList<string>? ReadDlc(string? gameDir)
+    {
+        if (gameDir is null) return null;
+        try
+        {
+            var log = Path.Combine(gameDir, "kcd.log");
+            if (!File.Exists(log)) return null;
+            using var fs = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var rd = new StreamReader(fs, Encoding.UTF8);
+            var lines = new List<string>();
+            string? line;
+            while ((line = rd.ReadLine()) is not null) lines.Add(line);
+            return DlcLog.ActiveSaveAffecting(lines);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>The OTHER MODS installed with the game, as one hash: two computers with different mods must not share authority over a world. (DLC is compared by name, not by this hash.)</summary>
     public static string ContentProfile(string gameDir)
     {
         var sb = new StringBuilder();
         try
         {
-            var data = Path.Combine(gameDir, "Data");
-            if (Directory.Exists(data))
-                foreach (var f in Directory.EnumerateFiles(data, "*.pak").OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
-                    sb.Append("D:").Append(Path.GetFileName(f).ToLowerInvariant()).Append(':').Append(new FileInfo(f).Length).Append('\n');
             var mods = Path.Combine(gameDir, "Mods");
             if (Directory.Exists(mods))
                 foreach (var d in Directory.EnumerateDirectories(mods).Select(Path.GetFileName).Where(n => !string.Equals(n, "kcdus", StringComparison.OrdinalIgnoreCase)).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                     sb.Append("M:").Append(d!.ToLowerInvariant()).Append('\n');
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
-        // an install with no extra DLC or mods still has a profile (of nothing): "" would mean "unknown" and hide a real difference
+        // an install with no other mods still has a profile (of nothing): "" would mean "unknown" and hide a real difference
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
     }
 
@@ -55,7 +72,7 @@ public static class HandshakeFactory
             FileHash(Path.Combine(gameDir, "Mods", "kcdus", "Data", "kcdus.pak")),
             FileHash(nativeDll),
             FileHash(Path.Combine(gameDir, "Bin", "Win64", "WHGame.dll")),
-            ContentProfile(gameDir));
+            ContentProfile(gameDir), ReadDlc(gameDir));
     }
 
     /// <summary>
@@ -76,6 +93,6 @@ public static class HandshakeFactory
     public static RoomHandshake Build(string release, Fingerprint f, bool adapterLoaded)
     {
         bool supported = f.Engine.Equals(EngineGameStart.SupportedHash, StringComparison.OrdinalIgnoreCase);
-        return new RoomHandshake(GameId, release, Proto.ProtocolVersion, RoomHandshake.CurrentContractVersion, f.Agent, f.Lua, f.Native, f.Engine, f.Content, Capabilities(adapterLoaded, supported));
+        return new RoomHandshake(GameId, release, Proto.ProtocolVersion, RoomHandshake.CurrentContractVersion, f.Agent, f.Lua, f.Native, f.Engine, f.Content, Capabilities(adapterLoaded, supported), f.Dlc);
     }
 }

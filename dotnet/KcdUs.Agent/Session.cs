@@ -341,7 +341,7 @@ public sealed class Session : IDisposable
                     _hostId = int.Parse(f[1], CultureInfo.InvariantCulture);
                     _serverName = f.Length > 4 ? f[4] : "";
                     _roomMissing = f.Length > 6 ? f[6] : "";
-                    _contentDiffers = f.Length > 7 && f[7].Contains("content");
+                    ApplyMyFlags(f.Length > 7 ? f[7] : "");
                     _peerModes[_myId] = f.Length > 5 ? f[5] : "presence";
                     _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\", room: {RoomWord()}");
                     Notify($"Connected to {_serverName}. {RoomSentence()}");
@@ -370,7 +370,7 @@ public sealed class Session : IDisposable
                         _peers[id] = new PeerInfo { Id = id, Name = f[1], Role = f[2] };
                         if (f[2] == "host") _hostId = id;
                         if (f.Length > 3) _peerModes[id] = f[3];
-                        if (f.Length > 4 && f[4].Contains("content")) { _contentDiffers = true; Notify($"{f[1]}'s game has other DLC or mods: worlds and characters will not be moved between you."); }
+                        if (f.Length > 4) ApplyPeerFlags(id, f[1], f[4]);
                         _log($"{f[1]} joined as {f[2]} (room: {RoomWord()})");
                         Notify($"{f[1]} joined");
                         if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
@@ -686,9 +686,51 @@ public sealed class Session : IDisposable
     private readonly Dictionary<int, string> _peerModes = new();
     private string _roomMissing = "";
     private bool _contentDiffers;
+    private IReadOnlyList<string> _dlcLacks = Array.Empty<string>();
+    private IReadOnlyList<string> _dlcExtra = Array.Empty<string>();
+    private readonly Dictionary<int, IReadOnlyList<string>> _peerLacksDlc = new();
 
-    /// <summary>False when a player in the room has other DLC or mods: a world or a Henry must not be moved between differently-equipped installs.</summary>
+    /// <summary>False when a player in the room has other MODS: a world or a Henry must not be moved between differently-modded installs.</summary>
     public bool ContentMatches { get { lock (_gate) return !_contentDiffers; } }
+
+    /// <summary>The DLC the host has active that this game lacks. A world the host saved names its DLC, and the engine will not load it without them.</summary>
+    public IReadOnlyList<string> DlcLacks { get { lock (_gate) return _dlcLacks; } }
+
+    /// <summary>The DLC this game has active that the host's lacks. It stays out of the shared game: the room is played as the host's, with the least DLC.</summary>
+    public IReadOnlyList<string> DlcExtra { get { lock (_gate) return _dlcExtra; } }
+
+    /// <summary>The DLC the host has that player <paramref name="id"/> lacks (the host asks before serving a world).</summary>
+    public IReadOnlyList<string> PeerLacksDlc(int id) { lock (_gate) return _peerLacksDlc.TryGetValue(id, out var l) ? l : Array.Empty<string>(); }
+
+    private static IReadOnlyList<string> FlagNames(string flags, string key)
+    {
+        foreach (var tok in flags.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            if (tok.StartsWith(key + "=", StringComparison.Ordinal)) return tok[(key.Length + 1)..].Split('+', StringSplitOptions.RemoveEmptyEntries);
+        return Array.Empty<string>();
+    }
+
+    private const string SteamDlcHint = "To play exactly like your host, turn that DLC off in Steam (Properties, DLC) and restart the game.";
+
+    /// <summary>What the Welcome says about me against the host.</summary>
+    private void ApplyMyFlags(string flags)
+    {
+        _contentDiffers = flags.Split(',').Contains("content");
+        _dlcLacks = FlagNames(flags, "dlc-host-extra");
+        _dlcExtra = FlagNames(flags, "dlc-peer-extra");
+        if (_dlcExtra.Count > 0) { Notify($"Your game has DLC your host's does not ({string.Join(", ", _dlcExtra)}): it stays out of what you share."); Notify(SteamDlcHint); }
+        if (_dlcLacks.Count > 0) { Notify($"Your host's game has DLC you do not have ({string.Join(", ", _dlcLacks)}): their world needs it."); Notify("Get that DLC, or ask your host to play without it. Their world cannot be moved to you."); }
+        if (_contentDiffers) Notify("Your game has other mods than your host's: worlds and characters will not be moved between you.");
+    }
+
+    /// <summary>What the relay says about a player who just joined (against the host).</summary>
+    private void ApplyPeerFlags(int id, string name, string flags)
+    {
+        if (flags.Split(',').Contains("content")) { _contentDiffers = true; Notify($"{name}'s game has other mods: worlds and characters will not be moved between you."); }
+        var lacks = FlagNames(flags, "dlc-host-extra");
+        if (lacks.Count > 0) { _peerLacksDlc[id] = lacks; Notify($"{name} lacks DLC the host has ({string.Join(", ", lacks)}): your world cannot be moved to them."); }
+        var extra = FlagNames(flags, "dlc-peer-extra");
+        if (extra.Count > 0) Notify($"{name} has DLC your game does not ({string.Join(", ", extra)}); it stays out of what you share.");
+    }
 
     /// <summary>The room's mode: the weakest negotiated mode among the players (presence, partial or shared).</summary>
     private string RoomWord()

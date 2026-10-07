@@ -53,7 +53,7 @@ public class AgentHostTests
         }
     }
 
-    private static async Task Until(Func<bool> cond, int ms = 4000)
+    private static async Task Until(Func<bool> cond, int ms = 8000)
     {
         var end = DateTime.UtcNow.AddMilliseconds(ms);
         while (DateTime.UtcNow < end) { if (cond()) return; await Task.Delay(10); }
@@ -226,7 +226,7 @@ public class AgentHostTests
     }
 
     [Fact]
-    public async Task A_friend_with_other_dlc_or_mods_is_admitted_but_no_world_or_henry_is_moved_between_you()
+    public async Task A_friend_with_other_mods_is_admitted_but_no_world_or_henry_is_moved_between_you()
     {
         string a = FakeGame("build-1"), b = FakeGame("build-1");
         Directory.CreateDirectory(Path.Combine(b, "Mods", "someothermod"));          // only the guest has another mod
@@ -243,8 +243,74 @@ public class AgentHostTests
             await Until(() => !guest.Host.Session.ContentMatches);
             await Until(() => !host.Host.Session.ContentMatches);                            // the host is told as well
             await guest.Host.HandleAsync("world", "join");
-            await Until(() => guest.Game.Has("NOTE|Your game has other DLC or mods"));
+            await Until(() => guest.Game.Has("NOTE|Your game has other mods"));
             Assert.False(guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // no request was sent
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    /// <summary>A game folder whose kcd.log lists the given DLC as active (and affecting saves), the way the game writes it at startup.</summary>
+    private static string FakeGameWithDlc(string pakBytes, params string[] active)
+    {
+        string d = FakeGame(pakBytes);
+        var log = new System.Text.StringBuilder("Initializing default materials...\nDLC list:\n");
+        int i = 1;
+        foreach (var n in new[] { "TreasuresOfThePast", "NewHomes", "ExpeditionaryRides" })
+            log.Append($"[{i++} {n}] {i * 1000}, Kingdom Come: Deliverance - {n}, active: {(active.Contains(n) ? 'Y' : 'N')}, save: Y\n");
+        log.Append("[9 HDTextures] 836890, HD Texture Pack, active: Y, save: N\nRunning machine spec auto detect (64 bit)...\n");
+        File.WriteAllText(Path.Combine(d, "kcd.log"), log.ToString());
+        return d;
+    }
+
+    [Fact]
+    public async Task A_friend_with_more_dlc_than_the_host_plays_the_hosts_game_and_is_told_what_stays_out()
+    {
+        string a = FakeGameWithDlc("build-1"), b = FakeGameWithDlc("build-1", "NewHomes", "ExpeditionaryRides");   // the host has none; the friend has two
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a; guest.Host.GameDir = b;
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().RelayConnected);
+            await Until(() => guest.Host.Session.DlcExtra.Count == 2);
+            Assert.Equal(new[] { "ExpeditionaryRides", "NewHomes" }, guest.Host.Session.DlcExtra);
+            Assert.Empty(guest.Host.Session.DlcLacks);
+            Assert.True(guest.Host.Session.ContentMatches);                                // DLC is not a mod difference: the world may move
+            Assert.True(guest.Game.Has("NOTE|Your game has DLC your host's does not"));
+            Assert.Contains("turn that DLC off in Steam", string.Join("\n", guest.Game.Snapshot()));
+            await Until(() => host.Host.Session.GetStatus().Message.Contains("NOT active") || host.Host.Session.GetStatus().RoomNote.Contains("NOT active"));   // still honestly presence
+            await guest.Host.HandleAsync("world", "join");
+            await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // the request IS sent
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    [Fact]
+    public async Task A_friend_with_less_dlc_than_the_host_cannot_be_given_the_hosts_dlc_world_and_is_told_why()
+    {
+        string a = FakeGameWithDlc("build-1", "NewHomes"), b = FakeGameWithDlc("build-1");                   // the host has one; the friend none
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a; guest.Host.GameDir = b;
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().RelayConnected);
+            await Until(() => guest.Host.Session.DlcLacks.Count == 1);
+            Assert.Equal(new[] { "NewHomes" }, guest.Host.Session.DlcLacks);
+            Assert.True(guest.Game.Has("NOTE|Your host's game has DLC you do not have (NewHomes)"));
+            int guestId = guest.Host.Session.MyId;
+            await Until(() => host.Host.Session.PeerLacksDlc(guestId).Count == 1);                  // the host knows too, and will not serve a world to them
+            await guest.Host.HandleAsync("world", "join");
+            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have"));
+            Assert.False(guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }

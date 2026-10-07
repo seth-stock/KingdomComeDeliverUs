@@ -63,9 +63,11 @@ public enum RoomMode
 public sealed record RoomHandshake(
     string GameId, string ProductVersion, int WireVersion, int ContractVersion,
     string AgentHash, string LuaHash, string NativeHash, string EngineHash, string ContentProfileHash,
-    IReadOnlyDictionary<string, CapabilityLevel> Capabilities)
+    IReadOnlyDictionary<string, CapabilityLevel> Capabilities,
+    IReadOnlyList<string>? Dlc = null)
 {
-    public const int CurrentContractVersion = 1;
+    /// <summary>2: the handshake carries the DLC set that is active (and affects saves) in this game, read from the game's own log. null = not known yet.</summary>
+    public const int CurrentContractVersion = 2;
     public const int MaxEncodedLength = 1500;
 
     public CapabilityLevel Level(string capability) => Capabilities.TryGetValue(capability, out var l) ? l : CapabilityLevel.Absent;
@@ -85,6 +87,7 @@ public sealed record RoomHandshake(
         F("g", GameId); F("p", ProductVersion);
         F("w", WireVersion.ToString(CultureInfo.InvariantCulture)); F("cv", ContractVersion.ToString(CultureInfo.InvariantCulture));
         F("a", AgentHash); F("l", LuaHash); F("n", NativeHash); F("e", EngineHash); F("x", ContentProfileHash);
+        sb.Append(";dl=").Append(Dlc is null ? "?" : Dlc.Count == 0 ? "-" : string.Join("+", Dlc.Select(Clean).Where(d => d.Length > 0).OrderBy(d => d, StringComparer.Ordinal)));
         sb.Append(";k=");
         bool first = true;
         foreach (var kv in Capabilities.OrderBy(k => k.Key, StringComparer.Ordinal))
@@ -120,15 +123,22 @@ public sealed record RoomHandshake(
             if (colon <= 0 || !int.TryParse(entry[(colon + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out int lv) || lv is < 0 or > 4) return null;
             if (!caps.TryAdd(entry[..colon], (CapabilityLevel)lv)) return null;
         }
-        return new RoomHandshake(Get("g"), Get("p"), wire, cv, Get("a"), Get("l"), Get("n"), Get("e"), Get("x"), caps);
+        string dl = Get("dl");
+        IReadOnlyList<string>? dlc = dl.Length == 0 || dl == "?" ? null : dl == "-" ? Array.Empty<string>() : dl.Split('+', StringSplitOptions.RemoveEmptyEntries);
+        return new RoomHandshake(Get("g"), Get("p"), wire, cv, Get("a"), Get("l"), Get("n"), Get("e"), Get("x"), caps, dlc);
     }
 }
 
 public sealed record RoomPolicy(bool AllowUnverifiedPayload = false);
 
-public sealed record NegotiationResult(RoomMode Mode, IReadOnlyList<string> Refusals, IReadOnlyList<string> Missing, IReadOnlyDictionary<string, CapabilityLevel> Effective, IReadOnlyList<string>? Warnings = null)
+public sealed record NegotiationResult(RoomMode Mode, IReadOnlyList<string> Refusals, IReadOnlyList<string> Missing, IReadOnlyDictionary<string, CapabilityLevel> Effective, IReadOnlyList<string>? Warnings = null,
+    IReadOnlyList<string>? LocalOnlyDlc = null, IReadOnlyList<string>? RemoteOnlyDlc = null)
 {
     public IReadOnlyList<string> Notes => Warnings ?? Array.Empty<string>();
+    /// <summary>DLC the local side has active that the remote side does not (it stays out of the shared game).</summary>
+    public IReadOnlyList<string> LocalExtraDlc => LocalOnlyDlc ?? Array.Empty<string>();
+    /// <summary>DLC the remote side has active that the local side lacks (a world saved with it cannot be loaded here).</summary>
+    public IReadOnlyList<string> LocalLacksDlc => RemoteOnlyDlc ?? Array.Empty<string>();
     public bool Admitted => Mode != RoomMode.Refused;
     public string Describe() => Mode switch
     {
@@ -160,8 +170,19 @@ public static class Negotiation
         }
         else if (local.LuaHash != remote.LuaHash) refusals.Add("different mod payloads (the Lua packages differ): both must install the same build");
         var warnings = new List<string>();
+        // other MODS (a hash of the mod folders, not of the DLC) keep the room at presence: nobody can say what the two computers load
         bool contentDiffers = local.ContentProfileHash.Length > 0 && remote.ContentProfileHash.Length > 0 && local.ContentProfileHash != remote.ContentProfileHash;
-        if (contentDiffers) warnings.Add("different game content (DLC or other mods differ): shared authority is off, peers are still shown");
+        if (contentDiffers) warnings.Add("different game content (other mods differ): shared authority is off, peers are still shown");
+        // DLC differences do NOT cap the room: the side with more DLC plays the shared game as the side with the least (its extra DLC stays out of what is shared)
+        var localOnly = Array.Empty<string>() as IReadOnlyList<string>;
+        var remoteOnly = Array.Empty<string>() as IReadOnlyList<string>;
+        if (local.Dlc is not null && remote.Dlc is not null)
+        {
+            localOnly = local.Dlc.Except(remote.Dlc, StringComparer.Ordinal).OrderBy(d => d, StringComparer.Ordinal).ToList();
+            remoteOnly = remote.Dlc.Except(local.Dlc, StringComparer.Ordinal).OrderBy(d => d, StringComparer.Ordinal).ToList();
+            if (localOnly.Count > 0) warnings.Add("more DLC here than on the other computer (" + string.Join(", ", localOnly) + "): it stays out of the shared game");
+            if (remoteOnly.Count > 0) warnings.Add("the other computer has DLC this one lacks (" + string.Join(", ", remoteOnly) + "): a world saved with it cannot be loaded here");
+        }
 
         var effective = new Dictionary<string, CapabilityLevel>(StringComparer.Ordinal);
         foreach (var name in local.Capabilities.Keys.Union(remote.Capabilities.Keys, StringComparer.Ordinal))
@@ -176,6 +197,41 @@ public static class Negotiation
         else if (missing.Count == 0) mode = RoomMode.SharedSimulation;
         else if (CapabilityNames.Authority.Any(n => effective.TryGetValue(n, out var l) && l >= CapabilityLevel.EngineVerified)) mode = RoomMode.Partial;
         else mode = RoomMode.Presence;
-        return new NegotiationResult(mode, refusals, missing, effective, warnings);
+        return new NegotiationResult(mode, refusals, missing, effective, warnings, localOnly, remoteOnly);
+    }
+}
+
+/// <summary>
+/// Reads the DLC set from the game's own log. Both games print, once at startup,
+/// <c>DLC list:</c> followed by lines such as <c>[9 ExpeditionaryRides] 977420, Band of Bastards, active: Y, save: Y</c> (KCD1) or
+/// <c>[7 MysteriaEcclesiae] 3368620, ui_dlc_mysteria_ecclesiae, active: N, free: N, save: Y</c> (KCD2). What matters for sharing a world is DLC that is
+/// active and affects saves (the engine refuses to load a save whose DLC is not active); texture/sound packs and free DLC are not gameplay content.
+/// </summary>
+public static class DlcLog
+{
+    private static readonly System.Text.RegularExpressions.Regex Line = new(
+        @"^\[(?<id>\d+) (?<name>[A-Za-z0-9_]+)\]\s.*active: (?<active>[YN])(?:, free: (?<free>[YN]))?, save: (?<save>[YN])",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>The names of the DLC that are active and affect saves, from the LAST "DLC list:" block of the log; null when the log has no such block (the game has not started far enough).</summary>
+    public static IReadOnlyList<string>? ActiveSaveAffecting(IEnumerable<string> lines)
+    {
+        List<string>? last = null, open = null;
+        foreach (var raw in lines)
+        {
+            var line = raw.TrimEnd();
+            if (line.StartsWith("DLC list:", StringComparison.Ordinal)) { open = new List<string>(); last = open; continue; }
+            if (open is null) continue;
+            var m = Line.Match(line);
+            if (m.Success)
+            {
+                if (m.Groups["active"].Value == "Y" && m.Groups["save"].Value == "Y" && m.Groups["free"].Value != "Y") open.Add(m.Groups["name"].Value);
+                continue;
+            }
+            // interleaved ERROR/warning lines (the game logs timing errors in the middle of the block) do not end it; anything else does
+            if (line.Length == 0 || line.StartsWith("ERROR", StringComparison.Ordinal) || line.StartsWith("WARNING", StringComparison.Ordinal)) continue;
+            open = null;
+        }
+        return last?.OrderBy(d => d, StringComparer.Ordinal).ToList();
     }
 }

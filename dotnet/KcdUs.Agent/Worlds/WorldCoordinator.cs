@@ -456,7 +456,10 @@ public sealed class WorldCoordinator : IDisposable
 
     // ================================================================ taking a world
 
-    private const string ContentRefusal = "Your game has other DLC or mods than your friend's, so a world or a Henry cannot be moved between you safely. Install the same DLC and mods on both, or play without sharing a world.";
+    private const string ContentRefusal = "Your game has other mods than your friend's, so a world or a Henry cannot be moved between you safely. Install the same mods on both, or play without sharing a world.";
+
+    private static string DlcRefusal(IReadOnlyList<string> lacks) =>
+        $"Your host's game has DLC you do not have ({string.Join(", ", lacks)}), and their saved world needs it. Get that DLC, or ask your host to play without it.";
 
     private async Task RequestAsync()
     {
@@ -466,6 +469,7 @@ public sealed class WorldCoordinator : IDisposable
         if (s.MyId == 0) { Say("Join a game first."); _title(MenuUi.Title.NeedHost); return; }
         if (!s.ContentMatches) { Say(ContentRefusal); _title(MenuUi.Title.WorldBusy); return; }
         int target = _behind?.From ?? (s.IsHost ? s.Peers.FirstOrDefault(p => p.Id != s.MyId)?.Id ?? 0 : s.HostId);
+        if (!s.IsHost && target == s.HostId && s.DlcLacks.Count > 0) { Say(DlcRefusal(s.DlcLacks)); _title(MenuUi.Title.WorldBusy); return; }
         if (target == 0) { Say("Nobody to take a world from."); _title(MenuUi.Title.NeedHost); return; }
         string id = _behind?.Stamp.WorldId ?? "-";
         var known = id == "-" ? _reg.ActiveWorld : _reg.Find(id);
@@ -502,7 +506,8 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task ServeAsync(int to, string worldId)
     {
-        if (!_session().ContentMatches) { _session().SendEvent($"wdone|{to}|-|0|different DLC or mods"); return; }
+        if (!_session().ContentMatches) { _session().SendEvent($"wdone|{to}|-|0|different mods"); return; }
+        if (_session().PeerLacksDlc(to) is { Count: > 0 } lacks) { _session().SendEvent($"wdone|{to}|-|0|you lack DLC the world needs ({string.Join(", ", lacks)})"); return; }
         if (Interlocked.Exchange(ref _sending, 1) == 1) { _session().SendEvent($"wdone|{to}|-|0|busy"); return; }
         try
         {

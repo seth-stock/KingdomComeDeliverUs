@@ -377,8 +377,21 @@ public sealed class RelayServer : IAsyncDisposable
         }
     }
 
-    /// <summary>"content" when the two installs' DLC or other mods differ (Coop.Contract warns, it does not refuse a presence room).</summary>
-    public static string FlagsOf(NegotiationResult room) => room.Notes.Any(n => n.StartsWith("different game content", StringComparison.Ordinal)) ? "content" : "";
+    /// <summary>
+    /// Comma-separated flags about the joining peer against the host (Coop.Contract warns, it does not refuse a presence room):
+    /// "content" = other mods; "dlc-host-extra=A+B" = the host has DLC the peer lacks (the host's world cannot be loaded by the peer);
+    /// "dlc-peer-extra=C" = the peer has DLC the host lacks (it stays out of the shared game).
+    /// </summary>
+    public static string FlagsOf(NegotiationResult room, bool peerIsRemote = true)
+    {
+        var flags = new List<string>();
+        if (room.Notes.Any(n => n.StartsWith("different game content", StringComparison.Ordinal))) flags.Add("content");
+        var hostExtra = peerIsRemote ? room.LocalExtraDlc : room.LocalLacksDlc;     // Negotiate(host, peer): local = host
+        var peerExtra = peerIsRemote ? room.LocalLacksDlc : room.LocalExtraDlc;
+        if (hostExtra.Count > 0) flags.Add("dlc-host-extra=" + string.Join('+', hostExtra));
+        if (peerExtra.Count > 0) flags.Add("dlc-peer-extra=" + string.Join('+', peerExtra));
+        return string.Join(',', flags);
+    }
 
     public static string ModeWord(RoomMode m) => m switch { RoomMode.Partial => "partial", RoomMode.SharedSimulation => "shared", _ => "presence" };
 
