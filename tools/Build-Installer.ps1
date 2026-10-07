@@ -102,9 +102,18 @@ try {
     Start-Sleep -Seconds 2
     $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', $port)
     $s = $c.GetStream(); $s.Write([byte[]](0x08, 0, 0), 0, 3)
-    $buf = New-Object byte[] 256; $s.ReadTimeout = 3000; $n = $s.Read($buf, 0, 256)
-    $text = [Text.Encoding]::UTF8.GetString($buf, 3, $n - 3)
-    if ($buf[0] -ne 0x8B -or $text -notmatch "\|$([regex]::Escape($version))\|") { Fail "the relay's Info answer was wrong: '$text'" }
+    # protocol 2: every connection is greeted with a Challenge frame (0x8C) before anything else; a ping ignores it and waits for the Info frame (0x8B)
+    $buf = New-Object byte[] 1024; $s.ReadTimeout = 3000
+    Start-Sleep -Milliseconds 500
+    $n = $s.Read($buf, 0, 1024)
+    $off = 0; $found = $false; $text = ''
+    while ($off + 3 -le $n) {
+        $len = $buf[$off + 1] + 256 * $buf[$off + 2]
+        if ($off + 3 + $len -gt $n) { break }
+        if ($buf[$off] -eq 0x8B) { $found = $true; $text = [Text.Encoding]::UTF8.GetString($buf, $off + 3, $len); break }
+        $off += 3 + $len
+    }
+    if (-not $found -or $text -notmatch "\|$([regex]::Escape($version))\|") { Fail "the relay's Info answer was wrong: '$text'" }
     Write-Host "   relay answers: $text"
     $c.Close()
 } finally { if ($rp -and -not $rp.HasExited) { $rp.Kill() } }
