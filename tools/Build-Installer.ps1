@@ -127,6 +127,7 @@ if (Test-Path $send) { Remove-Item $send -Recurse -Force }
 New-Item -ItemType Directory -Force $send | Out-Null
 Copy-Item $setup $send
 Copy-Item (Join-Path $root 'docs\READ-ME-FIRST.txt') $send
+foreach ($d in 'HUMAN-ACCEPTANCE-TESTS.md', 'CAPABILITIES.md') { Copy-Item (Join-Path $root "docs\$d") $send }
 $hash = (Get-FileHash (Join-Path $send (Split-Path $setup -Leaf)) -Algorithm SHA256).Hash
 "$hash  $(Split-Path $setup -Leaf)" | Set-Content (Join-Path $send 'SHA256.txt') -Encoding ascii
 $zip = Join-Path $rel "KingdomComeDeliverUs-$version-for-friends.zip"

@@ -5,6 +5,11 @@ An unofficial, free community mod. Not affiliated with or endorsed by Warhorse S
 A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/KingdomCome-Together). GPL-3.0.
 You and your host must all run THIS version (0.1.0): a different version is refused.
 
+PLAYTEST BUILD (2026-10-07). This is a development build for testing, not a finished release. The room tells you what it is: in this build it is always
+"presence only": you see each other, but shared enemies, combat, loot and quests are NOT active. If the launcher or the game says anything else, that is a bug: report it.
+Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). A friend with other DLC or mods than the host is let in as presence only,
+and no world or Henry is moved between you. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
+
 WHAT IT IS (and is not)
   Each of you plays your OWN copy of the world. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
   and when the host's story locks them in (a battle, the monastery, a tournament...) you are asked: join them (F11) or stay in the open world (F12).
