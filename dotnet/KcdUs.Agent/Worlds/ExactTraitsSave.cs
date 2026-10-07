@@ -116,7 +116,8 @@ public static partial class ExactTraitsSave
     }
     private static void Validate(Traits t)
     {
-        _ = Xp(t.Stats); _ = Xp(t.Skills);
+        if (Xp(t.Stats).Keys.Any(id => id >= 10) || Xp(t.Skills).Keys.Any(id => id >= 33))
+            throw new InvalidDataException("XP key exceeds the retail engine's stat/skill arrays.");
         if (t.Perks.Length > 256 * 1024) throw new InvalidDataException("Perk state exceeds bounds.");
         var perks = Children(t.Perks, 0, t.Perks.Length);
         if (perks.Count > 2048) throw new InvalidDataException("Excessive perk instance count.");

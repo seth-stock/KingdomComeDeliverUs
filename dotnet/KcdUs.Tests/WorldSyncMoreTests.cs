@@ -11,6 +11,43 @@ namespace KcdUs.Tests;
 public partial class WorldSyncTests
 {
     [Fact]
+    public async Task BusyCharacterCaptureRefusesWorldReplacementWithoutUsingAnOldCard()
+    {
+        int port = FreePort();
+        await using var host = new Rig("Henry", port, seed: r => r.Seed("w1", 0, 10, 1_790_000_200));
+        await using var guest = new Rig("Hans", port, tweak: c => { c.HenryMode = "mine"; c.AutoSync = false; },
+            seed: r => { r.NativeTemplate = CharacterFixture.Save(1_790_000_100, 3); r.WriteSave(0, "home.whs", 1_790_000_100, 3); });
+        guest.RefuseSaves = true;
+        var original = File.ReadAllBytes(guest.Store.Newest(0)!.Path);
+        await host.Host.HandleAsync("host", ""); await Until(() => host.Host.Session.MyId != 0);
+        await guest.Host.HandleAsync("join", ""); await Until(() => guest.Host.Session.MyId != 0);
+        guest.EnterWorld(); await Until(() => guest.Host.Session.InWorld);
+        await guest.Host.HandleAsync("world", "join");
+        await Until(() => guest.Game.Has("NOTE|World operation stopped: Henry could not be saved"), rigs: new[] { host, guest });
+        Assert.False(guest.Game.Has("LOAD|")); Assert.False(guest.Game.Has("CARDSET|"));
+        Assert.Null(guest.Store.Newest(4)); Assert.Equal(original, File.ReadAllBytes(guest.Store.Newest(0)!.Path));
+    }
+
+    [Fact]
+    public async Task WrongPlaylineReadbackRemainsPendingAndIsNotAnnouncedAsAccepted()
+    {
+        int port = FreePort();
+        await using var host = new Rig("Henry", port, seed: r => r.Seed("w1", 0, 10, 1_790_000_200));
+        await using var guest = new Rig("Hans", port, tweak: c => c.AutoSync = false);
+        guest.AutoLoadAck = false;
+        await host.Host.HandleAsync("host", ""); await Until(() => host.Host.Session.MyId != 0);
+        await guest.Host.HandleAsync("join", ""); await Until(() => guest.Host.Session.MyId != 0);
+        await guest.Host.HandleAsync("world", "join");
+        await Until(() => guest.Game.Has("LOAD|0|4"), rigs: new[] { host, guest });
+        guest.SavePlaylineOverride = 0; guest.Game.Emit("KCDUS|UILOAD|loaded");
+        await Until(() => guest.Game.Has("NOTE|The engine saved a different playline"), rigs: new[] { host, guest });
+        Assert.NotNull(WorldRegistry.Load(guest.WorldsJson).PendingLoad);
+        Assert.Equal("", WorldRegistry.Load(guest.WorldsJson).Active);
+        lock (host.Logs) Assert.DoesNotContain(host.Logs, l => l.Contains("Hans has your world"));
+        Assert.Equal(10, guest.Store.Newest(4)!.Info.Hours);
+    }
+
+    [Fact]
     public async Task Two_players_whose_copies_match_move_nothing()
     {
         int port = FreePort();
@@ -37,7 +74,7 @@ public partial class WorldSyncTests
         await Until(() => guest.Game.Has("NOTE|Henry has the shared world"), what: "the offer is announced", rigs: new[] { host, guest });
         Assert.False(guest.Game.Has("LOAD|"));                                          // nothing is taken until he asks (he may be in the middle of his own game)
         await guest.Host.HandleAsync("world", "join");
-        await Until(() => guest.Game.Has("LOAD|0|4"), what: "the world is loaded from the highest empty slot", rigs: new[] { host, guest });
+        await Until(() => guest.Game.Has("LOAD|0|4") && WorldRegistry.Load(guest.WorldsJson).PendingLoad is null, what: "the world is loaded from the highest empty slot", rigs: new[] { host, guest });
         Assert.Equal(10, guest.Store.Newest(4)!.Info.Hours, 3);
         Assert.Equal(5, guest.Store.Newest(0)!.Info.Hours, 3);                          // his own two games are as they were
         Assert.Equal(6, guest.Store.Newest(1)!.Info.Hours, 3);
@@ -56,7 +93,7 @@ public partial class WorldSyncTests
         await host.Host.HandleAsync("host", "");
         await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
         await guest.Host.HandleAsync("join", "");
-        await Until(() => host.Game.Has("LOAD|0|4"), what: "the host loads the friend's further-along world", rigs: new[] { host, guest });
+        await Until(() => host.Game.Has("LOAD|0|4") && WorldRegistry.Load(host.WorldsJson).PendingLoad is null, what: "the host loads the friend's further-along world", rigs: new[] { host, guest });
         Assert.Equal(10, host.Store.Newest(4)!.Info.Hours, 3);
         Assert.Equal(own, File.ReadAllBytes(Path.Combine(host.Store.PlaylineDir(0), "permanent001.whs")));   // his own game is untouched
         var rec = WorldRegistry.Load(host.WorldsJson).Find("w1")!;
@@ -83,12 +120,14 @@ public partial class WorldSyncTests
     }
 
     [Fact]
-    public async Task Bring_my_henry_reads_the_card_before_the_world_is_replaced_and_puts_it_on_after_the_load()
+    public async Task Bring_my_henry_stages_exact_saved_state_and_acknowledges_native_readback()
     {
         int port = FreePort();
-        await using var host = new Rig("Henry", port, seed: r => r.Seed("w1", 0, 10, 1_790_000_200));
-        await using var guest = new Rig("Hans", port, tweak: c => { c.HenryMode = "mine"; c.AutoSync = false; });
-        guest.CardText = "t:str=14;s:fencing=9";
+        await using var host = new Rig("Henry", port, seed: r => { r.NativeTemplate = CharacterFixture.Save(1_790_000_200, 10, 9000, 22); r.Seed("w1", 0, 10, 1_790_000_200); });
+        await using var guest = new Rig("Hans", port, tweak: c => { c.HenryMode = "mine"; c.AutoSync = false; },
+            seed: r => { r.NativeTemplate = CharacterFixture.Save(1_790_000_100, 3, 7, 1); r.WriteSave(0, "home.whs", 1_790_000_100, 3); });
+        guest.AutoLoadAck = false;
+        var expected = ExactTraitsSave.CaptureCharacter(guest.NativeTemplate!);
         await host.Host.HandleAsync("host", "");
         await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
         await guest.Host.HandleAsync("join", "");
@@ -97,9 +136,13 @@ public partial class WorldSyncTests
         await Until(() => guest.Host.Session.InWorld, what: "in world");
         await guest.Host.HandleAsync("world", "join");
         await Until(() => guest.Game.Has("LOAD|0|4"), what: "the world loads", rigs: new[] { host, guest });
-        Assert.True(guest.Game.Has("CARDGET|"));                                         // read first
-        Assert.False(guest.Game.Has("CARDSET|"));                                        // and not put on before the new world is there
+        Assert.True(guest.Game.Has("SAVEWORLD|"));
+        Assert.False(guest.Game.Has("CARDSET|"));
+        Assert.NotNull(WorldRegistry.Load(guest.WorldsJson).PendingLoad);
+        Assert.True(ExactTraitsSave.SameProgressionAndInventory(expected, ExactTraitsSave.CaptureCharacter(guest.Store.Newest(4) is { } staged ? File.ReadAllBytes(staged.Path) : [])));
         guest.Game.Emit("KCDUS|UILOAD|loaded");
-        await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("CARDSET|") && s.EndsWith("t:str=14;s:fencing=9")), what: "the card goes onto the world's Henry", rigs: new[] { host, guest });
+        await Until(() => WorldRegistry.Load(guest.WorldsJson).PendingLoad is null, what: "native character readback acknowledgement", rigs: new[] { host, guest });
+        Assert.Equal("w1", WorldRegistry.Load(guest.WorldsJson).Active);
+        Assert.False(guest.Game.Has("CARDSET|"));
     }
 }

@@ -76,6 +76,7 @@ public sealed class WorldRecord
     public string ArchivedLeaseId { get; set; } = "";
     public bool ArchivedWasSlot { get; set; }
     public string HomeLeaseId { get; set; } = "";
+    public string VerificationSaveSha256 { get; set; } = "";
     public WorldStamp Stamp => new(Id, Hours, SavedUnix, Name);
 }
 
@@ -87,6 +88,8 @@ public sealed class WorldRegistry
     public List<WorldRecord> Worlds { get; set; } = new();
     /// <summary>This player's Henry as last read from the game (WorldCard text): what goes onto a world that replaces the one he is in.</summary>
     public string MyCard { get; set; } = "";
+    public string MyCharacterSha256 { get; set; } = "";
+    public PendingWorldLoad? PendingLoad { get; set; }
     /// <summary>The playline of the game this player had before a shared world replaced it, where "send my Henry home" goes (-1: none known).</summary>
     public int HomePlayline { get; set; } = -1;
     public string HomeLeaseId { get; set; } = "";
@@ -101,8 +104,18 @@ public sealed class WorldRegistry
             if (File.Exists(path))
             {
                 var registry = JsonSerializer.Deserialize<WorldRegistry>(File.ReadAllText(path), Json);
-                if (registry?.Worlds is null || registry.HomeLeaseId is null || registry.Worlds.Any(w => w is null || w.Id is null || w.ArchivedLeaseId is null || w.HomeLeaseId is null))
+                if (registry?.Worlds is null || registry.MyCharacterSha256 is null || registry.HomeLeaseId is null || registry.Worlds.Any(w => w is null || w.Id is null || w.ArchivedLeaseId is null || w.HomeLeaseId is null))
                     throw new InvalidDataException("The shared-world registry is incomplete; restore a verified copy before changing saves.");
+                if (registry.PendingLoad is { } pending)
+                {
+                    bool Digest(string? h) => h is { Length: 64 } && h.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+                    if (pending.Playline < 0 || pending.Playline >= SaveStore.MaxPlaylines || pending.WorldId is not { Length: > 0 and <= 40 }
+                        || pending.Name is null || pending.TransferId is null || !Digest(pending.SaveSha256)
+                        || pending.CharacterSha256 is null || (pending.CharacterSha256.Length > 0 && !Digest(pending.CharacterSha256))
+                        || pending.Phase is not ("Prepared" or "Installed") || pending.From is < 0 or > 249
+                        || !double.IsFinite(pending.Hours) || pending.Hours < 0 || pending.SavedUnix < 0)
+                        throw new InvalidDataException("Pending world-load journal is damaged; preserve the save archives and restore its verified copy.");
+                }
                 return registry;
             }
         }
@@ -141,6 +154,9 @@ public sealed class WorldRegistry
     /// <summary>The slots shared worlds took (taken even if their folder is empty for a moment).</summary>
     public IEnumerable<int> SlotsInUse() => Worlds.Where(w => w.Slot && w.Playline >= 0).Select(w => w.Playline);
 }
+
+public sealed record PendingWorldLoad(string WorldId, string Name, int Playline, string SaveSha256,
+    string CharacterSha256, int From, string TransferId, double Hours, long SavedUnix, string Phase, bool Home = false);
 
 /// <summary>A file in pieces, over the relay's text frames: <c>woffer</c> says what is coming, <c>wchunk</c> carries a piece (base64), and the receiver checks the whole against a SHA-256.</summary>
 public static class WorldTransfer

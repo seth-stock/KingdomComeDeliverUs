@@ -126,10 +126,13 @@ public sealed class RelayServer : IAsyncDisposable
         }
         finally
         {
+            lock (_idLock)
+            {
             if (peer.Id != 0 && _peers.TryRemove(peer.Id, out _) && peer.Hello)
             {
                 _log($"{Label(peer, remote)} left");
                 Broadcast(MessageType.PlayerLeft, $"{peer.Id}|left", except: peer.Id);
+            }
             }
             peer.Outbox.Writer.TryComplete();
             linked.Cancel();
@@ -246,6 +249,10 @@ public sealed class RelayServer : IAsyncDisposable
             return RejectAndClose();
         }
         string role = h[3] == "host" ? "host" : "guest";
+        // Admission, ID reservation, names, host selection and the initial roster
+        // must be one operation. NextId's old lock released before insertion.
+        lock (_idLock)
+        {
         if (role == "host" && HostId != null)
         {
             Send(peer, MessageType.Reject, "host-taken|this relay already has a host");
@@ -280,6 +287,7 @@ public sealed class RelayServer : IAsyncDisposable
         Broadcast(MessageType.PlayerJoined, $"{id}|{name}|{role}", except: id);
         _log($"#{id} {name} joined as {role} ({remote}); {PlayerCount}/{_o.MaxPlayers}");
         return true;
+        }
     }
 
     private static bool RejectAndClose()

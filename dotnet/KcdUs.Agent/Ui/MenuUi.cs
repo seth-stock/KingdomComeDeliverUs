@@ -210,7 +210,7 @@ public static class MenuUi
         [ActionsDir + PageHenry + ".xml"] = Page("Which Henry", new Button[]
         {
             new("MP_HenryHost", "The host's Henry (as he is)", Menu("henry", "host"), Tooltip: "You play a copy of the host's character"),
-            new("MP_HenryMine", "My own Henry", Menu("henry", "mine"), Tooltip: "Your skills and stats are raised, and missing money and things are added. Perks and exact character replacement are not supported yet"),
+            new("MP_HenryMine", "My own Henry", Menu("henry", "mine"), Tooltip: "Save your Henry first. His native stats, skills, perk records, resources and inventory replace the world's Henry. Active world-linked state or conflicting item ownership stops the transfer"),
         }),
         [ActionsDir + PageResolve + ".xml"] = Page("When we reconnect", new Button[]
         {
@@ -324,7 +324,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 4;
+    public const int Revision = 5;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 

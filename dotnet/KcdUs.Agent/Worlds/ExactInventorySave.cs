@@ -87,6 +87,24 @@ public static partial class ExactTraitsSave
         _=ParseInventory(a.Raw,hero.Begin,hero.End,true);
         return new(Bytes(a.Raw,hero));
     }
+    public static bool SameInventory(InventoryState expected, InventoryState actual)
+    {
+        var e = ParseInventory(expected.Payload, 0, expected.Payload.Length, true);
+        var a = ParseInventory(actual.Payload, 0, actual.Payload.Length, true);
+        int eHeader = e.Items.Count == 0 ? expected.Payload.Length : e.Items[0].Off;
+        int aHeader = a.Items.Count == 0 ? actual.Payload.Length : a.Items[0].Off;
+        if (!expected.Payload.AsSpan(0, eHeader).SequenceEqual(actual.Payload.AsSpan(0, aHeader)) || e.Items.Count != a.Items.Count) return false;
+        // Equipping can reorder the native inventory's linked list during load.
+        // Identity, state, equipment flags and every extension byte still match.
+        var items = a.Items.ToDictionary(n => new Guid(actual.Payload.AsSpan(n.Begin, 16)));
+        foreach (var item in e.Items)
+        {
+            var id = new Guid(expected.Payload.AsSpan(item.Begin, 16));
+            if (!items.TryGetValue(id, out var other) || !expected.Payload.AsSpan(item.Off, item.Length + 6)
+                .SequenceEqual(actual.Payload.AsSpan(other.Off, other.Length + 6))) return false;
+        }
+        return true;
+    }
     public static byte[] PrepareInventory(byte[] destination,InventoryState inventory)
     {
         if(inventory.Payload.Length>4*1024*1024)throw new InvalidDataException("Inventory snapshot exceeds bounds.");

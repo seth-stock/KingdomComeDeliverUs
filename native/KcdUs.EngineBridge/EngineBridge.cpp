@@ -32,7 +32,31 @@ static bool supported(HMODULE module) {
         0x8a,0xdb,0x5b,0xa6,0x59,0x53,0xe3,0x29,0xc2,0x4e,0x89,0xdd,0x9c,0x43,0x81,0xaa};
     return ok && !memcmp(digest,expected,sizeof(expected));
 }
+static void hex(const BYTE* source,size_t length,char* output) {
+    const char* digits="0123456789abcdef";
+    for(size_t i=0;i<length;i++){output[2*i]=digits[source[i]>>4];output[2*i+1]=digits[source[i]&15];}
+    output[2*length]=0;
+}
+static int soul_info(void* binding,void* handler,unsigned long long uid) {
+    // Explicit extension: GetItem accepts a type-5 soul WUID for read-only
+    // identity lookup. Type-2 item behavior remains unchanged.
+    auto env=*reinterpret_cast<BYTE**>(engine+0x35ac728);
+    auto registry=env?*reinterpret_cast<BYTE**>(env+0x548):nullptr;
+    auto soul=registry?function<BYTE*(*)(void*,unsigned long long*)>(0x284b04)(registry+0x48,&uid):nullptr;
+    if(!soul || *reinterpret_cast<unsigned long long*>(soul+0x20)!=uid)
+        return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+    auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
+    auto table=virtual_function<void*(*)(void*,bool)>(script,0x68)(script,false);
+    if(!table)return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+    virtual_function<void(*)(void*)>(table,0x18)(table);
+    char persistent[33];hex(soul+0x38,16,persistent);const char* text=persistent;
+    function<void(*)(void*,const char*,const void*)>(0x2b6a44)(table,"kcdusPersistent",&text);
+    int version=1;function<void(*)(void*,const char*,const void*)>(0x2b6a0c)(table,"kcdusSoul",&version);
+    int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
+    virtual_function<void(*)(void*)>(table,0x20)(table);return result;
+}
 static int item_info(void* binding,void* handler,unsigned long long uid) {
+    if((uid>>56)==5)return soul_info(binding,handler,uid);
     auto manager=*reinterpret_cast<BYTE**>(static_cast<BYTE*>(binding)+0x60);
     auto item=function<BYTE*(*)(void*,unsigned long long*)>(0x454638)(manager+0x18,&uid);
     if(!item)return virtual_function<int(*)(void*)>(handler,0x58)(handler);
@@ -50,6 +74,8 @@ static int item_info(void* binding,void* handler,unsigned long long uid) {
     const char* text=guid;put_text(table,"class",&text);
     put_float(table,"health",item+0x3c);put_int(table,"amount",item+0x38);
     put_entity(table,"entity",item+0x60);
+    char persistent[33];hex(item+0x10,16,persistent);const char* instance=persistent;
+    put_text(table,"kcdusPersistent",&instance);
     int equipped=item[0x48]&1,version=1;
     put_int(table,"kcdusEquipped",&equipped);put_int(table,"kcdusBridge",&version);
     int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);

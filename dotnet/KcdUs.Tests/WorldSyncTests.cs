@@ -25,6 +25,10 @@ public partial class WorldSyncTests
         public readonly string Dir = Path.Combine(Path.GetTempPath(), "kcdus-sync-" + Guid.NewGuid().ToString("N")[..8]);
         public readonly string WorldsJson;
         public readonly List<string> Logs = new();
+        public byte[]? NativeTemplate;
+        public bool AutoLoadAck = true;
+        public int? SavePlaylineOverride;
+        public bool RefuseSaves;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _pump;
 
@@ -44,10 +48,19 @@ public partial class WorldSyncTests
                 if (r.StartsWith("CARDGET|")) Game.Emit("KCDUS|CARD|" + r.Split('|')[1] + "|0|1|" + CardText);
                 if (r.StartsWith("SAVEWORLD|"))
                 {
+                    if (RefuseSaves) { Game.Emit("KCDUS|SAVEWORLD|" + r.Split('|')[1] + "|0|busy"); return; }
                     long unix = 1_799_000_000L + (++_saves);
-                    WriteSave(CurrentPlayline, "autosave" + (100 + _saves) + ".whs", unix, CurrentHours + 0.5);
+                    WriteSave(SavePlaylineOverride ?? CurrentPlayline, "autosave" + (100 + _saves) + ".whs", unix, CurrentHours + 0.5);
                     CurrentHours += 0.5;
                     Game.Emit("KCDUS|SAVEWORLD|" + r.Split('|')[1] + "|1|");
+                }
+                if (r.StartsWith("LOAD|"))
+                {
+                    var fields = r.Split('|'); CurrentPlayline = int.Parse(fields[2]);
+                    var save = Store.Newest(CurrentPlayline)!; CurrentHours = save.Info.Hours - 0.5;
+                    if (NativeTemplate is not null) NativeTemplate = File.ReadAllBytes(save.Path);
+                    Game.Emit("KCDUS|LOADING|0|" + CurrentPlayline + "|1|");
+                    if (AutoLoadAck) Game.Emit("KCDUS|UILOAD|loaded");
                 }
             };
             Host.StartAsync(_cts.Token).GetAwaiter().GetResult();
@@ -64,7 +77,9 @@ public partial class WorldSyncTests
         {
             var dir = Store.PlaylineDir(playline);
             Directory.CreateDirectory(dir);
-            File.WriteAllBytes(Path.Combine(dir, file), WorldTests.FakeSave(WorldTests.Desc(unix, hours), seed: (int)(unix % 1000) + 1));
+            File.WriteAllBytes(Path.Combine(dir, file), NativeTemplate is not null
+                ? CharacterFixture.WithDescription(NativeTemplate, unix, hours)
+                : WorldTests.FakeSave(WorldTests.Desc(unix, hours), seed: (int)(unix % 1000) + 1));
         }
 
         public void Seed(string worldId, int playline, double hours, long unix, string name = "Our world", bool slot = false)
@@ -104,7 +119,7 @@ public partial class WorldSyncTests
         await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
         await guest.Host.HandleAsync("join", "");
 
-        await Until(() => guest.Game.Has("LOAD|0|4"), what: "the guest's game is told to load its (replaced) slot 4", rigs: new[] { host, guest });
+        await Until(() => guest.Game.Has("LOAD|0|4") && WorldRegistry.Load(guest.WorldsJson).PendingLoad is null, what: "the guest's loaded slot passes readback", rigs: new[] { host, guest });
         var now = guest.Store.Newest(4)!;
         Assert.Equal(10, now.Info.Hours, 3);                                           // the host's world is what is there now
         Assert.True(Directory.GetFiles(Path.Combine(guest.Store.BackupRoot), "*.whs", SearchOption.AllDirectories).Length >= 1);   // and his own copy was kept

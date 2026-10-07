@@ -7,7 +7,7 @@ Marks: **(seen)** observed working in the real game on one machine · **(tests)*
 Walking and peer equipment replication have been implemented on
 `codex/coop-reliability`. Equipment requires the rebuilt Windows launcher and
 its adapter for the verified retail engine. Offline inventory/progression
-preparation is available; regular joins still use additive cards. These changes
+preparation is available; regular personal-Henry joins now stage native saved core/inventory state and require native readback. Active world-linked state, item ownership conflicts and unsafe capture states refuse the move. These changes
 are not a complete shared-simulation release. See
 [the current implementation status](IMPLEMENTATION-STATUS.md).
 

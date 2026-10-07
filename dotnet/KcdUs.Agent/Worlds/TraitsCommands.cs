@@ -30,17 +30,21 @@ public static class TraitsCommands
                 var data = new byte[checked((int)stream.Length)]; stream.ReadExactly(data); return data;
             }
             var source=Read(character);var staged=Read(world);
-            bool inventory=args.Contains("--prepare-exact-inventory");
-            if(!inventory || args.Contains("--with-traits")) staged=ExactTraitsSave.Prepare(staged,ExactTraitsSave.Capture(source));
-            if(inventory)staged=ExactTraitsSave.PrepareInventory(staged,ExactTraitsSave.CaptureInventory(source));
+            bool inventory=args.Contains("--prepare-exact-inventory"), characterMode=args.Contains("--prepare-character");
+            if(characterMode) staged=ExactTraitsSave.PrepareCharacter(staged,ExactTraitsSave.CaptureCharacter(source));
+            else
+            {
+                if(!inventory || args.Contains("--with-traits")) staged=ExactTraitsSave.Prepare(staged,ExactTraitsSave.Capture(source));
+                if(inventory)staged=ExactTraitsSave.PrepareInventory(staged,ExactTraitsSave.CaptureInventory(source));
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 file.Write(staged); file.Flush(true);
             }
-            Console.WriteLine($"Prepared {(inventory?"inventory":"progression")} save: {output}");
+            Console.WriteLine($"Prepared {(characterMode?"character core and inventory":inventory?"inventory":"progression")} save: {output}");
             Console.WriteLine($"SHA256: {Convert.ToHexString(SHA256.HashData(staged))}");
-            Console.WriteLine(inventory
+            Console.WriteLine(characterMode ? "Character core and native inventory prepared. World-owned knowledge, companions and position remain from the destination. Validate engine acceptance in an isolated game." : inventory
                 ?"Native inventory/equipment prepared. Resources, other soul state and story remain from the world save. Validate in an isolated game before installation."
                 :"Stat/skill XP and perk state prepared. Inventory/equipment remain from the world save. Engine acceptance is unproven.");
             return 0;

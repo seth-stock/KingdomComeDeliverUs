@@ -314,6 +314,7 @@ public sealed class AgentHost : IAsyncDisposable
     {
         _game.Line -= OnGameLine;
         _world?.Dispose();
+        if (_world is { } world) await world.Completion.ConfigureAwait(false);
         Session s; IRelayLink r; RelayServer? srv;
         lock (_gate) { s = _session; r = _relay; srv = _server; }
         s.Dispose();

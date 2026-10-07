@@ -3,6 +3,7 @@
 // belong to Warhorse Studios and Deep Silver. Unofficial, free, not affiliated with or endorsed by them.
 using System.Globalization;
 using System.Text;
+using System.Security.Cryptography;
 using System.Threading.Channels;
 using KcdUs.Agent.Ui;
 using KcdUs.Wire;
@@ -12,8 +13,8 @@ namespace KcdUs.Agent.Worlds;
 /// <summary>
 /// Shared worlds (docs/SHARED-WORLDS.md). Each player holds their OWN copy of the world (a playline folder) and plays it alone or with friends; the mod
 /// never merges two saves. When two players meet again, each side compares how far its copy has got and the one that is behind receives the other's
-/// save (kept as a backup, never deleted) and loads it; each player's own Henry rides along as a card (skills, stats, perks, money, things) and is put
-/// back onto whatever world he lands in. All of it runs on one worker, so the steps never race.
+/// save (kept as a backup, never deleted) and loads it. Personal native core/inventory snapshots are staged before loading;
+/// world-owned state stays in the destination. One worker serializes disk operations; native readback acknowledges acceptance.
 /// </summary>
 public sealed class WorldCoordinator : IDisposable
 {
@@ -25,6 +26,7 @@ public sealed class WorldCoordinator : IDisposable
     private readonly IGameLink _game;
     private readonly Func<Session> _session;
     private readonly SaveStore _store;
+    private readonly CharacterCheckpoint _characters;
     private readonly WorldRegistry _reg;
     private readonly string? _regPath;
     private readonly Action<string> _log;
@@ -37,8 +39,12 @@ public sealed class WorldCoordinator : IDisposable
     private WorldTransfer.Receiver? _rx;
     private int _rxFrom;
     private long _rxLastMs;
-    private string? _pendingCard;            // put onto the Henry of the world that loads next
     private bool _expectLoad;
+    private bool _loadStarted;
+    private int _requestedFrom;
+    private string _requestedWorld = "";
+    private bool _requestedMine;
+    private long _requestStartedMs;
     private readonly Dictionary<string, (int Total, string?[] Parts)> _cardIn = new();
     private TaskCompletionSource<string>? _cardWait;
     private string _cardWaitId = "";
@@ -57,7 +63,15 @@ public sealed class WorldCoordinator : IDisposable
         Action<MenuUi.Title> title, Func<DateTime>? utcNow = null)
     {
         _cfg = cfg; _game = game; _session = session; _store = store; _reg = reg; _regPath = regPath; _log = log; _title = title; _utc = utcNow ?? (() => DateTime.UtcNow);
+        _characters = new CharacterCheckpoint(store.BackupRoot);
         _store.RecoverPendingInstalls();
+        if (_reg.PendingLoad is { Phase: "Prepared" } pending)
+        {
+            string installed = Path.Combine(_store.PlaylineDir(pending.Playline), "world.whs");
+            bool committed = File.Exists(installed) && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(installed))).ToLowerInvariant() == pending.SaveSha256;
+            _reg.PendingLoad = committed ? pending with { Phase = "Installed" } : null;
+            _reg.Save(_regPath);
+        }
         _game.Line += OnGameLine;
         _worker = Task.Run(Work);
     }
@@ -68,14 +82,16 @@ public sealed class WorldCoordinator : IDisposable
         _cts.Cancel();
         _work.Writer.TryComplete();
     }
+    public Task Completion => _worker;
 
     private async Task Work()
     {
         await foreach (var job in _work.Reader.ReadAllAsync().ConfigureAwait(false))
         {
+            if (_cts.IsCancellationRequested) break;
             try { await job().ConfigureAwait(false); }
             catch (OperationCanceledException) { }
-            catch (Exception e) { _log("world: " + e.Message); }
+            catch (Exception e) { _log("world: " + e.Message); Say("World operation stopped: " + e.Message); }
         }
     }
 
@@ -121,12 +137,15 @@ public sealed class WorldCoordinator : IDisposable
                 bool w = g.Fields.Length > 1 && g.Fields[1] == "1";
                 Enqueue(() => OnReadyAsync(w));
                 break;
+            case "LOADING" when g.Fields.Length > 3 && g.Fields[3] == "1":
+                if (_expectLoad) _loadStarted = true;
+                break;
             case "UILOAD" when g.Fields.Length > 1 && g.Fields[1] == "loaded":
-                // a load started from a world straight into another one never says READY 0 then 1; the load graph says it is done
-                Enqueue(() => OnReadyAsync(true));
+                Enqueue(LoadedAsync);
                 break;
             case "SAVEWORLD":
-                _saveWait?.TrySetResult(g.Fields.Length > 2 && g.Fields[2] == "1");   // SAVEWORLD|tag|ok|error
+                if (g.Fields.Length > 2 && g.Fields[1] == _saveWaitId)
+                    _saveWait?.TrySetResult(g.Fields[2] == "1");
                 break;
             case "CARD" when g.Fields.Length >= 5:
                 OnCardPiece(g.Fields[1], g.Fields[2], g.Fields[3], g.Fields[4]);
@@ -153,13 +172,7 @@ public sealed class WorldCoordinator : IDisposable
     {
         _inWorldFlag = inWorld;
         if (!inWorld) return;
-        if (_expectLoad)
-        {
-            _expectLoad = false;
-            _log("world: the shared world is loaded");
-            if (!string.IsNullOrEmpty(_pendingCard)) { await StampAsync(_pendingCard!).ConfigureAwait(false); _pendingCard = null; }
-            Say("The shared world is loaded.");
-        }
+        if (_expectLoad || _reg.PendingLoad is not null) return;
         _lastBindCheckMs = 0;
         await AnnounceAsync().ConfigureAwait(false);
     }
@@ -179,49 +192,107 @@ public sealed class WorldCoordinator : IDisposable
         return card;
     }
 
-    private async Task StampAsync(string card)
+    private async Task LoadedAsync()
     {
-        string id = Guid.NewGuid().ToString("N")[..6];
-        const int piece = 600;
-        int n = Math.Max(1, (card.Length + piece - 1) / piece);
-        for (int i = 0; i < n; i++)
+        if (!_expectLoad || !_loadStarted) return;
+        _inWorldFlag = true;
+        if (_reg.PendingLoad is not { } pending) { _expectLoad = false; await AnnounceAsync(); return; }
+        try
         {
-            _game.Send($"CARDSET|{id}|{i}|{n}|{card.Substring(i * piece, Math.Min(piece, card.Length - i * piece))}");
-            await Task.Delay(40, _cts.Token).ConfigureAwait(false);
+            // The UI event precedes the end of native loading. SaveViaResting
+            // silently does nothing in that short interval despite returning.
+            await Task.Delay(2000, _cts.Token).ConfigureAwait(false);
+            // A generic READY/UI notification is not acceptance. A native save must
+            // come from the installed playline and retain the staged personal state.
+            var saved = await SaveNowAsync(pending.Playline).ConfigureAwait(false)
+                ?? throw new IOException("The engine did not save the loaded world; acceptance remains pending.");
+            if (pending.CharacterSha256.Length > 0 && !ExactTraitsSave.SameProgressionAndInventory(
+                _characters.Read(pending.CharacterSha256), ExactTraitsSave.CaptureCharacter(File.ReadAllBytes(saved.Path))))
+                throw new InvalidDataException("Native character readback differs; acceptance remains pending.");
+            if (!pending.Home)
+            {
+                var w = _reg.Upsert(pending.WorldId, pending.Name);
+                if (w.Playline >= 0 && w.Playline != pending.Playline && !w.Slot) w.HomePlayline = w.Playline;
+                w.Playline = pending.Playline; w.Slot = true; Remember(w, saved); _reg.Active = w.Id;
+                // The readback save verifies acceptance; it is not a new shared
+                // checkpoint. Preserve the sender's stamp to prevent resync loops.
+                w.Hours = pending.Hours; w.SavedUnix = pending.SavedUnix;
+                w.VerificationSaveSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(saved.Path))).ToLowerInvariant();
+            }
+            else _reg.Active = _reg.Worlds.FirstOrDefault(w => w.Playline == pending.Playline)?.Id ?? "";
+            _reg.PendingLoad = null;
+            _reg.Save(_regPath);
+            _expectLoad = false; _loadStarted = false; _behind = null;
+            if (pending.From > 0) _session().SendEvent($"wdone|{pending.From}|{pending.TransferId}|1");
+            Say("The shared world loaded and passed native save readback.");
+            await AnnounceAsync();
         }
-        _log("world: your Henry was put onto the world's");
+        catch (Exception e) when (e is IOException or InvalidDataException)
+        { _reg.PendingLoad = pending; _log("world: " + e.Message); Say(e.Message + " Your character snapshot and previous saves are preserved."); }
     }
 
     // ================================================================ saving and sharing
 
     /// <summary>Asks the game to save now and waits for the file. Null when nothing was written (the prologue and some scenes refuse to save).</summary>
-    public async Task<SaveFile?> SaveNowAsync()
+    private string _saveWaitId = "";
+    private bool _lastSaveAccepted;
+    public async Task<SaveFile?> SaveNowAsync(int? expectedPlayline = null, bool character = false)
     {
         if (!InWorld) return null;
-        var since = _utc().AddSeconds(-1);
+        _lastSaveAccepted = false;
+        var before = _store.FileVersions();
         _saveWait = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _game.Send("SAVEWORLD|n");
+        _saveWaitId = Guid.NewGuid().ToString("N");
+        _game.Send("SAVEWORLD|" + _saveWaitId + (character ? "|character" : ""));
         var end = _utc().AddMilliseconds(SaveWaitMs);
-        SaveFile? found = null;
         while (_utc() < end && !_cts.IsCancellationRequested)
         {
             await Task.Delay(500, _cts.Token).ConfigureAwait(false);
-            found = _store.NewestSince(since);
-            if (found is not null && await StableAsync(found.Path).ConfigureAwait(false)) return _store.NewestSince(since);
+            if (_saveWait.Task.IsCompletedSuccessfully && !_saveWait.Task.Result) return null;
+            if (!_saveWait.Task.IsCompletedSuccessfully) continue;
+            _lastSaveAccepted = true;
+            var changed = _store.ChangedFiles(before);
+            if (changed.Count > 1) throw new IOException("Multiple saves changed during capture; refusing to guess Henry's playline.");
+            if (changed.Count == 1)
+            {
+                var found = changed[0];
+                if (expectedPlayline is { } slot && found.Playline != slot)
+                    throw new IOException("The engine saved a different playline; refusing character/world acknowledgement.");
+                if (await StableAsync(found.Path).ConfigureAwait(false)) return found;
+            }
         }
         return null;
     }
 
+    private async Task<int> CaptureCharacterAsync()
+    {
+        var saved = await SaveNowAsync(character: true).ConfigureAwait(false);
+        if (saved is null && _lastSaveAccepted && InWorld)
+        {
+            // Immediately after a load, the native resting-save call can return
+            // successfully without writing. Never use an old save: retry once.
+            Say("The game has not written Henry's save yet. Retrying after loading settles.");
+            await Task.Delay(2000, _cts.Token).ConfigureAwait(false);
+            saved = await SaveNowAsync(character: true).ConfigureAwait(false);
+        }
+        if (saved is null) throw new IOException("Henry could not be saved. Finish the prologue/cutscene before moving him.");
+        _reg.MyCharacterSha256 = _characters.Capture(await File.ReadAllBytesAsync(saved.Path).ConfigureAwait(false));
+        _reg.Save(_regPath); // A failed durable personal snapshot cancels the replacement.
+        return saved.Playline;
+    }
+
     private async Task<bool> StableAsync(string path)
     {
-        long a = new FileInfo(path).Length;
+        var a = File.ReadAllBytes(path);
         await Task.Delay(700, _cts.Token).ConfigureAwait(false);
-        return new FileInfo(path).Length == a && SaveInfo.Validate(File.ReadAllBytes(path), out _);
+        var b = File.ReadAllBytes(path);
+        return a.AsSpan().SequenceEqual(b) && SaveInfo.Validate(b, out _);
     }
 
     /// <summary>"Save the world for everyone": save, make this game the shared world if there is none yet, and tell the friends how far it has got.</summary>
     private async Task SaveAndShareAsync()
     {
+        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before publishing a checkpoint."); return; }
         var f = await SaveNowAsync().ConfigureAwait(false);
         if (f is null) { Say("The game would not save just now (a cutscene or the prologue). Try again in a moment."); _title(MenuUi.Title.WorldBusy); return; }
         var w = _reg.ActiveWorld;
@@ -252,16 +323,23 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task PlayAsync()
     {
+        if (_reg.PendingLoad is { } pending)
+        {
+            if (pending.Phase != "Installed" || !File.Exists(Path.Combine(_store.PlaylineDir(pending.Playline), "world.whs"))
+                || Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(_store.PlaylineDir(pending.Playline), "world.whs")))).ToLowerInvariant() != pending.SaveSha256)
+                throw new IOException("Pending world installation needs recovery; previous saves and snapshot remain preserved.");
+            LoadPlayline(pending.Playline); return;
+        }
         var w = _reg.ActiveWorld;
         if (w is null || w.Playline < 0 || _store.Newest(w.Playline) is null) { Say("There is no shared world to play yet."); _title(MenuUi.Title.NoWorld); return; }
         if (InWorld) await CaptureCardAsync().ConfigureAwait(false);
-        _pendingCard = null;   // your own world: your own Henry is already in it
         LoadPlayline(w.Playline);
     }
 
     private void LoadPlayline(int folder)
     {
         _expectLoad = true;
+        _loadStarted = false;
         _title(MenuUi.Title.WorldLoading);
         _game.Send($"LOAD|0|{folder}");   // the load graph takes the playline's folder number (seen in the retail game)
         _log($"world: loading the newest save of playline {folder}");
@@ -269,6 +347,7 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task NewWorldAsync()
     {
+        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before starting another world."); return; }
         var s = _session();
         if (s.MyId == 0) { Say("Host or join a game first."); _title(MenuUi.Title.NeedHost); return; }
         if (!s.IsHost) { Say("Only the host starts a new shared world; ask them to."); return; }
@@ -284,13 +363,15 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task AnnounceAsync()
     {
+        if (_reg.PendingLoad is not null || _expectLoad) return;
         var s = _session();
         if (s.MyId == 0) return;
         _announcedFor = s.MyId;
         var w = _reg.ActiveWorld;
         if (w is null || w.Playline < 0) return;
         var f = _store.Newest(w.Playline);
-        if (f is not null) Remember(w, f);
+        if (f is not null && (w.VerificationSaveSha256.Length == 0 ||
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f.Path))).ToLowerInvariant() != w.VerificationSaveSha256)) Remember(w, f);
         s.SendEvent("wstamp|" + w.Stamp.Encode());
         await Task.CompletedTask;
     }
@@ -319,14 +400,18 @@ public sealed class WorldCoordinator : IDisposable
                 }
             case "wreq" when Mine(1): await ServeAsync(from, f.Length > 2 ? f[2] : "-").ConfigureAwait(false); break;
             case "woffer" when Mine(1) && f.Length >= 8: OnOffer(from, f); break;
-            case "wchunk" when Mine(1) && f.Length >= 5 && _rx is not null && _rx.Offer.TransferId == f[2] && int.TryParse(f[3], out int idx):
+            case "wchunk" when Mine(1) && f.Length >= 5 && _rx is not null && from == _rxFrom && _rx.Offer.TransferId == f[2] && int.TryParse(f[3], out int idx):
                 _rx.Add(idx, f[4]); _rxLastMs = Environment.TickCount64;
                 if (_rx.Complete) await FinishReceiveAsync().ConfigureAwait(false);
                 break;
             case "wmiss" when Mine(1) && f.Length >= 4: await ResendAsync(from, f[2], f[3]).ConfigureAwait(false); break;
             case "wdone" when Mine(1) && f.Length >= 4:
                 _log($"world: {PeerName(from)} {(f[3] == "1" ? "has your world" : "could not use it: " + (f.Length > 4 ? f[4] : "?"))}");
-                if (f[3] != "1") Say("Your friend could not take the world: " + (f.Length > 4 ? f[4] : "?"));
+                if (f[3] != "1")
+                {
+                    if (_requestedFrom == from) { _requestedFrom = 0; _rx = null; }
+                    Say("World transfer refused: " + (f.Length > 4 ? f[4] : "?"));
+                }
                 break;
         }
     }
@@ -373,13 +458,12 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task RequestAsync()
     {
+        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before receiving another world."); return; }
+        if (_requestedFrom != 0 || _rx is not null) { Say("A world transfer is already pending."); return; }
         var s = _session();
         if (s.MyId == 0) { Say("Join a game first."); _title(MenuUi.Title.NeedHost); return; }
         int target = _behind?.From ?? (s.IsHost ? s.Peers.FirstOrDefault(p => p.Id != s.MyId)?.Id ?? 0 : s.HostId);
         if (target == 0) { Say("Nobody to take a world from."); _title(MenuUi.Title.NeedHost); return; }
-        // your own Henry is read now, before the world he is in is replaced
-        if (InWorld) await CaptureCardAsync().ConfigureAwait(false);
-        if (_reg.HomePlayline < 0 && _reg.HomeLeaseId.Length == 0 && _store.NewestAny() is { } home && !_reg.SlotsInUse().Contains(home.Playline)) { _reg.HomePlayline = home.Playline; Persist(); }
         string id = _behind?.Stamp.WorldId ?? "-";
         var known = id == "-" ? _reg.ActiveWorld : _reg.Find(id);
         if (known is not { Slot: true } && _store.FreePlayline(_reg.SlotsInUse()) is null)
@@ -388,7 +472,25 @@ public sealed class WorldCoordinator : IDisposable
             _title(MenuUi.Title.WorldBusy);
             return;
         }
-        s.SendEvent($"wreq|{target}|{id}");
+        _requestedMine = MineMode;
+        if (_requestedMine)
+        {
+            int? source = InWorld ? await CaptureCharacterAsync().ConfigureAwait(false) : null;
+            if (_reg.MyCharacterSha256.Length == 0) { Say("Load and save your Henry first, then join the world with Bring my Henry."); return; }
+            _ = _characters.Read(_reg.MyCharacterSha256);
+            if (source is { } home && _reg.HomePlayline < 0 && !_reg.SlotsInUse().Contains(home))
+            { _reg.HomePlayline = home; _reg.Save(_regPath); }
+        }
+        else if (InWorld && _reg.HomePlayline < 0 && _reg.HomeLeaseId.Length == 0)
+        {
+            // Establish home from the engine's fresh save, never another
+            // playline's unrelated newest file.
+            if (await SaveNowAsync().ConfigureAwait(false) is { } home && !_reg.SlotsInUse().Contains(home.Playline))
+            { _reg.HomePlayline = home.Playline; _reg.Save(_regPath); }
+        }
+        _requestedFrom = target; _requestedWorld = id;
+        _requestStartedMs = Environment.TickCount64;
+        if (!s.SendEvent($"wreq|{target}|{id}")) { _requestedFrom = 0; Say("Reconnect to the relay and request the world again."); return; }
         _rx = null;
         Say("Asking for the world...");
         _title(MenuUi.Title.WorldAsked);
@@ -412,7 +514,7 @@ public sealed class WorldCoordinator : IDisposable
             _session().SendEvent($"woffer|{to}|{offer.TransferId}|{offer.WorldId}|{offer.Bytes}|{offer.Chunks}|{offer.Sha256}|{w.Stamp.Encode().Split('|', 2)[1]}|{Safe.Clean(w.Name, 40)}");
             _title(MenuUi.Title.WorldSent);
             Say($"Sending your world ({bytes.Length / 1024 / 1024.0:0.0} MB)...");
-            _sentFile = (offer.TransferId, bytes);
+            _sentFile = (offer.TransferId, bytes, to);
             foreach (var (i, b64) in WorldTransfer.Pieces(bytes))
             {
                 _session().SendEvent($"wchunk|{to}|{offer.TransferId}|{i}|{b64}");
@@ -422,11 +524,11 @@ public sealed class WorldCoordinator : IDisposable
         finally { Interlocked.Exchange(ref _sending, 0); }
     }
 
-    private (string Id, byte[] Bytes)? _sentFile;
+    private (string Id, byte[] Bytes, int To)? _sentFile;
 
     private async Task ResendAsync(int to, string transferId, string list)
     {
-        if (_sentFile is not { } sf || sf.Id != transferId) return;
+        if (_sentFile is not { } sf || sf.Id != transferId || sf.To != to) return;
         var want = list.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => int.TryParse(x, out var v) ? v : -1).Where(v => v >= 0).Take(400).ToHashSet();
         foreach (var (i, b64) in WorldTransfer.Pieces(sf.Bytes))
         {
@@ -441,6 +543,8 @@ public sealed class WorldCoordinator : IDisposable
         // woffer|to|xid|worldId|bytes|chunks|sha|hours|unix|name
         try
         {
+            if (from != _requestedFrom || _requestedFrom == 0 || _rx is not null
+                || (_requestedWorld != "-" && f[3] != _requestedWorld)) return;
             if (f.Length < 10 || !int.TryParse(f[4], out int bytes) || !int.TryParse(f[5], out int chunks)) return;
             _rx = new WorldTransfer.Receiver(new WorldTransfer.Offer(f[2], Safe.Clean(f[3], 40), bytes, chunks, f[6].ToLowerInvariant()));
             _rxFrom = from; _rxLastMs = Environment.TickCount64;
@@ -457,6 +561,8 @@ public sealed class WorldCoordinator : IDisposable
     {
         var rx = _rx; _rx = null;
         if (rx is null) return;
+        _requestedFrom = 0;
+        if (_reg.PendingLoad is not null || _expectLoad) { Say("A world load is already pending. The additional received world was not installed."); return; }
         var bytes = rx.Assemble();
         var s = _session();
         string why = "";
@@ -468,9 +574,9 @@ public sealed class WorldCoordinator : IDisposable
             return;
         }
         var info = SaveInfo.Read(bytes);
-        var w = _reg.Upsert(rx.Offer.WorldId, _offerName);
+        var w = _reg.Find(rx.Offer.WorldId);
         int playline; bool replace;
-        if (w.Slot && w.Playline >= 0) { playline = w.Playline; replace = true; }
+        if (w is { Slot: true, Playline: >= 0 }) { playline = w.Playline; replace = true; }
         else
         {
             if (_store.FreePlayline(_reg.SlotsInUse()) is not { } free)
@@ -480,18 +586,20 @@ public sealed class WorldCoordinator : IDisposable
                 return;
             }
             playline = free; replace = false;
-            if (w.Playline >= 0) w.HomePlayline = w.Playline;   // the copy that was here is the player's own game: it stays where it is
         }
-        _store.InstallWorld(playline, w.Id, bytes, _utc().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), replace);
-        w.Playline = playline; w.Slot = true;
-        if (info is not null) { w.Hours = info.Hours; w.SavedUnix = info.SavedUnix; }
-        _reg.Active = w.Id;
-        _behind = null;
-        Persist();
-        s.SendEvent($"wdone|{_rxFrom}|{rx.Offer.TransferId}|1");
-        // the player's own Henry goes into it (or the sender's Henry is what you play, in "host's Henry" mode)
-        _pendingCard = MineMode && !string.IsNullOrEmpty(_reg.MyCard) ? _reg.MyCard : null;
-        Say(MineMode ? "World received. Loading it with your own Henry." : "World received. Loading it.");
+        if (_requestedMine)
+        {
+            if (InWorld) await CaptureCharacterAsync().ConfigureAwait(false); // Include play during the transfer.
+            bytes = ExactTraitsSave.PrepareCharacter(bytes, _characters.Read(_reg.MyCharacterSha256));
+        }
+        var pending = new PendingWorldLoad(rx.Offer.WorldId, _offerName, playline,
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), _requestedMine ? _reg.MyCharacterSha256 : "",
+            _rxFrom, rx.Offer.TransferId, info?.Hours ?? 0, info?.SavedUnix ?? 0, "Prepared");
+        _reg.PendingLoad = pending; _reg.Save(_regPath);
+        _store.InstallWorld(playline, rx.Offer.WorldId, bytes, _utc().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), replace);
+        _reg.PendingLoad = pending with { Phase = "Installed" }; _reg.Save(_regPath);
+        _requestedFrom = 0;
+        Say(_requestedMine ? "World received. Loading your saved Henry." : "World received. Loading it.");
         LoadPlayline(playline);
     }
 
@@ -499,6 +607,7 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task HenryHomeAsync()
     {
+        if (_reg.PendingLoad is not null || _expectLoad || _requestedFrom != 0) { Say("Finish the pending world operation before sending Henry home."); return; }
         if (_reg.HomeLeaseId.Length > 0)
         {
             Say("Your home world is archived. Close the game and restore it with KcdUsAgent --slot-restore " + _reg.HomeLeaseId + " --cloud-sync-paused before sending Henry home.");
@@ -510,13 +619,15 @@ public sealed class WorldCoordinator : IDisposable
             _title(MenuUi.Title.NoWorld);
             return;
         }
-        var card = await CaptureCardAsync().ConfigureAwait(false) ?? _reg.MyCard;
-        if (string.IsNullOrEmpty(card)) { Say("Your Henry could not be read. Load a world first."); return; }
-        // the home save is copied away before anything is put onto it
-        var backup = Path.Combine(_store.BackupRoot, "home", _utc().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
-        Directory.CreateDirectory(backup);
-        File.Copy(home.Path, Path.Combine(backup, Path.GetFileName(home.Path)), overwrite: true);
-        _pendingCard = card;
+        if (!InWorld) { Say("Load your current Henry before sending him home."); return; }
+        await CaptureCharacterAsync().ConfigureAwait(false);
+        var prepared = ExactTraitsSave.PrepareCharacter(File.ReadAllBytes(home.Path), _characters.Read(_reg.MyCharacterSha256));
+        var pending = new PendingWorldLoad("home-" + Guid.NewGuid().ToString("N"), "Home", home.Playline,
+            Convert.ToHexString(SHA256.HashData(prepared)).ToLowerInvariant(), _reg.MyCharacterSha256, 0, "",
+            home.Info.Hours, home.Info.SavedUnix, "Prepared", true);
+        _reg.PendingLoad = pending; _reg.Save(_regPath);
+        _store.InstallWorld(home.Playline, pending.WorldId, prepared, "home", true);
+        _reg.PendingLoad = pending with { Phase = "Installed" }; _reg.Save(_regPath);
         _title(MenuUi.Title.HenryHome);
         Say("Taking your Henry home. A copy of your home save is kept first.");
         LoadPlayline(_reg.HomePlayline);
@@ -532,6 +643,15 @@ public sealed class WorldCoordinator : IDisposable
         _lastTickMs = now;
         var s = _session();
         if (s.MyId != 0 && s.MyId != _announcedFor) Enqueue(AnnounceAsync);
+        if (_requestedFrom != 0 && (s.MyId == 0 || now - _requestStartedMs > LoadingGraceMs))
+        {
+            long requestStarted = _requestStartedMs;
+            Enqueue(() => {
+                if (_requestedFrom != 0 && _requestStartedMs == requestStarted)
+                { _requestedFrom = 0; _rx = null; Say("The world request expired. Your saves are unchanged; request it again after reconnecting."); }
+                return Task.CompletedTask;
+            });
+        }
         if (_rx is { } rx && now - _rxLastMs > ReceiveStallMs)
         {
             _rxLastMs = now;

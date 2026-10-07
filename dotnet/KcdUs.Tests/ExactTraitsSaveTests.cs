@@ -83,6 +83,8 @@ public class ExactTraitsSaveTests
         var t = ExactTraitsSave.Capture(Save(7, 2)); var world = Save(9, 3);
         Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Skills = Xp((26, 1), (26, 2)) }));
         Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Skills = [0, 1] }));
+        Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Skills = Xp((33, 2)) }));
+        Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Stats = Xp((10, 2)) }));
         Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Perks = [1, 2, 3] }));
         Assert.Throws<InvalidDataException>(() => ExactTraitsSave.Prepare(world, t with { Perks = Node(0x03D8, new byte[4]) }));
     }

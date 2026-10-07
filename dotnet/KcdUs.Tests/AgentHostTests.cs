@@ -35,7 +35,12 @@ public class AgentHostTests
             Directory.CreateDirectory(Dir);
             var cfg = new AgentConfig { Idle = true, RelayPort = FreePort(), PlayerName = "Henry" };
             tweak?.Invoke(cfg);
-            Host = new AgentHost(cfg, Game, "0.1.0", StatusPort, _ => { }) { SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = u => { lock (Opened) Opened.Add(u); } };
+            Host = new AgentHost(cfg, Game, "0.1.0", StatusPort, _ => { })
+            {
+                SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = u => { lock (Opened) Opened.Add(u); },
+                Store = new KcdUs.Agent.Worlds.SaveStore(Path.Combine(Dir, "saves"), Path.Combine(Dir, "backups")),
+                WorldListPath = Path.Combine(Dir, "worlds.json")
+            };
             Host.StartAsync(_cts.Token).GetAwaiter().GetResult();
         }
 

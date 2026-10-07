@@ -44,21 +44,18 @@ longer one goes on, and your Henry (his levels and things) is carried over to it
 The game keeps one Henry in each save, so "who is Henry in this world" is a choice made when a world is received:
 
 * **The world's own Henry** (default): you play the Henry that is in the world you receive: for a host's 100-hour world, a copy of the host's Henry.
-* **My own Henry**: before your world is replaced, the mod reads your Henry (the *card*); after the received world loads, it puts the card onto the Henry that is there:
-  * **stats** (strength, agility, vitality, speech) and **skills** (all 33) are **raised to yours; never lowered**: the game has no way to lower a level.
-    A weaker Henry becomes as strong as yours; a stronger one stays as he is.
-  * **things and money** are **added**: whatever your card holds and the Henry lacks (money is raised to yours); nothing is taken away. Worn clothes are not carried (the game does not tell the mod what is worn).
-  * **perks are not carried**: the game gives scripts no way to list a Henry's perks.
-  * Quest items of your own game come along too (the mod cannot tell them apart); drop them if they trouble a quest.
+* **My own Henry**: first load your Henry and finish combat, dialogue or riding. Holster his weapon. The mod requests a fresh save and retains an immutable personal snapshot. It stages native stats/skills, perk records, resources and inventory/equipment in the received world before loading. Levels and inventory can decrease to match your snapshot; they are not added to the sender's character.
 
-A *new* Henry cannot be made inside a world that already exists (levels cannot be lowered): for new characters, **start a new world together**.
+The destination retains its position, story/quest knowledge and companion references. Active world-linked core state, unsupported save framing and carried item instances owned elsewhere refuse the move. Other soul timers and arbitrary ability/buff states are not fully covered. See [current engine evidence and limits](ENGINE-INTEGRATION-20261007.md).
 
-**Sending a Henry home** is the same card, put onto the game you had before.
+The engine must write a fresh save from the destination playline and pass progression/perk/inventory readback before the agent announces acceptance. A pending installation can be retried with **Play my shared world**. Your original saves and personal snapshot are retained. The UI's load-completed notification alone does not acknowledge success.
+
+**Sending a Henry home** uses the same native snapshot preparation and readback, with a verified archive of the home playline's saves. An archived home must first be restored offline. The older additive card no longer handles these transfers.
 
 ## Where things are
 
-* `%LocalAppData%\KCDUS\worlds.json`: the shared worlds this computer knows: id, name, where your copy is, how far it has got, and your last Henry card.
-* `%LocalAppData%\KCDUS\world-backups\<world>\<date>\`: every copy that was replaced, and `home\<date>\` for the game a Henry was sent back into.
+* `%LocalAppData%\KCDUS\worlds.json`: the shared worlds this computer knows: id, name, where your copy is, how far it has got, your latest personal snapshot digest, and any pending load journal.
+* `%LocalAppData%\KCDUS\world-backups\transactions\<UUID>\originals\`: verified copies of every replaced save. Personal snapshots are in `world-backups\characters\<SHA256>.whs`.
 * The saves themselves are the game's: `Saved Games\kingdomcome\saves\playline0` … `playline4`.
 
 ### The five playlines

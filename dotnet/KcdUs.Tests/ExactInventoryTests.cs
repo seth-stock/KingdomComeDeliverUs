@@ -40,6 +40,22 @@ public class ExactInventoryTests
         Assert.Equal(prepared,ExactTraitsSave.PrepareInventory(prepared,state));
     }
     [Fact]
+    public void ReadbackAllowsOnlyNativeLinkedListOrderChanges()
+    {
+        // Build two valid records by combining the parsed single-item fixture
+        // headers and changing the item count; their metadata stays distinct.
+        var first = ExactTraitsSave.CaptureInventory(Save(Inventory(Hero, Item, 1))).Payload;
+        var secondId = new Guid("20000000-1111-2222-3333-444444444444");
+        var second = ExactTraitsSave.CaptureInventory(Save(Inventory(Hero, secondId, 2))).Payload;
+        int header = 102; var prefix = first[..header]; I(2).CopyTo(prefix, header-4);
+        var a = new ExactTraitsSave.InventoryState(Join(prefix, first[header..], second[header..]));
+        var b = new ExactTraitsSave.InventoryState(Join(prefix, second[header..], first[header..]));
+        Assert.True(ExactTraitsSave.SameInventory(a,b));
+        var different = ExactTraitsSave.CaptureInventory(Save(Inventory(Hero, secondId, 3))).Payload;
+        var changed = new ExactTraitsSave.InventoryState(Join(prefix, different[header..], first[header..]));
+        Assert.False(ExactTraitsSave.SameInventory(a, changed));
+    }
+    [Fact]
     public void InstanceAlreadyOwnedByAnotherWorldInventoryIsRefused()
     {
         var source=Save(Inventory(Hero,Item,1));

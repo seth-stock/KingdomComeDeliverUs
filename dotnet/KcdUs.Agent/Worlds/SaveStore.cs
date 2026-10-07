@@ -83,6 +83,31 @@ public sealed class SaveStore
     /// <summary>The most recently saved game anywhere (what the game's Continue would load).</summary>
     public SaveFile? NewestAny() => Playlines().Select(Newest).Where(s => s is not null).OrderByDescending(s => s!.Info.SavedUnix).FirstOrDefault();
 
+    public sealed record FileVersion(long Length, DateTime ModifiedUtc);
+    public Dictionary<string, FileVersion> FileVersions()
+    {
+        var files = new Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase);
+        foreach (var slot in Playlines().Where(p => p >= 0 && p < MaxPlaylines))
+            foreach (var file in Directory.EnumerateFiles(PlaylineDir(slot), "*.whs"))
+            {
+                var info = new FileInfo(file);
+                files.Add(file, new(info.Length, info.LastWriteTimeUtc));
+            }
+        return files;
+    }
+    public List<SaveFile> ChangedFiles(Dictionary<string, FileVersion> before)
+    {
+        var result = new List<SaveFile>();
+        foreach (var (file, version) in FileVersions())
+        {
+            if (before.TryGetValue(file, out var old) && old == version) continue;
+            string folder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(file))!;
+            if (int.TryParse(folder[8..], out int slot) && SaveInfo.Read(file) is { } info)
+                result.Add(new(file, slot, info, version.ModifiedUtc));
+        }
+        return result;
+    }
+
     /// <summary>The newest save written after <paramref name="sinceUtc"/> in any playline (what a "save now" produced), or null.</summary>
     public SaveFile? NewestSince(DateTime sinceUtc)
     {

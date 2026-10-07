@@ -420,6 +420,7 @@ public class LuaModTests
     public void A_world_save_is_one_engine_call_and_its_failure_is_reported()
     {
         var m = new LuaMod();
+        m.InWorld();
         m.ClearLog();
         m.Send("1~SAVEWORLD|x");
         Assert.True(m.Bool("__calls[#__calls] == 'SaveGameViaResting'"));
@@ -427,6 +428,20 @@ public class LuaModTests
         m.Do("__world.saveFails = true");
         m.Send("2~SAVEWORLD|y");
         Assert.Single(m.Lines("KCDUS|SAVEWORLD|y|0"));
+    }
+
+    [Fact]
+    public void CharacterCaptureRequiresLoadedIdleHolsteredHenry()
+    {
+        var m = new LuaMod();
+        m.Send("1~SAVEWORLD|menu|character");
+        Assert.Single(m.Lines("KCDUS|SAVEWORLD|menu|0"));
+        m.InWorld(); m.Do("__world.weapon=true");
+        m.Send("2~SAVEWORLD|weapon|character");
+        Assert.Single(m.Lines("KCDUS|SAVEWORLD|weapon|0"));
+        Assert.False(m.Bool("__calls[#__calls]=='SaveGameViaResting'"));
+        m.Do("__world.weapon=false"); m.Send("3~SAVEWORLD|ready|character");
+        Assert.Single(m.Lines("KCDUS|SAVEWORLD|ready|1"));
     }
 
     [Fact]

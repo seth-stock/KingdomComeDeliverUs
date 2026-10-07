@@ -59,3 +59,7 @@ physics. A successful `pcall` does not prove any of these operations worked.
 `save_traits_roundtrip.lua` and `proxy_save_probe.lua` write only to the verified
 private profile. Their guards also require a loaded world and disabled cloud
 saving. Do not substitute an unguarded console client for this harness.
+
+`LiveWorldSmoke` exercises production world transfer/personalization/load/native-save readback with one real disposable game and a synthetic sender. Verify the owned process first, build this .NET project, then pass `_work/engine-current.json` and a cloned source world to its DLL. It requires the exact private folder in the log, matching process/console ownership and unchanged real-save hashes. It also retries an existing pending installation. Run only one smoke agent at a time; wait for it to exit before rebuilding its binaries.
+
+`npc_damage_probe.lua` temporarily changes one private NPC's damage path and restores health; it is not in the mod pak. Native readback, rather than `pcall` success, determines whether damage worked. `perk_portability_probe.py` reads local definitions against cloned serialized perk records and extracts no game assets. Current positive/negative results are in `docs/ENGINE-INTEGRATION-20261007.md`.

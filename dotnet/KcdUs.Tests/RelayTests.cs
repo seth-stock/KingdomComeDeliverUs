@@ -38,6 +38,15 @@ internal sealed class TestClient : IAsyncDisposable
             if (f.Type == type) return f;
         }
     }
+    public async Task<Frame> NextAdmission()
+    {
+        using var cts = new CancellationTokenSource(3000);
+        while (true)
+        {
+            var f = await FrameIO.ReadAsync(_s, cts.Token) ?? throw new IOException("closed during admission");
+            if (f.Type is MessageType.Welcome or MessageType.Reject) return f;
+        }
+    }
 
     public async Task<bool> Closed(int timeoutMs = 3000)
     {
@@ -77,6 +86,34 @@ public class RelayTests
     }
 
     private static string Rel => "0.1.0";
+
+    [Fact]
+    public async Task ConcurrentAdmissionsReserveDistinctIdsAndNames()
+    {
+        await using var relay = Start(o => o.MaxPlayers = 16);
+        var clients = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => TestClient.Connect(relay.Port)));
+        try
+        {
+            await Task.WhenAll(clients.Select(c => c.Hello("Henry", release: Rel)));
+            var welcomes = await Task.WhenAll(clients.Select(c => c.Next(MessageType.Welcome)));
+            Assert.Equal(16, welcomes.Select(w => w.Fields[0]).Distinct().Count());
+            Assert.Equal(16, relay.PlayerCount);
+        }
+        finally { foreach (var client in clients) await client.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task ConcurrentHostAdmissionsCannotBothOwnAuthority()
+    {
+        await using var relay = Start();
+        await using var a = await TestClient.Connect(relay.Port);
+        await using var b = await TestClient.Connect(relay.Port);
+        await Task.WhenAll(a.Hello("A", "host", release: Rel), b.Hello("B", "host", release: Rel));
+        var results = await Task.WhenAll(a.NextAdmission(), b.NextAdmission());
+        Assert.Single(results.Where(r => r.Type == MessageType.Welcome));
+        Assert.Single(results.Where(r => r.Type == MessageType.Reject && r.Text.StartsWith("host-taken|")));
+        Assert.Equal(1, relay.PlayerCount);
+    }
 
     [Fact]
     public async Task Hello_is_answered_with_a_welcome_and_the_player_list()

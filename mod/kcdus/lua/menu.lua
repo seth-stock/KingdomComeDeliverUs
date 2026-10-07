@@ -29,6 +29,13 @@ end
 
 -- agent -> game: ask the engine to write an autosave now (the retail game's QuickSave is a stub; this is the one that writes a file)
 K.handlers["SAVEWORLD"] = function(f)
+    if not K.inWorldRaw() then K.out('SAVEWORLD',f[2] or '',0,'world not ready');return end
+    if f[3]=='character' then
+        -- Drawn weapons/mounts/dialogue can leave references outside the native
+        -- inventory record. Do not move those references into another world.
+        local state=K.Local.sample()
+        if state.flags~=0 then K.out('SAVEWORLD',f[2] or '',0,'holster weapons and finish combat, riding or dialogue first');return end
+    end
     local ok, err = pcall(Game.SaveGameViaResting)
     K.out("SAVEWORLD", f[2] or "", ok and 1 or 0, ok and "" or K.clean(err))
 end
