@@ -1,0 +1,5 @@
+System.LogAlways('KCDUS|ENGINE|world-ready|'..tostring(KCDUS.inWorldRaw())..'|'..tostring(Game.IsLoadingEngineSaveGame()))
+local p=player:GetWorldPos()
+System.LogAlways('KCDUS|ENGINE|player-pos|'..p.x..','..p.y..','..p.z)
+System.LogAlways('KCDUS|ENGINE|world-time|'..tostring(Calendar.GetWorldTime()))
+System.LogAlways('KCDUS|ENGINE|player-channel|'..tostring(player.actor:GetChannel()))
