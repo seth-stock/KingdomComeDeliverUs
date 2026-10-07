@@ -21,6 +21,17 @@ This is a development branch. It must not be distributed as a complete co-op rel
 - Persistent native soul/item identity lookup is implemented on the supported Windows engine. Read-only Lua resolution rejects unsupported adapters, stale handles and duplicate identities. Native weapon damage interception and authoritative simulation are still missing.
 - Concurrent relay admissions cannot reserve the same player ID or multiple hosts. Verification autosaves do not advance the shared checkpoint stamp and cause resynchronization loops.
 
+## Room contract and participant identity (2026-10-07, protocol 2)
+
+* One shared contract (`Coop.Contract`, the same source and test vectors as the KCD2 branch) now decides who may share a room. The first thing a client says is a handshake: game id, release, wire and contract version, agent/Lua/native/engine/content hashes and an honest capability table. The relay refuses another game, another contract or wire version, and a different or unverifiable Lua pak, in a sentence the player can read. See [CAPABILITIES.md](CAPABILITIES.md).
+* Participants are bound to a P-256 key by challenge/response; the relay persists the bindings (`--bindings`). Another computer cannot take a name's participant id, and replayed proofs are refused.
+* Every room has a mode, **Presence**, **Partial** or **Shared simulation**, announced to every player and shown in the launcher and the game. This build can only be Presence: authority over NPCs, combat, loot and quests is not implemented. The sentence says "NOT active".
+* Installs with different DLC or other mods are admitted as presence only, and a world or a Henry is neither requested nor served between them.
+* The durable operation journal (`OperationJournal`) and the authority epoch guard (`AuthorityGuard`) exist with tests but are **not yet attached to live gameplay mutations** in KCD1, because there is no host-authority mutation to protect yet.
+* `--dev-allow-unverified` (relay) and `DevAllowUnverifiedPayload` (agent) exist for development only.
+
+Validation on 2026-10-07: 268 .NET tests pass (up from 224), including shared contract vectors, relay handshake/identity/content tests and agent-level room-mode tests. The native engine bridge (`tools/Build-Engine.ps1`) builds; the installed game's `WHGame.dll` hash equals the supported hash. A live engine smoke test was **not** rerun for this stage. No two-computer test was performed. See [HUMAN-ACCEPTANCE-TESTS.md](HUMAN-ACCEPTANCE-TESTS.md).
+
 ## Offline slot commands
 
 Run the built `KcdUsAgent` with the game closed. Configure `savesDir`, `worldsFile`, and `backupDir` if using a non-default profile. Displayed slot numbers are 1 through 5.
@@ -40,7 +51,7 @@ For a disposable profile, configure all three paths explicitly; never use your r
 
 | Plan part | Remaining work |
 |---|---|
-| Stable participant identities / compatibility | Persistent identity integration, verified content profiles, and complete artifact provenance |
+| Stable participant identities / compatibility | Identity binding, handshake and content-profile gating are implemented and tested (2026-10-07). Remaining: artifact provenance for agent/native hashes (reported, not enforced) and human acceptance |
 | Checkpoint publication | Consistent live world/character/inventory capture barrier; engine-load acknowledgement; registry/install transaction coordination |
 | Walking and outfits | Implemented on ordinary NPCs; native outfit adapter supports the verified Windows engine only. Two-computer, load/reconnect soak, additional poses, dirt/hair and content compatibility acceptance remain |
 | Exact characters and perks | Live portable core/inventory staging and native acknowledgement are implemented; remaining gates include non-core timers, active/world-linked state, selected-perk gameplay effects and content compatibility |

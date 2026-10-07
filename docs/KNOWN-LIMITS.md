@@ -11,6 +11,12 @@ preparation is available; regular personal-Henry joins now stage native saved co
 are not a complete shared-simulation release. See
 [the current implementation status](IMPLEMENTATION-STATUS.md).
 
+## What the room tells you (2026-10-07)
+
+Every room announces what it is. This build is **presence only**: the launcher and the game say so, with the words "NOT active" for shared NPC, combat, loot and quest authority.
+Two computers with a different `kcdus.pak` are refused with a reason; two with different DLC or other mods are admitted as presence and **no world or Henry moves between them**.
+Details: [CAPABILITIES.md](CAPABILITIES.md). What people must test: [HUMAN-ACCEPTANCE-TESTS.md](HUMAN-ACCEPTANCE-TESTS.md).
+
 ## Remaining limits
 
 * **No shared simulation.** Each player's game simulates its own copy. Enemies, NPCs, loot, quest state and combat are not shared; a friend does not see the host's fights. What *is* shared is the world itself: a friend can take the host's save (even a 100-hour one) and each player keeps their own copy that they play alone or together, reconciled when they meet again: [SHARED-WORLDS.md](SHARED-WORLDS.md).

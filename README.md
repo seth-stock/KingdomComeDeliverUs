@@ -18,6 +18,7 @@ story puts them "on rails", **choose whether to join them or to stay in the open
 | The gating on every quest of the game (287) | `docs/quest-gating.md`, `docs/quest-gating-table.md`, `docs/quest-gating-plan.csv` |
 | How it is built | `docs/ARCHITECTURE.md` |
 | What is not there, and what has not been seen | `docs/KNOWN-LIMITS.md`, `docs/TWO-PLAYER-CHECKLIST.md` |
+| What each capability is proved to do, and the tests for humans | `docs/CAPABILITIES.md`, `docs/HUMAN-ACCEPTANCE-TESTS.md` |
 | Frame-rate soak, installer | `docs/SOAK.md`, `docs/INSTALLER.md` |
 | Linux (experimental, untested under a real Proton) | `docs/LINUX.md`; the launcher is `linux/kcdus` |
 | Characters, worlds and saves (what is and is not possible here) | `docs/CHARACTERS-AND-SAVES.md` |
