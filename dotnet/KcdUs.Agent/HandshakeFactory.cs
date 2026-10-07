@@ -88,6 +88,7 @@ public static class HandshakeFactory
         [CapabilityNames.ParticipantIdentity] = CapabilityLevel.IntegrationVerified,
         [CapabilityNames.CheckpointBarrier] = CapabilityLevel.Candidate,
         [CapabilityNames.AuthorityNpc] = adapterLoaded && supportedEngine ? CapabilityLevel.Candidate : CapabilityLevel.Absent,
+        [CapabilityNames.AuthorityQuest] = CapabilityLevel.Candidate, // opt-in open/base quest adapter; full effects and shared reward authority unproved
     };
 
     public static RoomHandshake Build(string release, Fingerprint f, bool adapterLoaded)

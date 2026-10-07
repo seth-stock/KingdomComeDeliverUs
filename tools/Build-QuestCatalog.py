@@ -77,7 +77,8 @@ def load_game(game):
     rows = []
     for r in quests:
         rows.append(dict(code=r['quest_name'], group=r['group'], qtype=r['quest_type_id'], quest_id=r['quest_id'],
-                         title=' / '.join(titles.get(r['quest_id'], [])), objectives=obj_count[r['quest_id']]))
+                         title=' / '.join(titles.get(r['quest_id'], [])), objectives=obj_count[r['quest_id']],
+                         objective_names={int(o['objective_id']): o['objective_name'] for o in objs if o['quest_id'] == r['quest_id']}))
     return rows, pak_hash
 
 
@@ -132,7 +133,7 @@ def merged(game_rows, plan):
         p = plan[g['code']]
         out.append(dict(code=g['code'], kind=p['kind'], order=int(p['order'] or 0), title=g['title'], group=g['group'],
                         dlc=p['dlc'], tier=p['tier'], period=p['period'], why=p['why'], objectives=g['objectives'],
-                        source=p['source'], note=p['note']))
+                        source=p['source'], note=p['note'], objective_names=g['objective_names']))
     return out
 
 
@@ -177,6 +178,13 @@ def lua_text(rows, pak_hash):
          'KCDUS_QUESTS = {']
     for r in watch + mains:
         b.append('  { code = "%s", tier = "%s", period = "%s", kind = "%s" },' % (r['code'], r['tier'], r['period'], r['kind']))
+    b += ['}', '', '-- Candidate mirroring metadata: identifiers only; no game scripts/assets.', 'KCDUS_QUEST_MIRROR = {']
+    for r in rows:
+        if r['kind'] not in ('main', 'side', 'activity', 'event'):
+            continue
+        objectives = ', '.join('[%d]=%s' % (key, cs_str(value)) for key, value in sorted(r['objective_names'].items()))
+        b.append('  { code=%s, kind=%s, tier=%s, dlc=%s, objectives={%s} },' %
+                 (cs_str(r['code']), cs_str(r['kind']), cs_str(r['tier']), cs_str(r['dlc']), objectives))
     b += ['}', '']
     return '\n'.join(b)
 

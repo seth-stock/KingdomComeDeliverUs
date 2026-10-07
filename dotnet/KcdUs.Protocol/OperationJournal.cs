@@ -11,7 +11,7 @@ namespace Coop.Contract;
 public enum OpState
 {
     Requested, Reserved, IntentRecorded, EngineApplying, EngineVerified, LedgerCommitted, Delivered, RecipientVerified,
-    Complete, Rejected, RecoveryRequired,
+    Complete, Rejected, RecoveryRequired, HostDecisionComplete,
 }
 
 public enum BeginKind
@@ -52,7 +52,7 @@ public sealed class OperationJournal : IDisposable
         Path = System.IO.Path.GetFullPath(path);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
         _file = new FileStream(Path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-        Load();
+        try { Load(); } catch { _file.Dispose(); throw; }
     }
 
     private static string HashOf(string prev, Line l) =>
@@ -112,7 +112,7 @@ public sealed class OperationJournal : IDisposable
         return rec;
     }
 
-    public static bool IsTerminal(OpState s) => s is OpState.Complete or OpState.Rejected;
+    public static bool IsTerminal(OpState s) => s is OpState.Complete or OpState.Rejected or OpState.HostDecisionComplete;
 
     private static void Validate(string id, string kind, string digest)
     {
@@ -129,7 +129,7 @@ public sealed class OperationJournal : IDisposable
         {
             if (_ops.TryGetValue(operationId, out var rec))
             {
-                if (rec.PayloadDigest != payloadDigest) return new BeginResult(BeginKind.Conflict, rec);
+                if (rec.PayloadDigest != payloadDigest || rec.Kind != kind) return new BeginResult(BeginKind.Conflict, rec);
                 if (rec.State == OpState.RecoveryRequired) return new BeginResult(BeginKind.Quarantined, rec);
                 return new BeginResult(IsTerminal(rec.State) ? BeginKind.Replay : BeginKind.InProgress, rec);
             }
@@ -149,7 +149,9 @@ public sealed class OperationJournal : IDisposable
                 OpState.Rejected => rec.State <= OpState.IntentRecorded,               // before the engine was touched
                 OpState.RecoveryRequired => true,
                 OpState.Complete => rec.State == OpState.RecipientVerified,
-                _ => (int)next == (int)rec.State + 1,
+                OpState.HostDecisionComplete => rec.State == OpState.LedgerCommitted && rec.Kind.StartsWith("loot-", StringComparison.Ordinal)
+                    && !string.IsNullOrEmpty(rec.Outcome),
+                _ => next <= OpState.RecipientVerified && (int)next == (int)rec.State + 1,
             };
             if (!ok) throw new InvalidOperationException($"{operationId}: {rec.State} cannot go to {next}");
             return Append(operationId, rec.Kind, rec.PayloadDigest, next, outcome.Length > 0 ? outcome : rec.Outcome, evidence);

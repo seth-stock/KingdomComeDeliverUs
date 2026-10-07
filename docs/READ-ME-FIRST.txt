@@ -7,8 +7,8 @@ You and your host must all run THIS version (0.1.0): a different version is refu
 
 PLAYTEST BUILD (2026-10-07). This is a development build for testing, not a finished release. The room tells you what it is: in this build it is always
 "presence only": you see each other, but shared enemies, combat, loot and quests are NOT active. If the launcher or the game says anything else, that is a bug: report it.
-Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). A friend with other DLC or mods than the host is let in as presence only,
-and no world or Henry is moved between you. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
+Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). Different other mods cap the room at presence and block world/character moves. A richer-DLC guest may join a lower-DLC host; extra DLC stays out.
+A poorer-DLC guest cannot receive a richer host save: host without that DLC instead. Disable extra DLC in Steam and restart as instructed. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
 
 WHAT IT IS (and is not)
   Each of you plays your OWN copy of the world. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
@@ -54,3 +54,7 @@ IF SOMETHING GOES WRONG
   * Full guide: docs\PLAYING-TOGETHER.md (installed next to the launcher). What is missing and what is not yet seen: docs\KNOWN-LIMITS.md.
 
 UNINSTALL: Windows Settings > Apps > Kingdom Come: Deliver Us. It asks whether to remove the mod from your game folder. Your saves are never touched.
+
+SESSION 2 UPDATE
+Quest mirroring is opt-in Candidate, not shared quest authority. Shared enemies/combat/loot and safe shared pause remain unavailable in KCD1.
+See SESSION2-RESULTS.md and the new human tests. No two-person acceptance is claimed.

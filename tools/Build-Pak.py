@@ -44,6 +44,7 @@ def build_pak(path, entries):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in sorted(entries):
             zi = zipfile.ZipInfo(name, FIXED_TIME)
+            zi.create_system = 3  # canonical ZIP metadata across Windows/Linux; handshake hashes must agree
             zi.compress_type = zipfile.ZIP_DEFLATED
             zi.external_attr = 0o644 << 16
             z.writestr(zi, entries[name])

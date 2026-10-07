@@ -86,3 +86,7 @@ Tested (a Windows 11 PC and Ubuntu 24.04 under WSL2):
   `linux-x64` self-contained, builds the pak with `tools/Build-Pak.py`, and writes `release/KingdomComeDeliverUs-Linux-<version>.tar.gz` + `.sha256`.
 * New code: `dotnet/KcdUs.Agent/LinuxKeys.cs`, the Linux paths in `AgentConfig.cs` (`GameLocator`), `linux/kcdus`, `dotnet/KcdUs.Tests/LinuxTests.cs`.
 * The version string is the repository's `VERSION`; it was not changed for this.
+
+## This playtest
+
+Rebuilt packages must be identified by SHA-256/release tag. Real Proton gameplay remains unproved. KCD1 native startup adapter support is Windows-only at present; rebuilding the native Linux agent does not prove outfits or full native character restoration under Proton. See SESSION2-RESULTS.md and HUMAN-ACCEPTANCE-TESTS.md.

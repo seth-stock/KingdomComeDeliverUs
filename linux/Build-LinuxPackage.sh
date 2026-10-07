@@ -26,7 +26,7 @@ chmod +x "$PKG/agent/KcdUsAgent"
 echo "== launcher + docs"
 cp "$REPO/linux/kcdus" "$PKG/kcdus"; chmod +x "$PKG/kcdus"
 cp "$REPO/VERSION" "$REPO/LICENSE" "$REPO/NOTICE" "$REPO/AUTHORS" "$PKG/"
-for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md MENU.md SHARED-WORLDS.md FEATURE-PARITY.md WARHORSE-MODDING-EULA.txt; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
+for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md MENU.md SHARED-WORLDS.md FEATURE-PARITY.md CAPABILITIES.md HUMAN-ACCEPTANCE-TESTS.md SESSION2-RESULTS.md WARHORSE-MODDING-EULA.txt; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
 [[ -f "$PKG/docs/WARHORSE-MODDING-EULA.txt" ]] || { echo "the Warhorse modding EULA is missing from docs/: the package must carry it (EULA 4.7)" >&2; exit 1; }
 cat >"$PKG/READ-ME-FIRST.txt" <<EOF
 Kingdom Come: Deliver Us $VERSION -- Linux build (unofficial, community)

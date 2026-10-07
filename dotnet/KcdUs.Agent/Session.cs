@@ -88,6 +88,9 @@ public sealed class Session : IDisposable
     private string _hostWhy = "";
     private RailsPref _pref;
     private int _questChanges;
+    private bool _candidateQuests;
+    private string _questEpoch = Guid.NewGuid().ToString("N");
+    private string _questHostEpoch = "";
 
     public Session(SessionOptions o, IGameLink game, IRelayLink relay, Func<long> nowMs, Action<string>? log = null)
     {
@@ -174,6 +177,9 @@ public sealed class Session : IDisposable
                         bool w = f.Length > 1 && f[1] == "1";
                         if (w == _inWorld) break;
                         _inWorld = w;
+                        _questHostEpoch = "";
+                        _questEpoch = Guid.NewGuid().ToString("N");
+                        if (_candidateQuests) _game.Send("QMRESET|" + (IsHost ? _questEpoch : ""));
                         _log(w ? "the player is in the world" : "the player left the world (menu or loading)");
                         if (w)
                         {
@@ -233,6 +239,22 @@ public sealed class Session : IDisposable
 
                 case "Q":
                     if (f.Length >= 4) OnQuest(f[1], f[2] == "1", f[3] == "1", f.Length > 4 ? f[4] : "", now);
+                    break;
+                case "QMODE":
+                    _candidateQuests = f.Length > 1 && f[1] == "candidate";
+                    if (IsHost && _myId != 0) _relay.Send(MessageType.HostEvent, "quest-epoch|" + _questEpoch);
+                    _game.Send("QMRESET|" + (IsHost ? _questEpoch : _questHostEpoch));
+                    break;
+                case "QM":
+                    if (_candidateQuests && IsHost && _inWorld && _myId != 0 && f.Length == 5
+                        && QuestMirrorRules.Valid(f[1], f[2], f[3], f[4]))
+                    {
+                        _relay.Send(MessageType.HostEvent, "quest-epoch|" + _questEpoch);
+                        _relay.Send(MessageType.HostEvent, $"quest-mirror|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}|{f[4]}");
+                    }
+                    break;
+                case "QMAPPLIED":
+                    _log("Candidate quest readback: " + string.Join(' ', f.Skip(1)));
                     break;
 
                 case "ERR":
@@ -464,6 +486,14 @@ public sealed class Session : IDisposable
         if (from != _hostId || IsHost) return;
         switch (f[0])
         {
+            case "quest-epoch" when f.Length == 2 && Guid.TryParseExact(f[1], "N", out _):
+                if (_candidateQuests) { _questHostEpoch = f[1]; _game.Send("QMRESET|" + f[1]); }
+                break;
+            case "quest-mirror" when f.Length == 6:
+                if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch
+                    && QuestMirrorRules.Valid(f[2], f[3], f[4], f[5]))
+                    _game.Send("QMAPPLY|" + string.Join('|', f.Skip(1)));
+                break;
             case "time" when f.Length > 1 && double.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var wt):
                 ApplyTime(wt, now);
                 break;
