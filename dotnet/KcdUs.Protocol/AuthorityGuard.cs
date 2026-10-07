@@ -117,6 +117,13 @@ public sealed class ParticipantBindings
 
     public enum Result { Bound, Accepted, WrongKey, BadSignature, UnknownChallenge, Malformed }
 
+    /// <summary>The remembered bindings (participant id to public key), for a room that keeps them across restarts.</summary>
+    public IReadOnlyDictionary<string, string> Snapshot() { lock (_gate) return new Dictionary<string, string>(_keys); }
+    public void Restore(IEnumerable<KeyValuePair<string, string>> bindings)
+    {
+        lock (_gate) foreach (var kv in bindings) if (Guid.TryParseExact(kv.Key, "N", out _)) _keys[kv.Key] = kv.Value;
+    }
+
     public Result Claim(string participantId, string publicKeyBase64, string challenge, string signatureBase64)
     {
         if (!Guid.TryParseExact(participantId, "N", out _)) return Result.Malformed;
@@ -148,6 +155,13 @@ public sealed class ParticipantBindings
         public string PublicKey { get; }
         private readonly byte[] _private;
         private Identity(string id, string pub, byte[] priv) { ParticipantId = id; PublicKey = pub; _private = priv; }
+
+        /// <summary>A throw-away identity that is never written to disk (tests, and a client that has nowhere to keep one).</summary>
+        public static Identity CreateEphemeral()
+        {
+            using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            return new Identity(Guid.NewGuid().ToString("N"), Convert.ToBase64String(ec.ExportSubjectPublicKeyInfo()), ec.ExportPkcs8PrivateKey());
+        }
 
         public static Identity LoadOrCreate(string keyFile)
         {

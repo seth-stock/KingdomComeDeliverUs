@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using Coop.Contract;
 using KcdUs.Wire;
 
 namespace KcdUs.Relay;
@@ -20,6 +21,10 @@ public sealed class RelayOptions
     public int HelloTimeoutSeconds { get; set; } = 10;
     public int StateMaxPerSecond { get; set; } = 30;
     public IPAddress BindAddress { get; set; } = IPAddress.Any;
+    /// <summary>Development only: admit a peer whose mod payload cannot be verified (a real room refuses it).</summary>
+    public bool AllowUnverifiedPayload { get; set; }
+    /// <summary>Where the room remembers participant public keys (so a restart does not let another connection take an id); null: in memory only.</summary>
+    public string? BindingsFile { get; set; }
 }
 
 /// <summary>
@@ -39,7 +44,13 @@ public sealed class RelayServer : IAsyncDisposable
         public int StatesInWindow;
         public bool Hello;
         public int HostEventsRefused;
+        public string Challenge = "";
+        public string ParticipantId = "";
+        public RoomHandshake? Handshake;
+        public RoomMode Mode = RoomMode.Presence;
     }
+
+    private readonly ParticipantBindings _bindings = new();
 
     private readonly RelayOptions _o;
     private readonly Action<string> _log;
@@ -59,8 +70,22 @@ public sealed class RelayServer : IAsyncDisposable
     public int PlayerCount => _peers.Values.Count(p => p.Hello);
     public int? HostId => _peers.Values.FirstOrDefault(p => p.Hello && p.Role == "host")?.Id;
 
+    private void SaveBindings()
+    {
+        if (_o.BindingsFile is null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_o.BindingsFile))!);
+            File.WriteAllLines(_o.BindingsFile + ".part", _bindings.Snapshot().Select(kv => kv.Key + " " + kv.Value));
+            File.Move(_o.BindingsFile + ".part", _o.BindingsFile, overwrite: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log("warning: the participant bindings could not be saved: " + e.Message); }
+    }
+
     public void Start()
     {
+        if (_o.BindingsFile is not null && File.Exists(_o.BindingsFile))
+            _bindings.Restore(File.ReadAllLines(_o.BindingsFile).Select(l => l.Split(' ', 2)).Where(p => p.Length == 2).Select(p => new KeyValuePair<string, string>(p[0], p[1])));
         _listener = new TcpListener(_o.BindAddress, _o.Port);
         _listener.Start();
         _log($"listening on {_listener.LocalEndpoint} as \"{_o.ServerName}\" release {_o.Release} (max {_o.MaxPlayers})");
@@ -91,8 +116,9 @@ public sealed class RelayServer : IAsyncDisposable
 
     private async Task Serve(TcpClient client, CancellationToken ct)
     {
-        var peer = new Peer { Client = client };
+        var peer = new Peer { Client = client, Challenge = _bindings.Challenge() };
         var stream = client.GetStream();
+        peer.Outbox.Writer.TryWrite(FrameIO.Encode(MessageType.Challenge, peer.Challenge));   // first: the proof of identity is signed over this
         var remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var writer = Task.Run(async () =>
@@ -249,10 +275,71 @@ public sealed class RelayServer : IAsyncDisposable
             return RejectAndClose();
         }
         string role = h[3] == "host" ? "host" : "guest";
+
+        // the room handshake: same game, same contract, same mod payload; and who this participant is
+        var hs = h.Length > 5 ? RoomHandshake.TryDecode(h[5]) : null;
+        if (hs is null)
+        {
+            Send(peer, MessageType.Reject, "contract|this build did not send a room handshake: everyone must install the same build");
+            _log($"{remote} refused: no room handshake");
+            return RejectAndClose();
+        }
+        var idParts = (h.Length > 6 ? h[6] : "").Split(';');
+        var claim = idParts.Length == 3 ? _bindings.Claim(idParts[0], idParts[1], peer.Challenge, idParts[2]) : ParticipantBindings.Result.Malformed;
+        if (claim is not (ParticipantBindings.Result.Bound or ParticipantBindings.Result.Accepted))
+        {
+            Send(peer, MessageType.Reject, "identity|" + claim switch
+            {
+                ParticipantBindings.Result.WrongKey => "that participant id belongs to another player's key",
+                ParticipantBindings.Result.BadSignature => "the identity proof is not valid",
+                ParticipantBindings.Result.UnknownChallenge => "the identity proof answered an unknown challenge",
+                _ => "the identity proof is malformed",
+            });
+            _log($"{remote} refused: identity {claim}");
+            return RejectAndClose();
+        }
+        if (claim == ParticipantBindings.Result.Bound) SaveBindings();
+        peer.ParticipantId = idParts[0];
+        var policy = new RoomPolicy(_o.AllowUnverifiedPayload);
+        NegotiationResult room;
+        lock (_idLock)
+        {
+            if (_peers.Values.Any(p => p.Hello && p.ParticipantId == peer.ParticipantId))
+            {
+                Send(peer, MessageType.Reject, "identity|this participant is already connected from another process (a cloned profile?)");
+                _log($"{remote} refused: participant already connected");
+                return RejectAndClose();
+            }
+            var host = _peers.Values.FirstOrDefault(p => p.Hello && p.Role == "host");
+            if (role == "host")
+            {
+                room = Negotiation.Negotiate(hs, hs, policy);
+                foreach (var g in _peers.Values.Where(p => p.Hello && p.Handshake is not null))
+                {
+                    var r = Negotiation.Negotiate(hs, g.Handshake!, policy);
+                    if (!r.Admitted) { room = r; break; }
+                }
+            }
+            else room = host?.Handshake is null ? Negotiation.Negotiate(hs, hs, policy) : Negotiation.Negotiate(host.Handshake, hs, policy);
+        }
+        if (!room.Admitted)
+        {
+            Send(peer, MessageType.Reject, "contract|" + room.Describe().Replace('|', '/'));
+            _log($"{remote} refused: {room.Describe()}");
+            return RejectAndClose();
+        }
+        peer.Handshake = hs;
+        peer.Mode = room.Mode;
         // Admission, ID reservation, names, host selection and the initial roster
         // must be one operation. NextId's old lock released before insertion.
         lock (_idLock)
         {
+        if (_peers.Values.Any(p => p.Hello && p.ParticipantId == peer.ParticipantId))   // checked again where the peer is inserted: two simultaneous Hellos cannot both pass
+        {
+            Send(peer, MessageType.Reject, "identity|this participant is already connected from another process (a cloned profile?)");
+            _log($"{remote} refused: participant already connected");
+            return RejectAndClose();
+        }
         if (role == "host" && HostId != null)
         {
             Send(peer, MessageType.Reject, "host-taken|this relay already has a host");
@@ -281,14 +368,16 @@ public sealed class RelayServer : IAsyncDisposable
         peer.Hello = true;
 
         int hostId = HostId ?? 0;
-        Send(peer, MessageType.Welcome, $"{id}|{hostId}|{Proto.ProtocolVersion}|{_o.Release}|{_o.ServerName}");
+        Send(peer, MessageType.Welcome, $"{id}|{hostId}|{Proto.ProtocolVersion}|{_o.Release}|{_o.ServerName}|{ModeWord(room.Mode)}|{string.Join(',', room.Missing)}");
         var others = string.Join(';', _peers.Values.Where(p => p.Hello && p.Id != id).OrderBy(p => p.Id).Select(p => $"{p.Id}:{p.Name}:{p.Role}"));
         Send(peer, MessageType.PlayerList, others);
-        Broadcast(MessageType.PlayerJoined, $"{id}|{name}|{role}", except: id);
+        Broadcast(MessageType.PlayerJoined, $"{id}|{name}|{role}|{ModeWord(room.Mode)}", except: id);
         _log($"#{id} {name} joined as {role} ({remote}); {PlayerCount}/{_o.MaxPlayers}");
         return true;
         }
     }
+
+    public static string ModeWord(RoomMode m) => m switch { RoomMode.Partial => "partial", RoomMode.SharedSimulation => "shared", _ => "presence" };
 
     private static bool RejectAndClose()
     {

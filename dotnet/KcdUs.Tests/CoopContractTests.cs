@@ -77,7 +77,7 @@ public class CoopContractTests
             Assert.Equal(expected, Negotiation.Negotiate(remote, local).Mode);
             Assert.Equal(expected != RoomMode.Refused, r.Admitted);
             if (expected == RoomMode.Refused) Assert.NotEmpty(r.Refusals);
-            if (expected is RoomMode.Presence or RoomMode.Partial) Assert.NotEmpty(r.Missing);                 // it says what is missing
+            if (expected is RoomMode.Presence or RoomMode.Partial) Assert.True(r.Missing.Count > 0 || r.Notes.Count > 0);   // it says what is missing or why
         }
     }
 

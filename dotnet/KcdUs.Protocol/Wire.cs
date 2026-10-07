@@ -12,7 +12,9 @@ namespace KcdUs.Wire;
 /// Framing (every packet):  [type:1][payloadLen:2 LE][payload:N], N at most 65535. Every payload is UTF-8 text with
 /// '|' between fields, so a packet can be read in a log and a new field can be appended without breaking an old reader.
 ///
-/// C to S  0x01 Hello       proto|release|name|role|password       role: host or guest
+/// C to S  0x01 Hello       proto|release|name|role|password|contract|identity       role: host or guest
+///                          contract = the room handshake (Coop.Contract.RoomHandshake.Encode: game, versions, payload hashes, capabilities)
+///                          identity = participantId;publicKey;signature over the Challenge the relay sent on connect (Coop.Contract.ParticipantBindings)
 ///         0x02 State       x,y,z|yaw|vx,vy,vz|flags|hp|stam|anim|worldTime
 ///         0x03 Chat        text
 ///         0x04 Ping        stamp
@@ -20,10 +22,11 @@ namespace KcdUs.Wire;
 ///         0x06 HostEvent   kind|payload           accepted from the host only, relayed to the guests
 ///         0x07 Bye         reason
 ///         0x08 InfoRequest (empty)                answered without a Hello: the server list's ping
-/// S to C  0x81 Welcome     id|hostId|proto|release|serverName
+/// S to C  0x8C Challenge   nonce                  sent first, before the Hello is read
+///         0x81 Welcome     id|hostId|proto|release|serverName|mode|missing     mode: refused never; presence, partial or shared; missing = capabilities that keep it from being shared
 ///         0x82 Reject      code|detail            code: version, password, full, host-taken, protocol
 ///         0x83 PlayerList  id:name:role;id:name:role;...
-///         0x84 PlayerJoined id|name|role
+///         0x84 PlayerJoined id|name|role|mode
 ///         0x85 PlayerLeft  id|reason
 ///         0x86 PState      id|state fields as sent
 ///         0x87 PChat       id|name|text
@@ -38,7 +41,7 @@ namespace KcdUs.Wire;
 public static class Proto
 {
     /// <summary>Bumped when a frame's meaning changes. A relay refuses a different number outright.</summary>
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
     public const int MaxPayload = 65535;
     public const int DefaultPort = 7788;
 }
@@ -65,6 +68,7 @@ public enum MessageType : byte
     PEvent = 0x89,
     PHostEvent = 0x8A,
     Info = 0x8B,
+    Challenge = 0x8C,
 }
 
 public readonly record struct Frame(MessageType Type, string Text)

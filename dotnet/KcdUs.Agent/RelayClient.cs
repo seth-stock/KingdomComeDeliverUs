@@ -3,6 +3,7 @@
 // belong to Warhorse Studios and Deep Silver. Unofficial, free, not affiliated with or endorsed by them.
 using System.Net.Sockets;
 using System.Threading.Channels;
+using Coop.Contract;
 using KcdUs.Wire;
 
 namespace KcdUs.Agent;
@@ -26,6 +27,11 @@ public sealed class RelayEndpoint
     public string Role { get; init; } = "guest";
     public string Password { get; init; } = "";
     public string Release { get; init; } = KcdUs.Wire.Release.Current;
+    /// <summary>What this build tells the room about itself (game, versions, payload hashes, capabilities). The default is a bare development handshake.</summary>
+    public Func<RoomHandshake>? HandshakeProvider { get; init; }
+    public RoomHandshake Handshake { get; init; } = new("kcd1", KcdUs.Wire.Release.Current, Proto.ProtocolVersion, RoomHandshake.CurrentContractVersion, "", "", "", "", "", new Dictionary<string, CapabilityLevel>());
+    /// <summary>This player's room identity (a key pair kept on disk); the default is a throw-away one.</summary>
+    public ParticipantBindings.Identity Identity { get; init; } = ParticipantBindings.Identity.CreateEphemeral();
 }
 
 /// <summary>
@@ -70,8 +76,17 @@ public sealed class RelayClient : IRelayLink
                 await tcp.ConnectAsync(_ep.Host, _ep.Port, ct).ConfigureAwait(false);
                 var s = tcp.GetStream();
                 LastError = null;
+                // the relay speaks first: a challenge that the identity proof is signed over
+                string challenge;
+                using (var wait = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    wait.CancelAfter(TimeSpan.FromSeconds(6));
+                    var first = await FrameIO.ReadAsync(s, wait.Token).ConfigureAwait(false);
+                    if (first is not { Type: MessageType.Challenge } c0) throw new IOException("the relay did not send its challenge (an older relay: update it to the same build)");
+                    challenge = c0.Text;
+                }
                 await FrameIO.WriteAsync(s, MessageType.Hello,
-                    $"{Proto.ProtocolVersion}|{_ep.Release}|{Safe.Name(_ep.Name)}|{_ep.Role}|{Safe.Clean(_ep.Password, 40)}", ct).ConfigureAwait(false);
+                    $"{Proto.ProtocolVersion}|{_ep.Release}|{Safe.Name(_ep.Name)}|{_ep.Role}|{Safe.Clean(_ep.Password, 40)}|{(_ep.HandshakeProvider?.Invoke() ?? _ep.Handshake).Encode()}|{_ep.Identity.ParticipantId};{_ep.Identity.PublicKey};{_ep.Identity.Sign(challenge)}", ct).ConfigureAwait(false);
                 while (_out.Reader.TryRead(out _)) { }   // nothing queued while down is replayed: a position that old is no use
                 Connected = true;
                 ConnectionChanged?.Invoke(true);

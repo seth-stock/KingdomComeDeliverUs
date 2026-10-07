@@ -16,8 +16,10 @@ for (int i = 0; i < args.Length; i++)
         case "--name" when next != null: o.ServerName = Safe.Clean(next, 40); i++; break;
         case "--password" when next != null: o.Password = Safe.Clean(next, 40); i++; break;
         case "--max" when next != null: o.MaxPlayers = Math.Clamp(int.Parse(next), 2, 8); i++; break;
+        case "--bindings" when next != null: o.BindingsFile = next; i++; break;
+        case "--dev-allow-unverified": o.AllowUnverifiedPayload = true; break;
         case "--help" or "-h":
-            Console.WriteLine("KcdUsRelay [--port 7788] [--name \"Deliver Us\"] [--password secret] [--max 4]");
+            Console.WriteLine("KcdUsRelay [--port 7788] [--name \"Deliver Us\"] [--password secret] [--max 4] [--bindings <file>]");
             return 0;
     }
 }

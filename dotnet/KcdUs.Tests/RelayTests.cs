@@ -25,8 +25,21 @@ internal sealed class TestClient : IAsyncDisposable
 
     public Task Send(MessageType type, string text) => FrameIO.WriteAsync(_s, type, text);
 
-    public Task Hello(string name, string role = "guest", string password = "", string? release = null, int proto = Proto.ProtocolVersion) =>
-        Send(MessageType.Hello, $"{proto}|{release ?? Release.Current}|{name}|{role}|{password}");
+    public Coop.Contract.ParticipantBindings.Identity Identity = Coop.Contract.ParticipantBindings.Identity.CreateEphemeral();
+
+    /// <summary>The handshake a normal build sends: this game, this wire, the same Lua payload (hash of 'a'), no authority capabilities.</summary>
+    public static string DevHandshake(string game = "kcd1", string lua = "a", int wire = Proto.ProtocolVersion, int contract = 1, string content = "",
+        IReadOnlyDictionary<string, Coop.Contract.CapabilityLevel>? caps = null) =>
+        new Coop.Contract.RoomHandshake(game, Release.Current, wire, contract, "", new string(lua[0], 64), "", "", content.Length == 0 ? "" : new string(content[0], 64),
+            caps ?? new Dictionary<string, Coop.Contract.CapabilityLevel>()).Encode();
+
+    /// <summary>Waits for the relay's Challenge, then says Hello with a handshake and a proof of identity. Pass handshake: "" to send none (an old build).</summary>
+    public async Task Hello(string name, string role = "guest", string password = "", string? release = null, int proto = Proto.ProtocolVersion, string? handshake = null, string? identity = null)
+    {
+        var challenge = (await Next(MessageType.Challenge)).Text;
+        string id = identity ?? $"{Identity.ParticipantId};{Identity.PublicKey};{Identity.Sign(challenge)}";
+        await Send(MessageType.Hello, $"{proto}|{release ?? Release.Current}|{name}|{role}|{password}" + (handshake == "" ? "" : $"|{handshake ?? DevHandshake()}|{id}"));
+    }
 
     public async Task<Frame> Next(MessageType type, int timeoutMs = 3000)
     {
@@ -85,6 +98,8 @@ public class RelayTests
         return r;
     }
 
+    private static RelayServer StartWith(string bindingsFile) => Start(o => o.BindingsFile = bindingsFile);
+
     private static string Rel => "0.1.0";
 
     [Fact]
@@ -122,7 +137,8 @@ public class RelayTests
         await using var host = await TestClient.Connect(relay.Port);
         await host.Hello("Henry", "host", release: Rel);
         var w = await host.Next(MessageType.Welcome);
-        Assert.Equal(new[] { "1", "1", "1", "0.1.0", "Test" }, w.Fields);
+        Assert.Equal(new[] { "1", "1", "2", "0.1.0", "Test", "presence" }, w.Fields.Take(6));        // protocol 2; the room says what it is
+        Assert.Equal(Proto.ProtocolVersion, int.Parse(w.Fields[2]));
         Assert.Equal("", (await host.Next(MessageType.PlayerList)).Text);
 
         await using var guest = await TestClient.Connect(relay.Port);
@@ -133,7 +149,7 @@ public class RelayTests
         Assert.Equal("1:Henry:host", (await guest.Next(MessageType.PlayerList)).Text);
 
         var joined = await host.Next(MessageType.PlayerJoined);
-        Assert.Equal("2|Hans|guest", joined.Text);
+        Assert.Equal("2|Hans|guest|presence", joined.Text);
     }
 
     [Fact]
@@ -216,7 +232,7 @@ public class RelayTests
         await using var b = await TestClient.Connect(relay.Port);
         await b.Hello("Henry", release: Rel);
         await b.Next(MessageType.Welcome);
-        Assert.Equal("2|Henry (2)|guest", (await a.Next(MessageType.PlayerJoined)).Text);
+        Assert.Equal("2|Henry (2)|guest|presence", (await a.Next(MessageType.PlayerJoined)).Text);
     }
 
     [Fact]
@@ -397,5 +413,116 @@ public class RelayTests
     {
         Assert.Equal("a  b  c d e", Safe.Clean("a\"|b\\~c\nd\te"));
         Assert.Equal("Henry", Safe.Name("  |~ "));
+    }
+
+    // ------------------------------------------------------------------ the room handshake and participant identity
+
+    private static async Task<string> RefusalOf(RelayServer relay, Func<TestClient, Task> hello)
+    {
+        await using var c = await TestClient.Connect(relay.Port);
+        await hello(c);
+        var f = await c.NextAdmission();
+        Assert.Equal(MessageType.Reject, f.Type);
+        return f.Text;
+    }
+
+    [Fact]
+    public async Task A_build_that_sends_no_room_handshake_is_refused_with_a_reason()
+    {
+        await using var relay = Start();
+        var text = await RefusalOf(relay, c => c.Hello("Old", release: Rel, handshake: ""));
+        Assert.StartsWith("contract|", text);
+        Assert.Contains("same build", text);
+    }
+
+    [Fact]
+    public async Task Another_game_another_contract_or_another_mod_payload_is_refused_before_admission()
+    {
+        await using var relay = Start();
+        await using var host = await TestClient.Connect(relay.Port);
+        await host.Hello("Henry", "host", release: Rel);
+        await host.Next(MessageType.Welcome);
+
+        Assert.Contains("different games", await RefusalOf(relay, c => c.Hello("G", release: Rel, handshake: TestClient.DevHandshake(game: "kcd2"))));
+        Assert.Contains("contract version", await RefusalOf(relay, c => c.Hello("G", release: Rel, handshake: TestClient.DevHandshake(contract: 2))));
+        Assert.Contains("different mod payloads", await RefusalOf(relay, c => c.Hello("G", release: Rel, handshake: TestClient.DevHandshake(lua: "b"))));
+        Assert.Equal(1, relay.PlayerCount);                                                       // nobody of those was admitted
+    }
+
+    [Fact]
+    public async Task A_peer_whose_game_content_differs_is_admitted_but_the_room_stays_presence()
+    {
+        await using var relay = Start();
+        await using var host = await TestClient.Connect(relay.Port);
+        await host.Hello("Henry", "host", release: Rel, handshake: TestClient.DevHandshake(content: "c"));
+        await host.Next(MessageType.Welcome);
+        await using var guest = await TestClient.Connect(relay.Port);
+        await guest.Hello("Hans", release: Rel, handshake: TestClient.DevHandshake(content: "d"));
+        var w = await guest.NextAdmission();
+        Assert.Equal(MessageType.Welcome, w.Type);
+        Assert.Equal("presence", w.Fields[5]);
+    }
+
+    [Fact]
+    public async Task A_room_whose_authority_is_engine_verified_on_both_sides_says_partial_not_shared()
+    {
+        var caps = new Dictionary<string, Coop.Contract.CapabilityLevel> { ["authority.combat"] = Coop.Contract.CapabilityLevel.EngineVerified };
+        await using var relay = Start();
+        await using var host = await TestClient.Connect(relay.Port);
+        await host.Hello("Henry", "host", release: Rel, handshake: TestClient.DevHandshake(caps: caps));
+        await host.Next(MessageType.Welcome);
+        await using var guest = await TestClient.Connect(relay.Port);
+        await guest.Hello("Hans", release: Rel, handshake: TestClient.DevHandshake(caps: caps));
+        var w = await guest.NextAdmission();
+        Assert.Equal("partial", w.Fields[5]);
+        Assert.Contains("authority.loot", w.Fields[6]);                                           // what is still missing is named
+    }
+
+    [Fact]
+    public async Task Another_connection_cannot_take_a_participant_id_by_claiming_it()
+    {
+        await using var relay = Start();
+        await using var alice = await TestClient.Connect(relay.Port);
+        await alice.Hello("Alice", release: Rel);
+        await alice.Next(MessageType.Welcome);
+        var mallory = Coop.Contract.ParticipantBindings.Identity.CreateEphemeral();
+        var text = await RefusalOf(relay, async c =>
+        {
+            var ch = (await c.Next(MessageType.Challenge)).Text;
+            await c.Send(MessageType.Hello, $"{Proto.ProtocolVersion}|{Rel}|Mallory|guest||{TestClient.DevHandshake()}|{alice.Identity.ParticipantId};{mallory.PublicKey};{mallory.Sign(ch)}");
+        });
+        Assert.StartsWith("identity|", text);
+        // the same player connecting twice at once (a cloned profile) is refused too
+        var text2 = await RefusalOf(relay, c => { c.Identity = alice.Identity; return c.Hello("Alice2", release: Rel); });
+        Assert.Contains("already connected", text2);
+    }
+
+    [Fact]
+    public async Task A_player_who_leaves_may_come_back_with_the_same_identity_and_a_restart_remembers_the_binding()
+    {
+        string file = Path.Combine(Path.GetTempPath(), "relay-bind-" + Guid.NewGuid().ToString("N")[..8] + ".txt");
+        try
+        {
+            var alice = Coop.Contract.ParticipantBindings.Identity.CreateEphemeral();
+            await using (var relay = StartWith(file))
+            {
+                await using var c = await TestClient.Connect(relay.Port);
+                c.Identity = alice;
+                await c.Hello("Alice", release: Rel);
+                Assert.Equal(MessageType.Welcome, (await c.NextAdmission()).Type);
+            }
+            Assert.True(File.Exists(file));
+            await using var relay2 = StartWith(file);                                             // a restarted relay still knows alice's key
+            await using var mallory = await TestClient.Connect(relay2.Port);
+            var m = Coop.Contract.ParticipantBindings.Identity.CreateEphemeral();
+            var ch = (await mallory.Next(MessageType.Challenge)).Text;
+            await mallory.Send(MessageType.Hello, $"{Proto.ProtocolVersion}|{Rel}|M|guest||{TestClient.DevHandshake()}|{alice.ParticipantId};{m.PublicKey};{m.Sign(ch)}");
+            Assert.StartsWith("identity|", (await mallory.NextAdmission()).Text);
+            await using var back = await TestClient.Connect(relay2.Port);
+            back.Identity = alice;
+            await back.Hello("Alice", release: Rel);
+            Assert.Equal(MessageType.Welcome, (await back.NextAdmission()).Type);
+        }
+        finally { try { File.Delete(file); } catch { } }
     }
 }

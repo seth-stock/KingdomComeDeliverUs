@@ -33,13 +33,14 @@ public class AgentHostTests
         public Rig(Action<AgentConfig>? tweak = null)
         {
             Directory.CreateDirectory(Dir);
-            var cfg = new AgentConfig { Idle = true, RelayPort = FreePort(), PlayerName = "Henry" };
+            var cfg = new AgentConfig { Idle = true, RelayPort = FreePort(), PlayerName = "Henry", DevAllowUnverifiedPayload = true };
             tweak?.Invoke(cfg);
             Host = new AgentHost(cfg, Game, "0.1.0", StatusPort, _ => { })
             {
                 SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = u => { lock (Opened) Opened.Add(u); },
                 Store = new KcdUs.Agent.Worlds.SaveStore(Path.Combine(Dir, "saves"), Path.Combine(Dir, "backups")),
-                WorldListPath = Path.Combine(Dir, "worlds.json")
+                WorldListPath = Path.Combine(Dir, "worlds.json"),
+                IdentityFile = Path.Combine(Dir, "participant.key"), BindingsFile = Path.Combine(Dir, "room-bindings.txt")
             };
             Host.StartAsync(_cts.Token).GetAwaiter().GetResult();
         }
@@ -186,6 +187,81 @@ public class AgentHostTests
         string real = Path.Combine(r.Dir, "saves"); Directory.CreateDirectory(real);
         r.Host.ApplySettings(new NameValueCollection { ["savesdir"] = real });
         Assert.Equal(real, c.SavesDir);
+    }
+
+    private static string FakeGame(string pakBytes)
+    {
+        string d = Path.Combine(Path.GetTempPath(), "kcdus-fakegame-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(Path.Combine(d, "Mods", "kcdus", "Data"));
+        File.WriteAllText(Path.Combine(d, "Mods", "kcdus", "Data", "kcdus.pak"), pakBytes);
+        return d;
+    }
+
+    [Fact]
+    public async Task Two_installs_with_the_same_mod_payload_share_a_room_that_says_it_is_presence_only()
+    {
+        string a = FakeGame("build-1"), b = FakeGame("build-1");
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a; guest.Host.GameDir = b;
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().RelayConnected);
+            var s = guest.Host.Session.GetStatus();
+            Assert.Equal("presence", s.RoomMode);
+            Assert.Contains("NOT active", s.RoomNote);
+            guest.Game.Emit("KCDUS|HELLO|0.1.0|1|pak"); guest.Game.Emit("KCDUS|READY|1");   // in a world, the line a player reads says so too
+            await Until(() => guest.Host.Session.GetStatus().Message.Contains("NOT active"));
+            Assert.True(guest.Game.Has("ADAPTER?"));                                    // and the game was asked whether the engine adapter is loaded
+            Assert.Contains("authority.combat", s.RoomNote);
+            await Until(() => host.Host.Session.GetStatus().Players.Count == 1);
+            Assert.Equal("presence", host.Host.Session.GetStatus().RoomMode);
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    [Fact]
+    public async Task A_guest_with_another_mod_payload_is_refused_and_the_status_says_why()
+    {
+        string a = FakeGame("build-1"), b = FakeGame("build-2");
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a; guest.Host.GameDir = b;
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().Refused.Length > 0);
+            Assert.Contains("different mod payloads", guest.Host.Session.GetStatus().Message);
+            Assert.False(guest.Host.Session.GetStatus().RelayConnected && guest.Host.Session.GetStatus().MyId != 0);
+            Assert.Empty(host.Host.Session.GetStatus().Players);                          // nobody was admitted
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    [Fact]
+    public async Task A_player_with_no_mod_installed_cannot_join_a_real_room()
+    {
+        string a = FakeGame("build-1");
+        try
+        {
+            await using var host = new Rig(c => c.DevAllowUnverifiedPayload = false);
+            await using var guest = new Rig(c => { c.DevAllowUnverifiedPayload = false; c.RelayHost = "127.0.0.1"; });
+            host.Host.GameDir = a;                                                       // the guest has no game folder at all: nothing to verify
+            guest.Host.AllowLoopbackJoin = true; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+            await host.Host.HandleAsync("host", "");
+            await Until(() => host.Host.Session.GetStatus().RelayConnected);
+            await guest.Host.HandleAsync("join", "");
+            await Until(() => guest.Host.Session.GetStatus().Refused.Length > 0);
+            Assert.Contains("could not be verified", guest.Host.Session.GetStatus().Message);
+        }
+        finally { Directory.Delete(a, true); }
     }
 
     [Fact]

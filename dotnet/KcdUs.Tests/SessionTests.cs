@@ -8,6 +8,12 @@ using KcdUs.Wire;
 
 namespace KcdUs.Tests;
 
+internal static class Hs
+{
+    /// <summary>The handshake test players send: this game and wire, one shared Lua payload, no authority capabilities.</summary>
+    public static Coop.Contract.RoomHandshake Make(string lua = "a") => new("kcd1", "0.1.0", KcdUs.Wire.Proto.ProtocolVersion, 1, "", new string(lua[0], 64), "", "", "", new Dictionary<string, Coop.Contract.CapabilityLevel>());
+}
+
 internal sealed class FakeClock { public long Ms = 1_000_000; public long Now() => Ms; }
 
 /// <summary>A game that is only a list of what the agent sent it, and a way to say what the game's mod "logged".</summary>
@@ -44,7 +50,7 @@ internal sealed class Player : IAsyncDisposable
     public Player(int port, string name, string role, FakeClock clock, RailsPref pref = RailsPref.Ask, string? release = null, string password = "")
     {
         Clock = clock;
-        Relay = new RelayClient(new RelayEndpoint { Port = port, Name = name, Role = role, Release = release ?? "0.1.0", Password = password });
+        Relay = new RelayClient(new RelayEndpoint { Port = port, Name = name, Role = role, Release = release ?? "0.1.0", Password = password, Handshake = Hs.Make() });
         Session = new Session(new SessionOptions { Role = role, PlayerName = name, Pref = pref, GameVersion = "0.1.0" }, Game, Relay, clock.Now);
         Relay.Start(_cts.Token);
     }

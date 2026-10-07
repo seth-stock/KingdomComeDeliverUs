@@ -39,9 +39,9 @@ public partial class WorldSyncTests
             Directory.CreateDirectory(Store.Root);
             WorldsJson = Path.Combine(Dir, "worlds.json");
             seed?.Invoke(this);
-            var cfg = new AgentConfig { Idle = true, RelayPort = relayPort, PlayerName = name, RelayHost = "127.0.0.1" };
+            var cfg = new AgentConfig { Idle = true, RelayPort = relayPort, PlayerName = name, RelayHost = "127.0.0.1", DevAllowUnverifiedPayload = true };
             tweak?.Invoke(cfg);
-            Host = new AgentHost(cfg, Game, "0.1.0", FreePort(), l => { lock (Logs) Logs.Add(l); }) { SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = _ => { }, Store = Store, WorldListPath = WorldsJson, AllowLoopbackJoin = true };
+            Host = new AgentHost(cfg, Game, "0.1.0", FreePort(), l => { lock (Logs) Logs.Add(l); }) { SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = _ => { }, Store = Store, WorldListPath = WorldsJson, AllowLoopbackJoin = true, IdentityFile = Path.Combine(Dir, "participant.key"), BindingsFile = Path.Combine(Dir, "room-bindings.txt") };
             // the fake game: a save request writes a save into the playline in use; a load request is only remembered
             Game.OnSend = r =>
             {

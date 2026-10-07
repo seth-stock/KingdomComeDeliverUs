@@ -21,3 +21,14 @@ function K.capabilities()
     K.out('CAPABILITY', 'end', 'unproven', 'runtime-effects-and-persistence-not-tested')
 end
 K.handlers['CAPABILITIES'] = function() K.capabilities() end
+
+-- Is the startup engine adapter in this process? It brands ItemManager.GetItem(soulId) results (kcdusSoul); without it the result is a plain item/nil.
+-- The agent asks when a world loads and tells rooms honestly (HandshakeFactory): a capability that needs the adapter is claimed only when the game says so.
+K.handlers['ADAPTER?'] = function()
+    local present = 0
+    if player and player.soul then
+        local ok, value = pcall(function() return ItemManager.GetItem(player.soul:GetId()) end)
+        if ok and type(value) == 'table' and value.kcdusSoul == 1 then present = 1 end
+    end
+    K.out('ADAPTER', present)
+end

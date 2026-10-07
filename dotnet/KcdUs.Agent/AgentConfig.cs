@@ -46,6 +46,8 @@ public sealed class AgentConfig
     public string BackupDir { get; set; } = "";
     /// <summary>Allow "join" to name this very computer (127.0.0.1): only for testing two agents on one machine.</summary>
     public bool AllowLoopbackJoin { get; set; }
+    /// <summary>Development only: a room admits a peer whose mod payload cannot be verified. A real room refuses it.</summary>
+    public bool DevAllowUnverifiedPayload { get; set; }
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
 

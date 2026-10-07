@@ -126,8 +126,9 @@ public sealed record RoomHandshake(
 
 public sealed record RoomPolicy(bool AllowUnverifiedPayload = false);
 
-public sealed record NegotiationResult(RoomMode Mode, IReadOnlyList<string> Refusals, IReadOnlyList<string> Missing, IReadOnlyDictionary<string, CapabilityLevel> Effective)
+public sealed record NegotiationResult(RoomMode Mode, IReadOnlyList<string> Refusals, IReadOnlyList<string> Missing, IReadOnlyDictionary<string, CapabilityLevel> Effective, IReadOnlyList<string>? Warnings = null)
 {
+    public IReadOnlyList<string> Notes => Warnings ?? Array.Empty<string>();
     public bool Admitted => Mode != RoomMode.Refused;
     public string Describe() => Mode switch
     {
@@ -142,7 +143,9 @@ public static class Negotiation
 {
     /// <summary>
     /// Decides whether two sides may share a room and what the room honestly is. Refusals: another game, another contract/wire version, a different Lua payload
-    /// or content profile (DLC/mods), or an unverifiable payload. Native/engine differences are not refusals: a capability counts only at the LOWER of the two sides' levels.
+    /// or an unverifiable payload. Native/engine differences are not refusals: a capability counts only at the LOWER of the two sides' levels. A different content profile
+    /// (DLC or other mods) is not a refusal for a presence room, but it keeps the room from being <see cref="RoomMode.Partial"/> or shared: authority over a world that the two
+    /// computers load differently cannot be trusted.
     /// </summary>
     public static NegotiationResult Negotiate(RoomHandshake local, RoomHandshake remote, RoomPolicy? policy = null)
     {
@@ -156,8 +159,9 @@ public static class Negotiation
             if (!policy.AllowUnverifiedPayload) refusals.Add("the game's mod payload could not be verified on " + (local.LuaHash.Length == 0 ? "this" : "the other") + " computer");
         }
         else if (local.LuaHash != remote.LuaHash) refusals.Add("different mod payloads (the Lua packages differ): both must install the same build");
-        if (local.ContentProfileHash.Length > 0 && remote.ContentProfileHash.Length > 0 && local.ContentProfileHash != remote.ContentProfileHash)
-            refusals.Add("different game content (DLC or other mods differ)");
+        var warnings = new List<string>();
+        bool contentDiffers = local.ContentProfileHash.Length > 0 && remote.ContentProfileHash.Length > 0 && local.ContentProfileHash != remote.ContentProfileHash;
+        if (contentDiffers) warnings.Add("different game content (DLC or other mods differ): shared authority is off, peers are still shown");
 
         var effective = new Dictionary<string, CapabilityLevel>(StringComparer.Ordinal);
         foreach (var name in local.Capabilities.Keys.Union(remote.Capabilities.Keys, StringComparer.Ordinal))
@@ -168,9 +172,10 @@ public static class Negotiation
 
         RoomMode mode;
         if (refusals.Count > 0) mode = RoomMode.Refused;
+        else if (contentDiffers) mode = RoomMode.Presence;
         else if (missing.Count == 0) mode = RoomMode.SharedSimulation;
         else if (CapabilityNames.Authority.Any(n => effective.TryGetValue(n, out var l) && l >= CapabilityLevel.EngineVerified)) mode = RoomMode.Partial;
         else mode = RoomMode.Presence;
-        return new NegotiationResult(mode, refusals, missing, effective);
+        return new NegotiationResult(mode, refusals, missing, effective, warnings);
     }
 }

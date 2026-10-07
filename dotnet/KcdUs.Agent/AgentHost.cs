@@ -5,6 +5,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
+using Coop.Contract;
 using KcdUs.Agent.Worlds;
 using KcdUs.Relay;
 using KcdUs.Wire;
@@ -59,6 +60,35 @@ public sealed class AgentHost : IAsyncDisposable
     public bool AllowLoopbackJoin { get; set; }
 
     public Session Session { get { lock (_gate) return _session; } }
+
+    /// <summary>Where this player's room identity (a key pair) is kept; null: next to the settings, in the player's own folder.</summary>
+    public string? IdentityFile { get; set; }
+    /// <summary>Where a hosted room remembers participant keys; null: in the player's own folder.</summary>
+    public string? BindingsFile { get; set; }
+    /// <summary>The game said its startup engine adapter is in its process (the Lua mod's ADAPTER line).</summary>
+    public bool AdapterLoaded { get; private set; }
+    private ParticipantBindings.Identity? _identity;
+    private HandshakeFactory.Fingerprint? _fingerprint;
+
+    private static string UserFile(string name) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", name);
+
+    private ParticipantBindings.Identity Identity()
+    {
+        if (_identity is not null) return _identity;
+        try { return _identity = ParticipantBindings.Identity.LoadOrCreate(IdentityFile ?? UserFile("participant.key")); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log("warning: this player's room identity could not be kept on disk (" + e.Message + "): it lasts for this run only");
+            return _identity = ParticipantBindings.Identity.CreateEphemeral();
+        }
+    }
+
+    /// <summary>The handshake right now: payload hashes measured once, capabilities from what the game reported.</summary>
+    public RoomHandshake Handshake()
+    {
+        _fingerprint ??= HandshakeFactory.Measure(GameDir, Path.Combine(AppContext.BaseDirectory, "KcdUsEngineBridge.dll"));
+        return HandshakeFactory.Build(_release, _fingerprint, AdapterLoaded);
+    }
 
     /// <summary>The game's folder, to find its saves under Proton (Linux).</summary>
     public string? GameDir { get; set; }
@@ -123,6 +153,7 @@ public sealed class AgentHost : IAsyncDisposable
 
     private void OnGameLine(GameLine g)
     {
+        if (g.Kind == "ADAPTER") { AdapterLoaded = g.Fields.Length > 1 && g.Fields[1] == "1"; return; }
         if (g.Kind != "MENU") return;
         string verb = g.Fields.Length > 1 ? g.Fields[1] : "", arg = g.Fields.Length > 2 ? g.Fields[2] : "";
         _ = Task.Run(async () => { try { await HandleAsync(verb, arg).ConfigureAwait(false); } catch (Exception e) { _log("menu " + verb + ": " + e.Message); } });
@@ -184,7 +215,7 @@ public sealed class AgentHost : IAsyncDisposable
             {
                 if (mode == HostMode)
                 {
-                    server = new RelayServer(new RelayOptions { Port = Config.RelayPort, ServerName = Config.ServerName, Password = Config.Password, MaxPlayers = Config.MaxPlayers, Release = _release }, l => _log("relay: " + l));
+                    server = new RelayServer(new RelayOptions { Port = Config.RelayPort, ServerName = Config.ServerName, Password = Config.Password, MaxPlayers = Config.MaxPlayers, Release = _release, AllowUnverifiedPayload = Config.DevAllowUnverifiedPayload, BindingsFile = BindingsFile ?? UserFile("room-bindings.txt") }, l => _log("relay: " + l));
                     try { server.Start(); }
                     catch (Exception e)
                     {
@@ -196,7 +227,7 @@ public sealed class AgentHost : IAsyncDisposable
                     relayHost = "127.0.0.1";
                 }
                 relay = mode == Idle ? new NullRelay()
-                    : new RelayClient(new RelayEndpoint { Host = relayHost, Port = Config.RelayPort, Name = Config.PlayerName, Role = role, Password = Config.Password, Release = _release });
+                    : new RelayClient(new RelayEndpoint { Host = relayHost, Port = Config.RelayPort, Name = Config.PlayerName, Role = role, Password = Config.Password, Release = _release, HandshakeProvider = Handshake, Identity = Identity() });
             }
             var session = NewSession(role, relay);
             session.WorldEvent += (from, f) => _world?.OnPeerEvent(from, f);
@@ -234,9 +265,9 @@ public sealed class AgentHost : IAsyncDisposable
         return Mode switch
         {
             Idle => "Multiplayer: not in a session. Use Host a game or Join a game.",
-            HostMode => $"Multiplayer: hosting on port {Config.RelayPort}, {s.Players.Count + 1} player(s). Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
+            HostMode => $"Multiplayer: hosting on port {Config.RelayPort}, {s.Players.Count + 1} player(s). {s.RoomNote} Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
             _ when s.Refused.Length > 0 => "The host refused you: " + s.Refused.Split('|').Last(),
-            _ when s.RelayConnected => $"Multiplayer: joined {s.ServerName}, {s.Players.Count + 1} player(s). Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
+            _ when s.RelayConnected => $"Multiplayer: joined {s.ServerName}, {s.Players.Count + 1} player(s). {s.RoomNote} Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
             _ => $"Multiplayer: trying to reach {Config.RelayHost}:{Config.RelayPort}...",
         };
     }

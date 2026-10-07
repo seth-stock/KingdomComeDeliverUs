@@ -177,6 +177,7 @@ public sealed class Session : IDisposable
                         _log(w ? "the player is in the world" : "the player left the world (menu or loading)");
                         if (w)
                         {
+                            _game.Send("ADAPTER?");   // is the engine adapter in this process? (rooms are told honestly)
                             _quests.Clear();
                             _story.Reset();
                             _awaitingBaseline = true;
@@ -339,8 +340,10 @@ public sealed class Session : IDisposable
                     _myId = int.Parse(f[0], CultureInfo.InvariantCulture);
                     _hostId = int.Parse(f[1], CultureInfo.InvariantCulture);
                     _serverName = f.Length > 4 ? f[4] : "";
-                    _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\"");
-                    Notify($"Connected to {_serverName}");
+                    _roomMissing = f.Length > 6 ? f[6] : "";
+                    _peerModes[_myId] = f.Length > 5 ? f[5] : "presence";
+                    _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\", room: {RoomWord()}");
+                    Notify($"Connected to {_serverName}. {RoomSentence()}");
                     if (_inWorld) { _relay.Send(MessageType.Event, "world|1"); _game.Send("QSNAP"); _awaitingBaseline = true; _seedPending = true; _baselineUntilMs = now + BaselineMs; }
                     if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
                     break;
@@ -365,7 +368,8 @@ public sealed class Session : IDisposable
                         int id = int.Parse(f[0], CultureInfo.InvariantCulture);
                         _peers[id] = new PeerInfo { Id = id, Name = f[1], Role = f[2] };
                         if (f[2] == "host") _hostId = id;
-                        _log($"{f[1]} joined as {f[2]}");
+                        if (f.Length > 3) _peerModes[id] = f[3];
+                        _log($"{f[1]} joined as {f[2]} (room: {RoomWord()})");
                         Notify($"{f[1]} joined");
                         if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
                         break;
@@ -374,6 +378,7 @@ public sealed class Session : IDisposable
                 case MessageType.PlayerLeft:
                     {
                         int id = int.Parse(f[0], CultureInfo.InvariantCulture);
+                        _peerModes.Remove(id);
                         if (_peers.Remove(id, out var gone))
                         {
                             _game.Send($"PD|{id}");
@@ -668,11 +673,35 @@ public sealed class Session : IDisposable
     public sealed record Status(
         string Version, string Role, bool GameConsole, bool GameKnown, bool GameResponding, string GameModVersion, bool InWorld, int Fps, int ScriptErrors,
         bool RelayConnected, string Refused, int MyId, int HostId, string ServerName, int RttMs,
-        IReadOnlyList<PeerStatus> Players, StoryStatus Story, string Message);
+        IReadOnlyList<PeerStatus> Players, StoryStatus Story, string Message, string RoomMode = "presence", string RoomNote = "");
 
     public sealed record PeerStatus(int Id, string Name, string Role, bool InView, string Choice, double? DistanceM);
 
     public sealed record StoryStatus(string Section, string Tier, string Why, string Period, string MyChoice, bool Asking, int Joined, int Staying, int Deciding, int QuestChanges);
+
+    // ================================================================ what kind of room this is (Coop.Contract negotiation, done by the relay)
+
+    private readonly Dictionary<int, string> _peerModes = new();
+    private string _roomMissing = "";
+
+    /// <summary>The room's mode: the weakest negotiated mode among the players (presence, partial or shared).</summary>
+    private string RoomWord()
+    {
+        if (_peerModes.Count == 0) return "presence";
+        if (_peerModes.Values.Any(m => m == "presence")) return "presence";
+        return _peerModes.Values.Any(m => m == "partial") ? "partial" : "shared";
+    }
+
+    /// <summary>Plain words, never "shared" for a room that only shows peers.</summary>
+    private string RoomSentence() => RoomWord() switch
+    {
+        "shared" => "Room: shared simulation.",
+        "partial" => "Room: partly shared (not every authority capability is verified" + (_roomMissing.Length > 0 ? ": " + _roomMissing.Replace(",", ", ") : "") + ").",
+        _ => "Room: presence only. You see each other, but shared NPC, combat, loot and quest authority is NOT active" + (_roomMissing.Length > 0 ? " (" + _roomMissing.Replace(",", ", ") + ")" : "") + ".",
+    };
+
+    public string RoomMode { get { lock (_gate) return RoomWord(); } }
+    public string RoomNote { get { lock (_gate) return RoomSentence(); } }
 
     public Status GetStatus()
     {
@@ -699,10 +728,10 @@ public sealed class Session : IDisposable
             else if (!_gameKnown) message = "The game is running but the co-op mod did not answer. Is the mod installed?";
             else if (!_inWorld) message = "In the main menu or loading. Load your save.";
             else if (!_relay.Connected) message = "Not connected to a relay.";
-            else message = $"Connected as {_o.Role}: {_peers.Count + 1} player(s).";
+            else message = $"Connected as {_o.Role}: {_peers.Count + 1} player(s). {RoomSentence()}";
 
             return new Status(typeof(Session).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "0", _o.Role, _game.ConsoleConnected, _gameKnown,
-                responding, _gameModVersion, _inWorld, _gameFps, _gameErrors, _relay.Connected, _refused, _myId, _hostId, _serverName, _rttMs, players, story, message);
+                responding, _gameModVersion, _inWorld, _gameFps, _gameErrors, _relay.Connected, _refused, _myId, _hostId, _serverName, _rttMs, players, story, message, RoomWord(), RoomSentence());
         }
     }
 
