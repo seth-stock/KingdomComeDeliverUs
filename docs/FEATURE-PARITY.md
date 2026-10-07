@@ -1,49 +1,66 @@
-# Feature parity: Kingdom Come: Deliver Us (first game) and Kingdom Come: Together (second game)
+# Multiplayer feature parity and acceptance contract
 
-Written 2026-10-06. Both mods are unofficial community mods, not affiliated with or endorsed by Warhorse Studios, Deep Silver or PLAION.
-The two games are different engines' builds, so the **backends differ**; the aim is that a player sees *the same features* in both. This table says, feature by feature, what each has,
-how it is done, and what is **not seen yet**. Marks: **seen** = observed working in the real game on one computer · **tests** = automated tests only · **built** = written, not run in the game · **no** = not possible, with the reason.
-Nothing here has been seen with two real people on two computers.
+Updated 2026-10-07. Applies to Deliver Us (KCD1) and Together (KCD2) development branches. Read `CLAUDE-MULTIPLAYER-HANDOFF.md` for implementation design, source paths, engine constraints, validation and publishing instructions.
 
-| Feature | KCD1 (Deliver Us) | KCD2 (Together) | Same? / why they differ |
+**Parity target:** equivalent supported online behavior within each game, with separate game-specific engine/save adapters. Room `gameId` must match. Bring the smaller feature set up to the full union of existing online features; removing or hiding a working feature is not parity. Human acceptance remains outstanding in both games.
+
+Statuses below describe evidence available at handoff, not a new gameplay audit. **KCD2 source** means relevant code exists; verify its exact runtime path and historical evidence before upgrading the status. **KCD1 engine** means behavior was seen in a disposable single real game, sometimes with a synthetic sender; it does not mean two-person acceptance.
+
+| Online feature | KCD1 current evidence | KCD2 current evidence | Required common result / remaining work |
 |---|---|---|---|
-| **In-game "Multiplayer" tab** | **seen**: a button in the main menu (and pause menu: built) opening pages (status, host, join, world, story, keys, browser settings). Data-only: flow-graph files built on the player's computer from their own `GameData.pak` | **seen** in the main menu: root button, pages, Back, settings that change the mod's real state (e.g. `mp_join_henry` auto/fresh), all via Lua calls into the game's Scaleform `Menu` element. Pause menu not yet seen | Same pages and options; different mechanism (KCD1 menus are data, KCD2's are compiled) |
-| Install needs no Modding Tools | yes (the tab's file is made at install from the player's own game files) | yes (it is Lua inside the mod's pak; nothing is made from game files). KCD2 itself needs the *Modding Tools build of the game* for its console API: that is the KCD2 mod's existing requirement | differs: KCD2's game build requirement |
-| Warhorse's modding EULA shown and carried | **built**: installer page, copy in `Mods\kcdus\`, Linux asks for `yes` | **not yet**: the KCD2 installer shows the repo's licence only, and no KCD2 modding EULA text was found on this machine | **gap in KCD2**: needs the text from Warhorse/PLAION |
-| Host / join / leave from the game | **seen** (agent idle mode, tab buttons) | **built** in the tab as *Co-op sync start/stop*; host and join are the KCD2 launcher's job (a separate program starts the relay and the agent) | differs: KCD1's agent can start a relay itself |
-| Settings in your browser | **tests + seen**: `http://127.0.0.1:1415/settings?t=…` | **no**: the KCD2 launcher (a Blazor app) is the settings UI | differs |
-| Keys: F11 join / F12 stay, changeable | **tests**: F11/F12, F9/F10 or none, Windows and Linux | F11/F12 in the game's own Keybinds list (changeable in Settings > Keybinds) | KCD2's keys are the game's own bindings; KCD1 has no key binding list for mods |
-| Join-or-stay question for scripted stretches (rails) | **seen** (real F11 press), 287 quests classified | built and tested over 201 quests; not seen with two players | same idea; different quest lists (different games) |
-| Presence: seeing each other, chat, clock | **seen** (bodies glide in idle pose; no animations/outfits) | **seen with two players** (animated, dressed, riding...) | differs a lot: KCD2 has a native plugin and the game's REST API; KCD1 only has Lua + a console |
-| Combat, NPCs, quests, loot shared | **no**: KCD1 has no hook to do it | yes (see the KCD2 README) | **cannot be equal**: backend |
-| Linux | built, untested under Proton (tarball + `kcdus`) | built, published as a pre-release, untested | same |
-| **Join a host's existing world** (even 100 h) | **seen** (6 MB world over the relay, loaded by the game) and tests | `mp_join_request` + the joiner's character spliced in (**seen** in the real game against a scripted host) | same result, different method (KCD1 copies the host's save into an empty slot; KCD2 splices a Henry into it) |
-| **Start a new world together, new characters** | **built**: host announces, both choose New Game; the first save becomes the world | KCD2: `mp_join_henry fresh` | same |
-| **Bring my Henry from another world** | **seen** (card read and applied): stats/skills raised, things/money added, no perks, nothing lowered | **seen**: the real character is spliced into the world | KCD2 carries the whole character; KCD1 only what its Lua API can read and set |
-| **Send my Henry back to his own world** | **built + seen in parts** (home playline remembered, card captured, home save backed up before) | **seen** (`mp_henry_home`: the home save loads and matches) | same |
-| **Play the shared world alone or with friends; separate saves at other times/places** | **built + tests**: every player has their own copy, saves freely | `mp_world_copy` (a copy of the shared world with the player's character as their own save) | same idea |
-| **Reconcile when they reconnect** | **tests + seen** (further-played / host / newest rule; the one behind takes the other's world; backup kept) | **not the same**: KCD2's host is the world; a joiner's world copy is a separate save (`mp_world_copy`); there is no "two copies merge" | **gap in KCD2** (see below) |
-| Host saves for the client too | the *Save the world for everyone* button: saves and tells the friends | the host's world saves + each joiner's character paired with every host save | same |
-| Prologue / scenes as other characters (Theresa; Godwin) | presence is character-agnostic; Theresa's flashback is a locked period; **not seen** | Godwin world loads (**seen**); a Godwin join not run | partly |
-| All quests incl. DLC | 287 classified, all five DLCs | 201 classified, DLC shared (`mp_quest_dlc`) | same |
+| Host/join/leave, room/password, chat | Implemented; menu/agent/relay observed | Source and existing tests | Real clients connect/disconnect/rejoin, authenticated participant binding, correct room/version rejection |
+| Main-menu multiplayer UI | Engine observed; locally generated menu revision 5 | Main-menu entry/pages/settings observed in earlier work | Installed launcher/agent end-to-end; settings persist and required capabilities are visible |
+| Pause-menu UI and actions in a live session | Audit current menu integration | Not established by earlier main-menu proof | Both titles expose working host/join/leave/status/world controls during supported live sessions |
+| Settings, keys and controllers | Browser settings and configurable join/stay hotkeys; audit controller paths | Launcher settings and native keybind source; controller behavior needs verification | Equivalent accessible settings and actions in both games, persisted preferences and verified keyboard/controller navigation; preserve each existing UI |
+| Peer identity and position | Ordinary NPC presence bodies follow peers | Native/Lua source | Persistent participant identity, per-load handles, late join/removal, no stale-handle mutation |
+| Walk/idle/run/sprint | KCD1 engine proof on ordinary NPCs | Source/native motion | Correct visible gait and smoothing in two/four-player gameplay and after load/streaming |
+| Weapons, attack/block and other poses | Walking does not prove combat; current bodies noncombat | Native combat/motion source | Real remote actors participate in hit tests/AI targeting with correct per-player state and cleanup |
+| Equipment/outfits | Equipped classes/condition transport and rendering observed on supported Windows adapter | Source; audit actual supported fields | Native gear and visual state agree; economic gear stays separate from unlootable render-only proxies |
+| Dirt/appearance/hair and character kinds | Incomplete beyond equipment/common Henry | Audit appearance and Henry/Godwin paths | Defined supported appearance/kind contract; correct transitions without arbitrary source block copying |
+| NPC ownership and AI | Shared simulation absent; persistent identities readable | Native scan/drive, claims and validation source | One authority/epoch/revision, stable identities, safe suppression/replay and AI targeting all players |
+| NPC streaming and distant players | No shared region simulation | Audit host-range/claim behavior | Proved union-of-interest simulation or an explicit enforced supported-area policy; no silent solo regions |
+| Shared health/stamina/damage | Only setter readback proved; tested DealDamage calls had no effect | Combat authority code exists; incomplete coordination | Ordinary attacks validated by host, correct character stats/armor/perks, reliable outcomes before side effects |
+| Death, kill credit, assists and drops | Absent | One-health/death-authority gap remains | One death revision/corpse/reward history; simultaneous kills cannot duplicate loot/XP or revive NPCs |
+| Player injury/death/respawn/friendly fire | Presence bodies invulnerable/AI-invisible | Source/options; audit policy | NPC attacks affect either player, consistent configurable friendly fire and recoverable personal death policy |
+| Shared quests/objectives/variables | Polling/story consent, not quest mirroring | Quest source; audit side-effect authority | Host decisions and attributed guest causes yield one quest/world history without duplicate rewards/spawns |
+| Full quest/DLC coverage and compatibility | Earlier catalogue classified 287 quests including five DLCs; classification is not shared simulation | Earlier catalogue classified 201 quests; DLC source needs runtime audit | Audit installed title-specific main/side/DLC coverage, reject incompatible required content and validate quest mutations and scripted character transitions |
+| Dialogue, scripted scenes, join/stay and tether | Implemented presence/story controls | Source | Consistent choice, entry/exit/barrier behavior, late join and branch policy; source quest snapshots are authoritative |
+| Time of day | Forward-only behavior observed/documented | Time source | Same declared clock semantics; no pretend rollback; authoritative effect clocks independent of cosmetic clock sync |
+| Weather | Not shared | Native weather source | Proved equivalent supported weather synchronization or an explicitly unresolved adapter gate |
+| Horse/mount ownership, riding and saddlebags | Shared horse simulation absent; character capture refuses mounted state | Native/Lua horse source and probe tooling | Safe mount/horse control, participant ownership, inventories, dismount/death/streaming and reconnect |
+| Dice/Farkle | No dice synchronization | Farkle source; 59 recorded unit tests | Shared game/turn/randomness/wager authority and correct native UI integration; no duplicated economic rewards |
+| Exact personal XP/stats/skills | Live saved-state staging and native readback observed; levels can decrease | Save splice/character source | Correct progression/accounting for each participant through joins, deaths, saves, solo branches and reconnect |
+| Selected perks, points and abilities | Perk records survive native saving; effective gameplay/other abilities not fully proved | Audit character/block and native effects | Exact selected perks/accounting and effective derived abilities; no inherited destination-only bonuses |
+| Health/energy/nourishment and effects | Portable resource core loaded; arbitrary effects/timers incomplete | Audit complete physiology/timers | Correct health/stamina/resources, injuries/poison/bleed/buffs/cooldowns with proven clock conversion |
+| World-linked character state | Nonempty core reference refused; other state preserved in destination provisionally | Seed/kind checks; audit reference policies | Explicit world/personal/derived classifications; valid actor/item remapping and preserved source on unsupported transitions |
+| Inventory/equipment restoration | Native record replacement observed; item ordering normalized; cross-participant ledger absent | Character splice and ledger source | Exact legitimate ownership/counts/metadata; host-Henry cloning cannot duplicate economic items |
+| Corpse/container take/put | Shared loot authority absent | Scoped in-memory body retry cache and host readback | Pre-transfer control/escrow, one authority queue including host-local moves, durable unique ownership and deduplication |
+| Loose pickup/drop/split/merge/consume/equip | Shared arbitration absent | Some source/regression suites; not complete durable authority | Every ownership/quantity mutation shares the ledger; unconfirmed items cannot be used or saved |
+| Shops/trade/theft/takedowns/quest items | No shared economy | Audit source and uncovered pathways | Correct provenance, conservation and quest/crime consequences through the same durable operation system |
+| World save/load and bring Henry | Live KCD1 install/native-acceptance path observed | Existing joins/rejoin plus offline reconciliation preparation | Consistent world/roster/character/ledger barrier, correlated native acceptance and journaled promotion |
+| New world together and prologue | Announcement/New Game binding exists; native saving refuses the unsaveable prologue | Fresh-character join source | Define shared genesis, story authority and supported pre-first-save behavior; respect native save restrictions without mislabeling independent prologues as shared simulation |
+| Reconnect: one winning world, restore players | Legacy hours/time resolution; immutable store not integrated into live ancestry | Manifest selection/staging tested offline; live promotion missing | Exchange/import paired checkpoints; descendant selection or explicit divergent choice; archive both; no independent-world merge |
+| Sending character home and solo branching | Portable native preparation implemented; active state/ref limits remain | Audit equivalent world/character lifecycle | Explicit branch/home identity and recoverable, legitimate personal-state/economy transfer |
+| Save-slot protection/archive/restore | Five-slot refusal and offline leasing implemented | Audit slot/profile behavior | Preserve original saves and logical home bindings; usable slot UI/recovery; no unsupported removal of physical limits |
+| Process/load/connection restart isolation | Load journal/validation; no global simulation epoch | Loot correlation scopes; global epoch incomplete | Whole authority incarnation/epoch on all world mutations, queued old operations cancelled and durable recovery |
+| Content/native/Lua/agent compatibility | Exact Windows native hash gate; no complete room content profile | Protocol 11; native/pak fingerprint gap | Matched packages, DLC/mod/content profiles and required capabilities verified before shared mutable gameplay |
+| Platform parity | Windows identity/outfit adapter; Linux runtime adapter not proved | Linux packaging/native behavior needs audit | Publish only platforms that pass the same engine/online acceptance; packaging alone is insufficient |
+| Installation, upgrades and distribution | Current dev build local; complete new release/soak/package missing | Missing-game-data detection tested; matched release payload/upgrade gates missing | Runnable matching self-contained packages, genuine applicable terms, preserved settings/saves and tested upgrade/rollback |
 
-## KCD2 tab: what is left
+## Acceptance record to maintain
 
-* **Seen live:** the *Multiplayer* entry on the main menu (it comes back after the game rebuilds the page), every page (status, game world, saving, story, session rules, keys), *Back* up the tab and then to the game's root page,
-  and a setting that changes the mod's own state and re-draws. The mechanism (no timers in the main menu; the cursor-move sound drives it; the game's own Help page is opened by an injected `menu_accept` so that its Back works) is in the KCD2 repo's `docs/MENU.md`.
-* **Not seen:** the tab in the pause menu of a running game; the buttons in a session with a partner; controllers.
-* The KCD2 tab has no *host/join* buttons: that is the KCD2 launcher's job (it starts the relay and the agent); the KCD1 agent can start its own relay, so its tab can.
+For every row, record both games' source commit, engine and content hashes, launcher/agent/relay/native/Lua hashes, contract/wire versions, test scenario, observed outcome and evidence path. Separate unit, synthetic integration, real-engine and human multiplayer results. A known limitation remains a failed parity target until implemented and validated or explicitly excluded by the user.
 
-## KCD1 gaps that remain (and why)
+The gameplay invariant is one authoritative NPC/combat/quest/economy history per room and epoch, with independently controlled, correctly restored personal characters. Never mark true multiplayer complete based only on visible peer bodies, matching health numbers, immutable offline files or successful pcall.
 
-* No shared simulation (backend), no animations or outfits on the other player's body (backend), no perks in a Henry card (the Lua API cannot list them), levels are only raised.
-* The prologue cannot be saved by the game, so a world cannot be shared before it is over.
+## Human acceptance minimum
 
-## Things that exist in one game and are missing from the other
+- Two computers with distinct characters, stats/perks and inventories; then a four-player session.
+- Simultaneous combat kills and looting, NPC attacks targeting every participant, normal stock UI/equipment/shop/quest interactions.
+- Different world clocks and timed effects, scripted transitions, interiors/distance/mounts and re-entry.
+- Save/load/reconnect, host or guest checkpoint winning, independent solo branches, dropped/duplicated/reordered messages and interrupted operations.
+- Multi-hour gameplay and install/upgrade/uninstall/reinstall on the actual packaged payloads.
 
-| In | Missing from | Plan |
-|---|---|---|
-| KCD1: reconcile two copies of a world when players meet | KCD2 | Would need KCD2 world files to be comparable; the KCD2 `HenryStore` already keeps per-world snapshots. Not started |
-| KCD1: browser settings page | KCD2 | Not needed: the KCD2 launcher is the settings UI |
-| KCD1: Warhorse EULA page in the installer | KCD2 | **To do**: carry the KCD2 modding terms. The KCD2 Modding Tools folder only holds `LICENSE.txt`, a list of third-party licences (MIT, Apache, Codejock...), not a Warhorse/PLAION modding EULA, so there is nothing to copy; the terms have to come from Warhorse/PLAION (or the Modding Tools' own first-run agreement) |
-| KCD2: shared combat, NPCs, quests, loot | KCD1 | Cannot be built without a native plugin |
+Implementation and native adapter proof must precede these tests. Give humans concrete steps and expected results; do not ask them to compensate for missing code or to certify undocumented behavior.
+
+The earlier KCD1 parity document is retained in Git history. Its claims that KCD1 could never synchronize animation/outfits/perks or support a native backend are superseded by the current implementation/evidence. Its broad KCD2 multiplayer claims must be traced to actual dated scenarios and package hashes before treating them as acceptance evidence.

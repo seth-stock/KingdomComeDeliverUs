@@ -1,0 +1,53 @@
+{
+  "note": "Shared contract vectors: the SAME file is in both games' repositories. A hash value 'a' means 64 x 'a', and so on; '' means unknown.",
+  "handshake": [
+    {
+      "game": "kcd1", "product": "0.2.0", "wire": 2, "contract": 1,
+      "agent": "", "lua": "a", "native": "", "engine": "", "content": "",
+      "caps": { "presence.bodies": 2, "authority.npc": 1, "authority.quest": 0 },
+      "encoded": "c1;g=kcd1;p=0.2.0;w=2;cv=1;a=;l=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;n=;e=;x=;k=authority.npc:1,presence.bodies:2"
+    }
+  ],
+  "malformedHandshakes": [
+    "", "c2;g=x;p=1;w=1;cv=1;k=", "c1;g=x;p=1;w=one;cv=1;k=", "c1;g=;p=1;w=1;cv=1;k=",
+    "c1;g=x;p=1;w=1;cv=1;l=abc;k=", "c1;g=x;p=1;w=1;cv=1;k=a:9", "c1;g=x;p=1;w=1;cv=1;g=y;k=", "c1;g=x;p=1;w=1;k="
+  ],
+  "negotiation": [
+    { "name": "same game, same payload, no authority: presence only",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "presence.bodies": 2 } },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "presence.bodies": 2 } }, "mode": "Presence" },
+    { "name": "another game is refused",
+      "local":  { "game": "kcd1", "wire": 2, "contract": 1, "lua": "a", "caps": {} },
+      "remote": { "game": "kcd2", "wire": 2, "contract": 1, "lua": "a", "caps": {} }, "mode": "Refused" },
+    { "name": "another contract version is refused",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": {} },
+      "remote": { "game": "g", "wire": 2, "contract": 2, "lua": "a", "caps": {} }, "mode": "Refused" },
+    { "name": "another wire version is refused",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": {} },
+      "remote": { "game": "g", "wire": 3, "contract": 1, "lua": "a", "caps": {} }, "mode": "Refused" },
+    { "name": "different Lua payloads are refused",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": {} },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "b", "caps": {} }, "mode": "Refused" },
+    { "name": "an unverifiable payload is refused",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "", "caps": {} },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": {} }, "mode": "Refused" },
+    { "name": "different DLC or content profiles are refused",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "content": "c", "caps": {} },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "content": "d", "caps": {} }, "mode": "Refused" },
+    { "name": "an unknown content profile on one side does not refuse",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "content": "c", "caps": {} },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "content": "", "caps": {} }, "mode": "Presence" },
+    { "name": "engine-verified authority on both sides is only partly shared",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.combat": 2, "authority.npc": 2 } },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.combat": 2, "authority.npc": 2 } }, "mode": "Partial" },
+    { "name": "a capability counts at the LOWER of the two sides",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.combat": 3 } },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.combat": 1 } }, "mode": "Presence" },
+    { "name": "every required capability integration-verified on both sides is a shared simulation",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.npc": 3, "authority.combat": 3, "authority.loot": 4, "authority.quest": 3, "checkpoint.barrier": 3, "identity.participant": 3, "character.personal": 3 } },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.npc": 4, "authority.combat": 3, "authority.loot": 3, "authority.quest": 3, "checkpoint.barrier": 3, "identity.participant": 3, "character.personal": 3 } }, "mode": "SharedSimulation" },
+    { "name": "one missing required capability keeps it from being a shared simulation",
+      "local":  { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.npc": 3, "authority.combat": 3, "authority.loot": 3, "authority.quest": 3, "checkpoint.barrier": 2, "identity.participant": 3, "character.personal": 3 } },
+      "remote": { "game": "g", "wire": 2, "contract": 1, "lua": "a", "caps": { "authority.npc": 3, "authority.combat": 3, "authority.loot": 3, "authority.quest": 3, "checkpoint.barrier": 3, "identity.participant": 3, "character.personal": 3 } }, "mode": "Partial" }
+  ]
+}
