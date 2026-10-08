@@ -21,7 +21,6 @@ K.Pause = P
 
 local FREEZE_SCALE = 0.001
 
-local function scale() local ok, v = pcall(System.GetCVar, "t_scale"); v = ok and tonumber(v) or 1; return v end
 
 function P.release(why)
     if not P.frozen then return end
@@ -42,8 +41,8 @@ function P.freeze(lease)
     P.lease = math.max(240, math.min(6000, math.floor(lease or 900)))
     P.f0 = System.GetFrameID()                      -- every ask restarts the lease
     if P.frozen then return end
-    local prev = scale()
-    P.prevScale = (prev and prev >= 0.5) and prev or 1   -- never remember a scale that is already a freeze
+    -- the scale goes back to 1, never to what it was: a sleep or a wait raises it, and restoring a raised scale after that sleep ended would leave the world running fast
+    P.prevScale = 1
     P.frozen = true
     P.freezes = P.freezes + 1
     P.chainId = P.chainId + 1

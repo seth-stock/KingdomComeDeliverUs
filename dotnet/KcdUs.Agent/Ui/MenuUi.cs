@@ -360,7 +360,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 6;
+    public const int Revision = 7;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 

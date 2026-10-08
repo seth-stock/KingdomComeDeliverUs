@@ -30,6 +30,11 @@ end
 function System.LogAlways(s) __log[#__log + 1] = tostring(s) end
 function System.GetCurrAsyncTime() return __clock end
 function System.GetFrameTime() return 0.016 end
+__frame = 0
+__cvars = { t_scale = 1 }
+function System.GetFrameID() return __frame end
+function System.GetCVar(n) return __cvars[n] end
+function System.SetCVar(n, v) __cvars[n] = v end
 function System.AddCCommand(name, code, help) __cmds[name] = { code = code, help = help } end
 function System.SpawnEntity(params)
     if __world.failSpawn then error("spawn refused") end
@@ -238,6 +243,7 @@ function __dropTimers() __timers = {} end
 
 -- run the timers due within dt seconds, in order, moving the clock as the engine would
 function __advance(dt)
+    __frame = __frame + math.floor(dt * 60)                       -- the frame counter keeps going whatever the world scale
     local target = __clock + dt
     while true do
         local bi, b = nil, nil
