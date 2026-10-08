@@ -5,8 +5,10 @@ An unofficial, free community mod. Not affiliated with or endorsed by Warhorse S
 A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/KingdomCome-Together). GPL-3.0.
 You and your host must all run THIS version (0.1.0): a different version is refused.
 
-PLAYTEST BUILD (2026-10-07). This is a development build for testing, not a finished release. The room tells you what it is: in this build it is always
-"presence only": you see each other, but shared enemies, combat, loot and quests are NOT active. If the launcher or the game says anything else, that is a bug: report it.
+PLAYTEST BUILD (2026-10-08). This is a development build for testing, not a finished release; nobody has played it with two people yet. The room tells you what it is:
+"partly shared". When you BOTH play the same shared world (the host's world, loaded with Game world > Join the host's world), enemies lose health and die in both copies, loot of
+bodies and chests is decided by the host (an item you took that the host did not confirm is taken back), the host's quests follow, and a friend's pause menu holds your game.
+NOT shared: where enemies walk, whom they attack, items on the ground, saddlebags, shops. If the launcher says "shared simulation", that is a bug: report it.
 Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). Different other mods cap the room at presence and block world/character moves. A richer-DLC guest may join a lower-DLC host; extra DLC stays out.
 A poorer-DLC guest cannot receive a richer host save: host without that DLC instead. Disable extra DLC in Steam and restart as instructed. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
 
@@ -55,6 +57,7 @@ IF SOMETHING GOES WRONG
 
 UNINSTALL: Windows Settings > Apps > Kingdom Come: Deliver Us. It asks whether to remove the mod from your game folder. Your saves are never touched.
 
-SESSION 2 UPDATE
-Quest mirroring is opt-in Candidate, not shared quest authority. Shared enemies/combat/loot and safe shared pause remain unavailable in KCD1.
-See SESSION2-RESULTS.md and the new human tests. No two-person acceptance is claimed.
+SESSION 3 UPDATE (2026-10-08)
+Shared fights, loot and pausing are in this build (see CAPABILITIES.md: what each does, what is proved, what is not). Switches: Multiplayer tab > "Shared fights and loot" and
+"Pausing", or kcdus_shared on|off and kcdus_pause_mode shared|off in the game console. Your own pause menu still pauses your own game, as always; "Pausing: Off" only stops a
+friend's menu from holding yours. Tests to try: HUMAN-ACCEPTANCE-TESTS.md T-43 to T-56. No two-person acceptance is claimed.

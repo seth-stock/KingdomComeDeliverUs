@@ -5,8 +5,10 @@ A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/King
 Warhorse Studios or Deep Silver.
 
 > **Read this first.** Nobody has played this with two people yet. What is true and what is not yet seen is in `KNOWN-LIMITS.md`.
-> It is a **presence** mod, not a shared world: each of you plays your own save in your own game; you see each other, talk, share the clock,
-> and the host's story can ask the friends whether they want to be brought along. Enemies, quests and loot are not shared.
+> Each of you plays your own copy of the world in your own game; you see each other, talk, share the clock, and the host's story can ask the friends whether they want
+> to be brought along. When you both play the SAME shared world (the host's, loaded with Game world > Join the host's world), the health and death of enemies, the loot of
+> bodies and chests (the host decides), the host's quest progress and a friend's pause menu are shared between your copies; where enemies walk and whom they attack are not.
+> The details, with what is proved and what is not, are in `CAPABILITIES.md`.
 
 ## 1. What you get
 

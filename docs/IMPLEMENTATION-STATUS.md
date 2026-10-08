@@ -32,6 +32,13 @@ This is a development branch. It must not be distributed as a complete co-op rel
 
 Validation on 2026-10-07: 268 .NET tests pass (up from 224), including shared contract vectors, relay handshake/identity/content tests and agent-level room-mode tests. The native engine bridge (`tools/Build-Engine.ps1`) builds; the installed game's `WHGame.dll` hash equals the supported hash. A live engine smoke test was **not** rerun for this stage. No two-computer test was performed. See [HUMAN-ACCEPTANCE-TESTS.md](HUMAN-ACCEPTANCE-TESTS.md).
 
+## Shared fights, loot and pausing (2026-10-08)
+
+* The "damage has no effect" finding was a probe mistake: `soul:DealDamage(stamina, health, ...)` was called as (3, 0). With health damage it lowers health through the ordinary path and kills; `tools/engine/damage_probe2.lua` / `damage_probe3.lua`.
+* `mod/kcdus/lua/combat.lua`, `loot.lua`, `pause.lua`; agent side `OutcomesCoordinator.cs` and `PauseCoordinator.cs`; the pause menu watcher is a flow graph in the UI pak (`MenuUi.cs`, revision 6). Live checks: `tools/engine/shared_outcomes_live.py` (14) and `shared_outcomes_live2.py` (12), 317 automated tests.
+* Harness fact: the private game runs the mod in the REAL game folder (`Mods\kcdus`), not the copy under the session root: install the build under test there first (see `tools/engine/README.md`).
+* Still not done: shared NPC AI (movement, targeting, noticing), items on the ground, saddlebags, shops, quest rewards and spawns, stopping a player's own pause menu from pausing their own game, two-computer and four-player acceptance.
+
 ## Offline slot commands
 
 Run the built `KcdUsAgent` with the game closed. Configure `savesDir`, `worldsFile`, and `backupDir` if using a non-default profile. Displayed slot numbers are 1 through 5.

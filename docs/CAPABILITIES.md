@@ -22,9 +22,10 @@ agree on the **lower** of the two levels for each capability, so neither side ca
 | `identity.participant` | integration-verified | Each install keeps a P-256 key; the relay binds the participant id to the first key that proves it, across restarts. Tested against hijack, replay and wrong-key attempts. |
 | `checkpoint.barrier` | candidate | The immutable checkpoint store exists and is tested. It is **not** wired into a live consistent capture. |
 | `authority.npc` | candidate when the adapter is loaded, otherwise absent | Persistent soul and item identity can be read. No NPC is driven from the host. |
-| `authority.combat` | absent | Damage calls had no observed effect; no interception. |
-| `authority.loot` | absent | No shared loot or economy. |
-| `authority.quest` | candidate | Opt-in, one-way open/base quest adapter. One objective native readback proved; full quest effects/rewards/variables are not authoritative. |
+| `authority.combat` | engine-verified (**shared outcomes only**) | `soul:DealDamage(stamina, HEALTH, ...)` lowers an NPC's health through the ordinary path and a lethal one kills it, read back in the private engine (the earlier "no effect" came from a probe that passed health 0). Health and death of the NPCs near each player are shared between copies of the same shared world. Where NPCs walk, whom they target and whether they notice a player are **not** shared. [Details](#shared-fights-and-loot) |
+| `authority.loot` | engine-verified (**corpses and stashes only**) | A take is the loot screen moving an item (the engine does it); the host decides, the item is taken back off a guest on "gone" or silence, the decision is journalled first. Not covered: items on the ground, saddlebags, shops, anything an NPC does to a body. |
+| `authority.quest` | candidate | One-way open/base quest adapter, switched on with shared fights and loot. One objective native readback proved; full quest effects/rewards/variables are not authoritative. |
+| pausing (not a handshake capability) | engine-verified (**a friend's pause holds my world**) | The pause menu's open/close events reach Lua; `t_scale` 0.001 holds the world and a frame-counted in-game lease lets go by itself. A player's OWN menu still pauses their own game natively (see [Pausing](#pausing)). |
 | `character.timers` | absent | Timed effects, cooldowns and injuries are not carried across. |
 
 ## Room modes, in plain words
@@ -35,11 +36,11 @@ The relay (and each agent) computes one of these and shows it to the player. It 
 | Mode | What you are told | When |
 |---|---|---|
 | **Refused** | The reason, in a sentence, and what to do. | Another game, another contract or wire version, a different or unverifiable mod payload (Lua pak), or no handshake at all. |
-| **Presence** | "Room: presence only. You see each other, but shared NPC, combat, loot and quest authority is NOT active (…)." | No authority capability is engine-verified on both sides; **or** the two installs have different other mods. |
+| **Presence** | "Room: presence only. You see each other, but shared NPC, combat, loot and quest authority is NOT active (…)." | No authority capability is engine-verified on both sides (an old build, or no shared-outcome support); **or** the two installs have different other mods. |
 | **Partial** | "Room: partly shared (not every authority capability is verified: …)." | At least one authority capability is engine-verified on both sides and the rest are not. |
 | **Shared simulation** | "Room: shared simulation." | Every capability in `SharedSimulationRequired` is integration-verified on both sides. **This build can never reach it.** |
 
-This build is always **Presence**. That is the honest answer, not a bug.
+Two copies of this build are **Partial**: fights and loot are shared outcomes (engine-verified), NPC authority is not, and nothing is integration-verified (no two-computer run yet). It can never say "shared simulation". With different other mods the room is still **Presence**.
 
 ### Different DLC or mods
 
@@ -56,11 +57,11 @@ different pak are refused ("different mod payloads"). `--dev-allow-unverified` o
 
 These are recorded rather than faked. Full list with reasons: [KNOWN-LIMITS.md](KNOWN-LIMITS.md) and [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
 
-* Shared NPC, combat, loot, quest and economy authority (the whole point of a "shared simulation").
+* Shared NPC AI: where NPCs walk, whom they target, whether they notice a player; items on the ground, saddlebags and shops; quest rewards and spawns (the whole point of a "shared simulation").
 * A live, consistent world and character capture barrier, and promotion of a winning checkpoint.
 * Non-core character state: timers, selected-perk effects, mounted and world-linked state.
 * Linux and Proton: the runtime adapter is not proved there; no Linux package is built from this branch.
-* Pause-menu tab in a live session (the main-menu tab is engine-observed).
+* Stopping a player's OWN pause menu from pausing their own game (the engine pauses natively and the UI resume node does not undo it; see Pausing).
 * Two-computer, four-player and multi-hour soak testing.
 
 ## Session 2 continuation: 2026-10-07
@@ -77,3 +78,25 @@ This remains a playtest build. No capability has human acceptance, and the two g
 * Linux packages are experimental. A successful WSL build/fake Steam test is not proof of Proton gameplay. KCD1's Windows startup adapter paths are not proved under the native Linux agent. No Linux engine feature is upgraded by rebuilding a tarball.
 
 Human acceptance is pending. KCD1 ESC-menu Multiplayer entry and its Status/Host/Join/Leave/Game world/Story/Keys/Settings/Back page were visually observed in the disposable loaded game. That does not prove buttons in a connected session. KCD2 pause-menu behavior still needs verification. Run the new test cases on disposable copies, record release/commit hashes and logs, and leave failed capabilities Candidate. No real saves or firewall rules were changed by this continuation's guarded probes.
+
+## Shared fights and loot
+
+Proved in a private real engine with a synthetic second player (`tools/engine/shared_outcomes_live.py`, 14 checks, and `shared_outcomes_live2.py`, 12 checks): the ordinary damage path with readback, a friend's kill killing this copy, no echo of applied damage, corpse and stash inventories read, a guest's take reported by position for a stash (stashes have no names), the host deciding an ask against its own copy, and "gone" taking the item back. Automated: 317 tests of the agent, the relay and the Lua modules against the stubbed engine.
+
+* **Active only while it is honest.** The option is on (default), both players are in a world, and a friend is in the SAME shared world (each machine announces the id of the world it has loaded; two copies of one save have the same named NPCs, bodies and stashes, two different saves do not). Otherwise every copy of the world stays its own and the launcher says nothing is shared.
+* **Fights.** Each machine watches the NPCs near its own player (18 m) and reports health they lost or a death. The others apply it to their own copy of that NPC through the ordinary damage path with **no attacker**: nobody is credited with a kill they did not make, no crime is raised, the NPC's AI is not provoked. Damage is additive and order-free, so two players fighting one enemy cost it both players' blows in both copies. Fights between NPCs that no player is near are nobody's to share.
+* **Loot.** The host decides. A guest's take is already done by the loot screen (that is how it works), so the guest asks; the host answers ok (it removes the item from its copy too and tells the other guests) or gone (somebody was first), and on gone the item is taken back off the guest. An ask the host never answers is taken back after 20 s and before a world save: **an unconfirmed item is never kept, and never travels into a save**. A lost answer loses an item; it cannot duplicate one. The host's decision is written to a hash-chained journal before the answer is sent; a repeated ask gets the same answer, and an ask interrupted by a restart is never granted a second time.
+* **Not shared:** NPC movement, targeting and noticing; items on the ground (PickableItem); saddlebags; shops and theft; what an NPC does to a body; a quest's rewards and spawns.
+* **Switch:** the Multiplayer tab (Shared fights and loot), the browser settings, `kcdus_shared on|off`, `--no-shared-outcomes`.
+
+## Pausing
+
+Proved in the private engine: the game's pause (ESC) menu raises UI events that reach Lua (`MP_MenuWatch` flow graph); the menu pauses the world natively (world time stands, frames go on); `t_scale` 0.001 holds a world while Lua timers still fire (about once a real second), so a frame-counted lease inside the game lets go by itself when the agent stops renewing it (a crash, a lost link or a vanished friend can never leave a world frozen for good). At `t_scale` 0 no timer fires and `os.time()` stands still, so there could be no such lease: the mod never uses 0.
+
+* **Shared (default):** a friend's open pause menu holds MY world until they are back (their agent repeats "my menu is open" every two seconds; silence for six seconds, a menu open for 15 minutes, leaving the session, or this option off lets go at once). Only the pause menu counts: a friend's inventory, dialogue or loading screen never holds anyone.
+* **Off:** a friend's menu never holds my game. Choose it in the Multiplayer tab (Pausing), the browser settings, `kcdus_pause_mode shared|off`, or `--no-shared-pause`.
+* **What the option cannot do in KCD1:** stop a player's OWN menu from pausing their OWN game. The game pauses natively when the menu opens and the UI's ResumeGame node does not undo it (tested live); undoing it would need a native hook that has not been written for the retail engine. In KCD1 each player's world is a separate copy, so a player's own pause never affects anyone else's game unless the shared pause option makes a friend's menu hold it.
+
+## Session 3 (2026-10-08): what changed against the Session 2 notes above
+
+The Session 2 paragraphs below say shared combat, shared loot and a safe shared pause were unavailable. That was true when they were written; this section supersedes them for KCD1: the "no effect" damage result was a probe error (stamina 3, health 0), health damage and death work through the ordinary path, a crash-safe pause lease exists (`t_scale` 0.001 plus a frame-counted lease), and corpse/stash loot is host-decided. What is still unavailable is listed under "Not shared" above. No capability has human acceptance and nothing was played by two real people.

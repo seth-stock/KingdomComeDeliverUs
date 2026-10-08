@@ -17,6 +17,10 @@ Every room announces what it is. This build is **presence only**: the launcher a
 Two computers with a different `kcdus.pak` are refused with a reason; two with different DLC or other mods are admitted as presence and **no world or Henry moves between them**.
 Details: [CAPABILITIES.md](CAPABILITIES.md). What people must test: [HUMAN-ACCEPTANCE-TESTS.md](HUMAN-ACCEPTANCE-TESTS.md).
 
+## What is shared in 0.1.0 playtest builds (2026-10-08)
+
+In a shared world (both players loaded the SAME world): the health and death of enemies near either player, the loot of corpses and stashes (the host decides), the host's quest progress (one way), time of day (forward), and a friend's open pause menu holds your game (an option). Each is an engine-verified candidate: proved in a private engine with a synthetic second player, never played by two people. See [CAPABILITIES.md](CAPABILITIES.md).
+
 ## Remaining limits
 
 * **No shared simulation.** Each player's game simulates its own copy. Enemies, NPCs, loot, quest state and combat are not shared; a friend does not see the host's fights. What *is* shared is the world itself: a friend can take the host's save (even a 100-hour one) and each player keeps their own copy that they play alone or together, reconciled when they meet again: [SHARED-WORLDS.md](SHARED-WORLDS.md).

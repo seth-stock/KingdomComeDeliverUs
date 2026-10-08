@@ -108,3 +108,26 @@ All cases below are PENDING. Record both machines' release tags, installer hashe
 | T-40 | Reconnect from divergent checkpoints and choose one; stage personalized characters. | Both alternatives preserved, no independent-world merge, no unrelated character substitution. Guest archive transfer/live promotion are still unresolved; do not treat offline preparation as native acceptance. |
 | T-41 | KCD1: on disposable matching worlds, enable `kcdus_quest_mode candidate` on both; complete an open base objective, repeat, then try rails/DLC/local events. | Native readback agrees; replay does not repeat mutation; vetoed paths stay untouched. Compare rewards, XP, NPC spawns and save/reload. Full quest completion without native proof must report unverified. |
 | T-42 | Extract Linux archive, validate SHA256SUMS, run doctor/install on fake Steam, then real Proton on two computers. | Fake fixtures and real gameplay reported separately; verify Windows/Linux feature negotiation. Missing KCD1 native adapter paths stay unavailable. |
+
+## Session 3 tests: shared fights, loot and pausing (KCD1; pending human acceptance)
+
+Use disposable copies of ONE save on both machines (the host sends its world with **Game world > Join the host's world**), the same installer on both, and a screenshot or log for each result. In a shared world the launcher says "Fights and loot are shared with the friends in your world".
+
+| # | Do | Expect | Failure looks like |
+|---|---|---|---|
+| T-43 | Both load the SAME shared world. Read the launcher line. Then one of you loads another save. | "Fights and loot are shared…" while both are in the shared world; it goes off (a notice) as soon as one is not. | It claims sharing across different saves. |
+| T-44 | Stand together near a bandit. Only A attacks him; B watches B's own copy. | B's copy of the bandit loses health as A hits (B sees it stagger-free: no hit reaction, health bar drops) and dies when A kills him. | B's bandit unharmed, or A is credited on B's side with XP, a crime or anger. |
+| T-45 | A and B both hit the same enemy. | He dies after roughly half the blows each alone would need, in both copies. | He survives twice the blows. |
+| T-46 | A kills a bandit while B is 80 m away. B walks there later. | The corpse is already there in B's copy. | B meets a live bandit. |
+| T-47 | A loots a corpse or chest (take everything). B opens the same body or chest afterwards. | It is empty or holds only what A left. | B can take what A took. |
+| T-48 | A and B take the same item from the same body at the same moment. | Exactly one of them keeps it; the other sees "Someone already took that" and the item leaves their inventory within about a second. | Both keep it (a duplicate). |
+| T-49 | B takes an item, then B kills the agent or the network drops before the answer. B reconnects, saves, loads. | After 20 seconds, or before the save, the item is not in B's inventory. | The unconfirmed item is in B's save. |
+| T-50 | The host restarts its agent in the middle of B looting. | B's item is kept or taken back, never both copies; the host log says an interrupted ask will never be granted again. | The item exists twice. |
+| T-51 | A opens the pause menu (Esc) and leaves it open for 20 seconds. | B's world holds with a notice; when A closes the menu B runs again within a second. | B keeps running, or stays frozen after A resumes. |
+| T-52 | A opens the pause menu, then A's agent is killed. | B's world lets go by itself within about 15 seconds. | B stays frozen. |
+| T-53 | B sets **Pausing: Off** (Multiplayer tab, Pausing). A opens the pause menu. | B's game never holds. A's own game is paused by A's own menu as usual. | B holds anyway. |
+| T-54 | B opens the inventory, a dialogue, or a loading screen while A plays. | A's game never holds. | A freezes. |
+| T-55 | Both players open the pause menu together, then one closes. | Each world holds while the other's menu is open; both run when both are closed. | A world stays frozen with no menu open. |
+| T-56 | Set **Shared fights and loot: Off** on B. Repeat T-44 and T-47. | Nothing is shared with B; B's copy stays its own. | B still receives damage or loot changes. |
+
+Report with the installer SHA-256, the commit, `%LocalAppData%\KCDUS\logs\agent.log` from both machines, and the `KCDUS|CMB`, `KCDUS|LOOT` and `KCDUS|PAUSE` lines of each `kcd.log`.
