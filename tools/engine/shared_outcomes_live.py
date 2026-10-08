@@ -105,8 +105,11 @@ if npc and npc != 'nil':
     check('... and the kill is not reported back as the local player\'s', not [l for l in log.splitlines() if l.startswith('KCDUS|CMB|' + npc + '|') and l.endswith('|1')], '')
 
     # ---------------------------------------------------------------- loot of that corpse
+    # a ragdoll can be thrown some metres: the loot screen needs the body at the player's feet, so put the corpse back beside the player (a disposable world)
+    lua("local e=System.GetEntityByName('%s') local p=player:GetWorldPos() e:SetWorldPos({x=p.x+1.2,y=p.y,z=p.z})" % npc)
+    time.sleep(1.0)
     lua("KCDUS_In('7~LOOTMODE|1|%s|0')" % SC)           # as a guest
-    time.sleep(1.2)
+    time.sleep(1.5)
     lua("""
 local e=System.GetEntityByName('%s')
 local t=e.inventory:GetInventoryTable()
