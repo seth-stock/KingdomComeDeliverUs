@@ -27,6 +27,8 @@ public sealed class AgentConfig
     public string RailsPref { get; set; } = "ask";
     public float TetherMeters { get; set; } = 120f;
     public bool Hotkeys { get; set; } = true;
+    /// <summary>True (the default): when a friend opens the game's pause menu, this game is held until they are back (a frame-counted lease lets it go by itself if the friend vanishes). False: nobody's menu holds anybody's world.</summary>
+    public bool SharedPause { get; set; } = true;
     /// <summary>f11f12 | f9f10 | off: the keys that answer the host's join-or-stay question (the Multiplayer tab's Keys page).</summary>
     public string KeyPreset { get; set; } = KcdUs.Agent.KeyPreset.Default;
     /// <summary>Start doing nothing: the player hosts or joins from the game's Multiplayer tab (the installer's setting).</summary>
@@ -105,6 +107,8 @@ public sealed class AgentConfig
                 case "--status-port" when next != null: c.StatusPort = int.Parse(next); i++; break;
                 case "--pref" when next != null: c.RailsPref = next; i++; break;
                 case "--no-hotkeys": c.Hotkeys = false; break;
+                case "--shared-pause": c.SharedPause = true; break;
+                case "--no-shared-pause": c.SharedPause = false; break;
                 case "--idle": c.Idle = true; break;
             }
         }

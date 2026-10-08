@@ -220,6 +220,9 @@ function K.hookPlayer()
         if type(old) == "function" then
             Player[name] = function(...)
                 if K.Ghosts and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Ghosts.onWorldReset() end
+                if K.Pause and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Pause.onWorldReset() end
+                if K.Combat and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Combat.onWorldReset() end
+                if K.Loot and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Loot.onWorldReset() end
                 if K.NativeIdentity and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.NativeIdentity.clear() end
                 K.try("hook:" .. name, K.kick)
                 return old(...)

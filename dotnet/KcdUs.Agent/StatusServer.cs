@@ -159,6 +159,7 @@ button {{ margin-top:18px; padding:10px 18px; font:inherit; background:var(--acc
 <label>Which Henry goes into a world I receive<select name=""henry"">{Sel(cfg.HenryMode.ToLowerInvariant(), "host", "The world's own Henry")}{Sel(cfg.HenryMode.ToLowerInvariant(), "mine", "My Henry: levels raised to mine, my things added")}</select></label>
 <label>Which copy goes on after we played apart<select name=""resolve"">{Sel(cfg.ResolvePolicy, "furthest", "The further-played one")}{Sel(cfg.ResolvePolicy, "host", "The host's")}{Sel(cfg.ResolvePolicy, "newest", "The newest save")}</select></label>
 <label>The game's save folder<small>Leave empty to find it by itself.</small><input name=""savesdir"" value=""{E(cfg.SavesDir)}""></label>
+<label>Pausing<small>Shared: when a friend opens the pause menu your game is held until they are back (it lets go by itself if they vanish). Off: a friend's menu never holds your game.</small><select name=""pause"">{Sel(cfg.SharedPause ? "shared" : "off", "shared", "Shared (a friend's pause holds my game)")}{Sel(cfg.SharedPause ? "shared" : "off", "off", "Off (a friend's pause never holds my game)")}</select></label>
 <label>Keys for join / stay<select name=""keys"">{Sel(cfg.KeyPreset, "f11f12", "F11 join, F12 stay")}{Sel(cfg.KeyPreset, "f9f10", "F9 join, F10 stay")}{Sel(cfg.KeyPreset, "off", "No keys (use the menu)")}</select></label>
 <button type=""submit"">Save</button>
 </form></main></body></html>";

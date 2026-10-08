@@ -128,6 +128,34 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task A_friends_pause_menu_holds_this_game_through_the_relay_and_lets_go_when_it_closes()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        Assert.True(host.Game.Has("PAUSEWATCH"));                                  // entering the world starts the menu watcher
+        guest.Game.Emit("KCDUS|PAUSE|menu|1");                                     // the guest's own pause menu opened
+        await Until(() => { clock.Ms += 100; host.Tick(); return host.Game.Has("FREEZE|1|"); }, what: "the host's game held");
+        Assert.True(host.Session.Pause.Frozen);
+        Assert.Contains(host.Game.Snapshot(), s => s.StartsWith("NOTE|Hans paused"));
+        guest.Game.Emit("KCDUS|PAUSE|menu|0");
+        await Until(() => { clock.Ms += 100; host.Tick(); return host.Game.Has("FREEZE|0"); }, what: "the host's game released");
+        Assert.False(host.Session.Pause.Frozen);
+        Assert.False(guest.Game.Has("FREEZE|1"));                                  // the guest's own menu never holds the guest's own game through the agent
+    }
+
+    [Fact]
+    public async Task With_the_option_off_a_friends_pause_menu_never_holds_this_game()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Session.Pause.SetShared(false);
+        guest.Game.Emit("KCDUS|PAUSE|menu|1");
+        await Task.Delay(150);
+        for (int i = 0; i < 20; i++) { clock.Ms += 100; host.Tick(); }
+        Assert.False(host.Game.Has("FREEZE|1"));
+    }
+
+    [Fact]
     public async Task Chat_travels_both_ways_and_is_cleaned()
     {
         var (relay, host, guest, _) = await Pair();

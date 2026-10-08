@@ -15,6 +15,8 @@ public sealed class SessionOptions
     /// <summary>The game-time drift (seconds) past which a guest's clock is set to the host's.</summary>
     public double TimeDriftSeconds { get; init; } = 120;
     public string GameVersion { get; init; } = Release.Current;
+    /// <summary>The shared pause (a friend's open pause menu holds this world too). The default; the player can turn it off.</summary>
+    public bool SharedPause { get; init; } = true;
 }
 
 /// <summary>A player the relay told us about, with the last thing we heard of them.</summary>
@@ -91,11 +93,18 @@ public sealed class Session : IDisposable
     private bool _candidateQuests;
     private string _questEpoch = Guid.NewGuid().ToString("N");
     private string _questHostEpoch = "";
+    private readonly PauseCoordinator _pause;
+
+    /// <summary>The shared pause: a friend's open pause menu holds this world too (the player's option; see docs/CAPABILITIES.md).</summary>
+    public PauseCoordinator Pause => _pause;
 
     public Session(SessionOptions o, IGameLink game, IRelayLink relay, Func<long> nowMs, Action<string>? log = null)
     {
         _o = o; _game = game; _relay = relay; _now = nowMs; _log = log ?? (_ => { });
         _pref = o.Pref;
+        _pause = new PauseCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
+            Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id);
+        _pause.SetShared(o.SharedPause);
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
         _relay.Frame += OnRelayFrame;
@@ -177,6 +186,8 @@ public sealed class Session : IDisposable
                         bool w = f.Length > 1 && f[1] == "1";
                         if (w == _inWorld) break;
                         _inWorld = w;
+                        if (w) _game.Send("PAUSEWATCH");                // the pause menu's open/close events (mod/kcdus/lua/pause.lua)
+                        else _pause.Reset("the player left the world");
                         _questHostEpoch = "";
                         _questEpoch = Guid.NewGuid().ToString("N");
                         if (_candidateQuests) _game.Send("QMRESET|" + (IsHost ? _questEpoch : ""));
@@ -255,6 +266,12 @@ public sealed class Session : IDisposable
                     break;
                 case "QMAPPLIED":
                     _log("Candidate quest readback: " + string.Join(' ', f.Skip(1)));
+                    break;
+
+                case "PAUSE":
+                    // PAUSE|menu|0|1|2   this player's pause menu closed / opened / the watcher runs;  PAUSE|frozen|<lease>;  PAUSE|released|<why>
+                    if (f.Length >= 3 && f[1] == "menu") { if (f[2] == "1") _pause.LocalMenu(true); else if (f[2] == "0") _pause.LocalMenu(false); }
+                    else if (f.Length >= 2 && f[1] is "frozen" or "released") _log("pause: " + string.Join(' ', f.Skip(1)));
                     break;
 
                 case "ERR":
@@ -403,6 +420,7 @@ public sealed class Session : IDisposable
                     {
                         int id = int.Parse(f[0], CultureInfo.InvariantCulture);
                         _peerModes.Remove(id);
+                        _pause.PeerLeft(id);
                         if (_peers.Remove(id, out var gone))
                         {
                             _game.Send($"PD|{id}");
@@ -455,6 +473,9 @@ public sealed class Session : IDisposable
         if (IsWorldKind(f[0])) { WorldEvent?.Invoke(from, f); return; }
         switch (f[0])
         {
+            case "pause" when f.Length == 2 && f[1] is "0" or "1":
+                _pause.PeerMenu(from, f[1] == "1");
+                break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
                 break;
@@ -633,6 +654,7 @@ public sealed class Session : IDisposable
         lock (_gate)
         {
             long now = _now();
+            _pause.Tick(_inWorld, _myId != 0 && _relay.Connected, _gameFps);
             if (now - _lastPingMs >= 2000)
             {
                 _lastPingMs = now;

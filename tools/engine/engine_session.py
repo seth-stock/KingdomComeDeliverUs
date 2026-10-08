@@ -215,7 +215,8 @@ def launch(source):
             subprocess.run(['powershell', '-NoProfile', '-Command',
                             "New-Item -ItemType Junction -Path '" + str(game_root / folder) + "' -Target '" + str(GAME / folder) + "' | Out-Null"], check=True)
     import shutil
-    shutil.copytree(GAME / 'Mods' / 'kcdus', game_root / 'Mods' / 'kcdus')
+    # KCDUS_PROBE_MOD: a staged mod folder (a build under test) instead of the installed one; the installed game is never touched
+    shutil.copytree(Path(os.environ.get('KCDUS_PROBE_MOD') or (GAME / 'Mods' / 'kcdus')), game_root / 'Mods' / 'kcdus')
     args = [str(GAME / 'Bin' / 'Win64' / 'KingdomCome.exe'), '-devmode', '-root', str(game_root),
             '+sys_user_folder', profile, '+sys_user_subfolder', '',
             '+sys_useSteamCloudForPlatformSaving', '0', '+log_EnableRemoteConsole', '1',

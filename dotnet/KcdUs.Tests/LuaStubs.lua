@@ -74,6 +74,62 @@ end
 function System.GetEntity(id) return __entities[id] end
 function System.RemoveEntity(id) __removed[#__removed + 1] = id; __entities[id] = nil end
 
+-- NPCs and stashes for the shared fights and loot: __world_ents is everything GetEntitiesInSphere can see
+__world_ents = {}
+function System.GetEntitiesInSphere(pos, r)
+    local t = {}
+    for _, e in ipairs(__world_ents) do
+        local p = e.pos
+        local dx, dy, dz = p.x - pos.x, p.y - pos.y, p.z - pos.z
+        if dx * dx + dy * dy + dz * dz <= r * r then t[#t + 1] = e end
+    end
+    return t
+end
+function System.GetEntityByName(n) for _, e in ipairs(__world_ents) do if e.name == n and n ~= '' then return e end end return nil end
+local function __inventoryFor(e)
+    e.items = e.items or {}
+    e.inventory = {
+        GetInventoryTable = function(self) local t = {}; for i, it in ipairs(e.items) do t[i - 1] = it end return t end,
+        GetCountOfClass = function(self, c) local n = 0; for _, it in ipairs(e.items) do if it.class == c then n = n + it.amount end end return n end,
+        DeleteItemOfClass = function(self, c, n)
+            for i = #e.items, 1, -1 do
+                local it = e.items[i]
+                if it.class == c and n > 0 then
+                    local k = math.min(it.amount, n); it.amount = it.amount - k; n = n - k
+                    if it.amount <= 0 then table.remove(e.items, i) end
+                end
+            end
+        end,
+    }
+end
+function __mkNpc(name, hp, x, y, z, class)
+    local e = { class = class or 'NPC', name = name, pos = { x = x, y = y, z = z }, hp = hp, dead = false, dealt = 0, calls = {} }
+    function e:GetName() return self.name end
+    function e:GetWorldPos() return self.pos end
+    function e:IsDead() return self.dead end
+    e.soul = {
+        GetState = function(s, k) if k == 'health' then return e.hp end return 0 end,
+        SetState = function(s, k, v) if k == 'health' then e.hp = v end end,
+        DealDamage = function(s, stam, dmg, attacker, suppress)
+            e.calls[#e.calls + 1] = { stam = stam, dmg = dmg, attacker = attacker, suppress = suppress }
+            e.dealt = e.dealt + dmg; e.hp = math.max(0, e.hp - dmg)
+            if e.hp <= 0 then e.dead = true end
+        end,
+    }
+    __inventoryFor(e)
+    __world_ents[#__world_ents + 1] = e
+    return e
+end
+function __mkStash(x, y, z, items)
+    local e = { class = 'Stash', name = '', pos = { x = x, y = y, z = z }, items = items or {} }
+    function e:GetName() return self.name end
+    function e:GetWorldPos() return self.pos end
+    __inventoryFor(e)
+    __world_ents[#__world_ents + 1] = e
+    return e
+end
+function __item(class, amount, health) return { class = class, amount = amount or 1, health = health or 1 } end
+
 Script = {}
 function Script.SetTimer(ms, f) __timers[#__timers + 1] = { at = __clock + ms / 1000.0, f = f } end
 function Script.ReloadScript(path) return __loadMod(path) end
@@ -132,6 +188,15 @@ player = {
     inventory = {
         GetInventoryTable = function(self) local t = {}; for i, it in ipairs(__henry.items) do t[i - 1] = it end return t end,
         GetCountOfClass = function(self, c) local n = 0; for _, it in ipairs(__henry.items) do if it.class == c then n = n + it.amount end end return n end,
+        DeleteItemOfClass = function(self, c, n)
+            for i = #__henry.items, 1, -1 do
+                local it = __henry.items[i]
+                if it.class == c and n > 0 then
+                    local k = math.min(it.amount, n); it.amount = it.amount - k; n = n - k
+                    if it.amount <= 0 then table.remove(__henry.items, i) end
+                end
+            end
+        end,
         AddItem = function(self, it)
             -- a stack of the same class and health merges; a non-stackable one (class prefix "sword") ignores the amount, like the real game
             __henry.items[#__henry.items + 1] = it

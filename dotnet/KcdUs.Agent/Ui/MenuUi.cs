@@ -132,6 +132,7 @@ public static class MenuUi
 
     public const string PageMain = "MM_Multiplayer";
     public const string PageKeys = "MP_Keys";
+    public const string PagePause = "MP_Pause";
     public const string PageStory = "MP_Story";
     public const string PageWorld = "MP_World";
     public const string PageHenry = "MP_Henry";
@@ -180,6 +181,7 @@ public static class MenuUi
     public static string TitleGraphName(Title t) => ActionsDir + "MP_Title" + (int)t + ".xml";
     public const string GraphLoad = ActionsDir + "MP_Load.xml";
     public const string GraphList = ActionsDir + "MP_ListSaves.xml";
+    public const string GraphMenuWatch = ActionsDir + "MP_MenuWatch.xml";
 
     private static string Menu(string verb, string arg = "") => $"KCDUS_Menu('{verb}','{arg}')";
 
@@ -195,6 +197,7 @@ public static class MenuUi
             new("MP_WorldPage", "Game world", Opens: PageWorld, Tooltip: "Join the host's world, start a new one together, which Henry you play, and how the two copies are reconciled"),
             new("MP_StoryPage", "Story: join or stay", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails"),
             new("MP_KeysPage", "Keys", Opens: PageKeys, Tooltip: "The keys that answer the host's question"),
+            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether a friend's pause menu holds your game"),
             new("MP_Web", "Settings in your browser", Menu("settings"), Tooltip: "Name, address, password, ports and the rest"),
         }, onOpen: Menu("page")),
         [ActionsDir + PageWorld + ".xml"] = Page("Game world", new Button[]
@@ -224,6 +227,11 @@ public static class MenuUi
             new("MP_StoryJoin", "Always join the host", Menu("pref", "join")),
             new("MP_StoryFree", "Always stay in the open world", Menu("pref", "free")),
         }),
+        [ActionsDir + PagePause + ".xml"] = Page("Pausing", new Button[]
+        {
+            new("MP_PauseShared", "Shared: a friend's pause holds my game", Menu("pause", "shared"), Tooltip: "While a friend's pause menu is open your game is held too, and lets go by itself if they vanish"),
+            new("MP_PauseOff", "Off: a friend's pause never holds my game", Menu("pause", "off"), Tooltip: "Your own pause menu still pauses your own game, as in the unmodded game"),
+        }),
         [ActionsDir + PageKeys + ".xml"] = Page("Keys", new Button[]
         {
             new("MP_KeysDefault", "Join: F11  Stay: F12 (default)", Menu("keys", "f11f12")),
@@ -232,6 +240,7 @@ public static class MenuUi
         }),
         [GraphLoad] = LoadGraph(),
         [GraphList] = ListGraph(),
+        [GraphMenuWatch] = MenuWatchGraph(),
     }.Concat(Enum.GetValues<Title>().Select(t => new KeyValuePair<string, string>(TitleGraphName(t), TitleGraph(t)))).ToDictionary(kv => kv.Key, kv => kv.Value);
 
     /// <summary>Puts one fixed line into the open page's title box.</summary>
@@ -280,6 +289,26 @@ public static class MenuUi
         return g.ToString();
     }
 
+    /// <summary>
+    /// Watches the game's own pause (ESC) menu: tells Lua when it opens and closes (KCDUS_MenuEvent(1|0)); started once per loaded world from Lua
+    /// (<c>UIAction.StartAction('MP_MenuWatch', {})</c>). It has no End node, so it stays. Proved in the retail game: the events fire, and the menu pauses the
+    /// world natively (world time stands, frames go on); the UI's ResumeGame node does not undo that, so this graph never tries.
+    /// </summary>
+    private static string MenuWatchGraph()
+    {
+        var g = new Graph();
+        int start = g.Add("UI:Action:Start", ("UseAsState", "0"));
+        int onStart = g.Add("UI:Events:MenuEvents:OnStartIngameMenu", ("Port", "-1"), ("Idx", ""));
+        int onStop = g.Add("UI:Events:MenuEvents:OnStopIngameMenu", ("Port", "-1"), ("Idx", ""));
+        int open = g.Add("System:ExecuteScript", ("Script", "KCDUS_MenuEvent(1)"));
+        int close = g.Add("System:ExecuteScript", ("Script", "KCDUS_MenuEvent(0)"));
+        int ready = g.Add("System:ExecuteScript", ("Script", "KCDUS_MenuEvent(2)"));
+        g.Wire(start, "StartAction", ready, "Call");
+        g.Wire(onStart, "onEvent", open, "Call");
+        g.Wire(onStop, "onEvent", close, "Call");
+        return g.ToString();
+    }
+
     /// <summary>Lists a playline's saves into kcd.log as <c>[flow-log]</c> pairs: the list index, then the save's description (type|id|quest|objective|place|unixtime|date|hours|).</summary>
     private static string ListGraph()
     {
@@ -324,7 +353,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 5;
+    public const int Revision = 6;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 

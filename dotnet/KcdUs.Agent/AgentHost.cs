@@ -116,6 +116,7 @@ public sealed class AgentHost : IAsyncDisposable
         Pref = RailsRules.ParsePref(Config.RailsPref) ?? RailsPref.Ask,
         TetherMeters = Config.TetherMeters,
         GameVersion = _release,
+        SharedPause = Config.SharedPause,
     }, _game, relay, () => Environment.TickCount64, _log);
 
     /// <summary>The first start: what the command line / the settings file ask for. Idle waits for the tab.</summary>
@@ -181,6 +182,13 @@ public sealed class AgentHost : IAsyncDisposable
                 break;
             case "pref":
                 if (RailsRules.ParsePref(arg) is { } p) { Config.RailsPref = arg; Session.SetPref(p); Persist(); Session.Notify("When the host's story goes on rails: " + RailsRules.PrefText(p)); Title(p == RailsPref.Join ? Ui.MenuUi.Title.StoryJoin : p == RailsPref.Free ? Ui.MenuUi.Title.StoryFree : Ui.MenuUi.Title.StoryAsk); }
+                break;
+            case "pause":
+                if (arg is "shared" or "off")
+                {
+                    Config.SharedPause = arg == "shared"; Session.Pause.SetShared(Config.SharedPause); Persist();
+                    Session.Notify(Config.SharedPause ? "Pausing is shared: a friend's pause menu holds your game until they are back." : "Pausing is not shared: a friend's pause menu never holds your game.");
+                }
                 break;
             case "keys":
                 if (KeyPreset.IsKnown(arg)) { Config.KeyPreset = arg.ToLowerInvariant(); ApplyKeys(); Persist(); Session.Notify("Keys: " + KeyPreset.Describe(Config.KeyPreset)); Title(Config.KeyPreset == "f9f10" ? Ui.MenuUi.Title.KeysAlt : Config.KeyPreset == "off" ? Ui.MenuUi.Title.KeysOff : Ui.MenuUi.Title.KeysDefault); }
@@ -309,6 +317,7 @@ public sealed class AgentHost : IAsyncDisposable
         if ((v = f["port"]) is { Length: > 0 } && int.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out int rp) && rp is > 0 and < 65536 && rp != Config.RelayPort && Mode != GuestMode)
         { Config.RelayPort = rp; changed.Add("port"); }
         if ((v = f["pref"]) is { Length: > 0 } && RailsRules.ParsePref(v) is { } p) { Config.RailsPref = v; Session.SetPref(p); changed.Add("story answer"); }
+        if ((v = f["pause"]) is "shared" or "off" && (v == "shared") != Config.SharedPause) { Config.SharedPause = v == "shared"; Session.Pause.SetShared(Config.SharedPause); changed.Add("pausing"); }
         if ((v = f["keys"]) is { Length: > 0 } && KeyPreset.IsKnown(v)) { Config.KeyPreset = v.ToLowerInvariant(); ApplyKeys(); changed.Add("keys"); }
         if ((v = f["worldname"]) is { Length: > 0 } && Safe.Clean(v, 40) != Config.WorldName) { Config.WorldName = Safe.Clean(v, 40); changed.Add("world name"); }
         if ((v = f["autosync"]) is "1" or "0" && (v == "1") != Config.AutoSync) { Config.AutoSync = v == "1"; changed.Add("automatic world sync"); }
