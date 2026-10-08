@@ -156,6 +156,33 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task Two_players_in_the_same_shared_world_share_fights_and_loot_through_the_relay_and_the_host_decides_the_loot()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        const string coin = "5ef63059-322e-4e1b-abe8-926e100c770e";
+        host.Session.ScopeProvider = () => "w1"; guest.Session.ScopeProvider = () => "w1";
+        await Until(() => { clock.Ms += 100; host.Tick(); guest.Tick(); return host.Session.Outcomes.Active && guest.Session.Outcomes.Active; }, what: "both sides on");
+        Assert.True(host.Game.Has("LOOTMODE|1|w1|1")); Assert.True(guest.Game.Has("LOOTMODE|1|w1|0"));    // the host knows it is the host
+        // a fight: the guest hurt a bandit; the host's copy of him takes it, with no attacker
+        guest.Game.Emit("KCDUS|CMB|bandit_7|20.00|80.00|0");
+        await Until(() => host.Game.Has("CMBAPPLY|w1|bandit_7|20.00|0"), what: "the guest's blow at the host");
+        host.Game.Emit("KCDUS|CMB|bandit_7|80.00|0.00|1");
+        await Until(() => guest.Game.Has("CMBAPPLY|w1|bandit_7|80.00|1"), what: "the host's kill at the guest");
+        // loot: the guest took 50 coins; the host decides
+        guest.Game.Emit("KCDUS|LOOT|ask|abcd1234|1|bandit_7|" + coin + "|50|1.0000");
+        await Until(() => host.Game.Has("LOOTASK|w1|2|abcd1234|1|bandit_7|" + coin + "|50"), what: "the ask at the host");
+        host.Game.Emit("KCDUS|LOOT|res|2|1|ok|bandit_7|" + coin + "|50|1.0000");
+        await Until(() => guest.Game.Has("LOOTRES|w1|1|ok|bandit_7|" + coin + "|50"), what: "the answer at the guest");
+        // the host's own take reaches the guests
+        host.Game.Emit("KCDUS|LOOT|took|bandit_7|" + coin + "|20|1.0000");
+        await Until(() => guest.Game.Has("LOOTTOOK|w1|bandit_7|" + coin + "|20"), what: "the host's take at the guest");
+        // a guest in ANOTHER world shares nothing
+        guest.Session.ScopeProvider = () => "w2";
+        await Until(() => { clock.Ms += 100; host.Tick(); guest.Tick(); return !host.Session.Outcomes.Active && !guest.Session.Outcomes.Active; }, what: "off again");
+    }
+
+    [Fact]
     public async Task Chat_travels_both_ways_and_is_cleaned()
     {
         var (relay, host, guest, _) = await Pair();

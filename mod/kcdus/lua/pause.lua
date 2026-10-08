@@ -15,6 +15,7 @@
 --                 KCDUS|PAUSE|frozen|<lease>   the freeze started (or was refreshed with a new lease)
 --                 KCDUS|PAUSE|released|<why>   the freeze ended: agent | lease | reset
 local K = KCDUS
+System.LogAlways("KCDUS|LOAD|pause")
 local P = { frozen = false, menuOpen = false, lease = 900, f0 = 0, prevScale = 1, chainId = 0, watcher = false, freezes = 0 }
 K.Pause = P
 

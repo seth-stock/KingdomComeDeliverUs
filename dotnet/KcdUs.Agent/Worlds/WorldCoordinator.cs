@@ -55,6 +55,9 @@ public sealed class WorldCoordinator : IDisposable
     /// <summary>The player is in the open world: from the game's READY lines, or from the session (which also sees the position samples, so it is right after an agent restart).</summary>
     private bool InWorld => _inWorldFlag || _session().InWorld;
     private (int From, WorldStamp Stamp)? _behind;
+
+    /// <summary>The id of the shared world this player has loaded (the registry's active world, once it is bound to a playline); "" when none.</summary>
+    public string ActiveWorldId => _reg.ActiveWorld is { Playline: >= 0 } w ? w.Id : "";
     private int _sending;
 
     public WorldRegistry Registry => _reg;

@@ -15,6 +15,7 @@
 -- game -> agent:  KCDUS|CMB|<npc>|<damage>|<health now>|<dead>     what the local player's side did to an NPC
 --                 KCDUS|CMBAPPLIED|<npc>|<health before>|<health after>|<note>
 local K = KCDUS
+System.LogAlways("KCDUS|LOAD|combat")
 local C = { enabled = false, scope = '', hp = {}, dead = {}, near = 18, radius = 70, minDelta = 0.5, reported = 0, applied = 0, refused = 0 }
 K.Combat = C
 

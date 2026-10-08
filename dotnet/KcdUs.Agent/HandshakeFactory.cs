@@ -88,7 +88,12 @@ public static class HandshakeFactory
         [CapabilityNames.ParticipantIdentity] = CapabilityLevel.IntegrationVerified,
         [CapabilityNames.CheckpointBarrier] = CapabilityLevel.Candidate,
         [CapabilityNames.AuthorityNpc] = adapterLoaded && supportedEngine ? CapabilityLevel.Candidate : CapabilityLevel.Absent,
-        [CapabilityNames.AuthorityQuest] = CapabilityLevel.Candidate, // opt-in open/base quest adapter; full effects and shared reward authority unproved
+        [CapabilityNames.AuthorityQuest] = CapabilityLevel.Candidate, // the host's quest progress follows one way, on by default in a shared world; one objective binding proved, rewards/spawns unproved
+        // Shared OUTCOMES (not shared AI): proved in a private real engine with a synthetic second player (tools/engine/shared_outcomes_live*.py):
+        // health damage and death through the ordinary damage path with readback, corpse and stash inventories read, a guest's take decided by the host and taken back on "gone".
+        // Two real computers have not played it: it is not integration-verified, and where the NPCs walk and whom they target is NOT shared.
+        [CapabilityNames.AuthorityCombat] = CapabilityLevel.EngineVerified,
+        [CapabilityNames.AuthorityLoot] = CapabilityLevel.EngineVerified,
     };
 
     public static RoomHandshake Build(string release, Fingerprint f, bool adapterLoaded)

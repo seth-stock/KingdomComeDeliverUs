@@ -2,6 +2,7 @@
 // GPLv3 section 7 additional terms: NOTICE. This project's own code only; Kingdom Come: Deliverance and its content
 // belong to Warhorse Studios and Deep Silver. Unofficial, free, not affiliated with or endorsed by them.
 using System.Globalization;
+using Coop.Contract;
 using KcdUs.Wire;
 
 namespace KcdUs.Agent;
@@ -17,6 +18,10 @@ public sealed class SessionOptions
     public string GameVersion { get; init; } = Release.Current;
     /// <summary>The shared pause (a friend's open pause menu holds this world too). The default; the player can turn it off.</summary>
     public bool SharedPause { get; init; } = true;
+    /// <summary>Shared fights and loot with the friends in the same shared world (default on).</summary>
+    public bool SharedOutcomes { get; init; } = true;
+    /// <summary>Where the host's loot decisions are journalled (empty: not durable, tests only).</summary>
+    public string LootJournalPath { get; init; } = "";
 }
 
 /// <summary>A player the relay told us about, with the last thing we heard of them.</summary>
@@ -94,6 +99,32 @@ public sealed class Session : IDisposable
     private string _questEpoch = Guid.NewGuid().ToString("N");
     private string _questHostEpoch = "";
     private readonly PauseCoordinator _pause;
+    private readonly OutcomesCoordinator _outcomes;
+    private OperationJournal? _lootJournal;
+
+    /// <summary>The shared fights and loot with the friends who are in the same shared world.</summary>
+    public OutcomesCoordinator Outcomes => _outcomes;
+
+    /// <summary>The id of the shared world this player has loaded (the world registry's active world); "" when none. Set by the agent.</summary>
+    public Func<string?>? ScopeProvider { get; set; }
+
+    private OperationJournal? LootJournal()
+    {
+        if (_lootJournal is not null || _o.LootJournalPath.Length == 0) return _lootJournal;
+        try
+        {
+            _lootJournal = new OperationJournal(_o.LootJournalPath);
+            foreach (var q in _lootJournal.Recover()) _log($"loot: an ask was interrupted ({q.OperationId}); it will never be granted again");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _log("loot: the decision journal could not be opened (" + e.Message + "): loot is not shared this session");
+            _lootDisabled = true;
+        }
+        return _lootJournal;
+    }
+    private bool _lootDisabled;
+    private bool _questAuto;
 
     /// <summary>The shared pause: a friend's open pause menu holds this world too (the player's option; see docs/CAPABILITIES.md).</summary>
     public PauseCoordinator Pause => _pause;
@@ -105,6 +136,9 @@ public sealed class Session : IDisposable
         _pause = new PauseCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
             Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id);
         _pause.SetShared(o.SharedPause);
+        _outcomes = new OutcomesCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
+            text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, LootJournal);
+        _outcomes.SetEnabled(o.SharedOutcomes);
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
         _relay.Frame += OnRelayFrame;
@@ -118,6 +152,7 @@ public sealed class Session : IDisposable
         _game.ConsoleStateChanged -= OnConsole;
         _relay.Frame -= OnRelayFrame;
         _relay.ConnectionChanged -= OnRelayConnection;
+        _lootJournal?.Dispose();
     }
 
     public bool IsHost => _o.Role == "host";
@@ -187,7 +222,7 @@ public sealed class Session : IDisposable
                         if (w == _inWorld) break;
                         _inWorld = w;
                         if (w) _game.Send("PAUSEWATCH");                // the pause menu's open/close events (mod/kcdus/lua/pause.lua)
-                        else _pause.Reset("the player left the world");
+                        else { _pause.Reset("the player left the world"); _outcomes.Reset("the player left the world"); }
                         _questHostEpoch = "";
                         _questEpoch = Guid.NewGuid().ToString("N");
                         if (_candidateQuests) _game.Send("QMRESET|" + (IsHost ? _questEpoch : ""));
@@ -266,6 +301,12 @@ public sealed class Session : IDisposable
                     break;
                 case "QMAPPLIED":
                     _log("Candidate quest readback: " + string.Join(' ', f.Skip(1)));
+                    break;
+
+                case "CMB": _outcomes.GameCombat(f); break;
+                case "LOOT": _outcomes.GameLoot(f, IsHost); break;
+                case "CMBAPPLIED" or "LOOTAPPLIED" or "CMBMODE" or "LOOTMODE":
+                    _log(g.Kind.ToLowerInvariant() + ": " + string.Join(' ', f.Skip(1)));
                     break;
 
                 case "PAUSE":
@@ -421,6 +462,7 @@ public sealed class Session : IDisposable
                         int id = int.Parse(f[0], CultureInfo.InvariantCulture);
                         _peerModes.Remove(id);
                         _pause.PeerLeft(id);
+                        _outcomes.PeerLeft(id);
                         if (_peers.Remove(id, out var gone))
                         {
                             _game.Send($"PD|{id}");
@@ -476,6 +518,15 @@ public sealed class Session : IDisposable
             case "pause" when f.Length == 2 && f[1] is "0" or "1":
                 _pause.PeerMenu(from, f[1] == "1");
                 break;
+            case "scope" when f.Length == 2:
+                _outcomes.PeerScope(from, f[1] == "-" ? "" : f[1]);
+                break;
+            case "cmb":
+                _outcomes.PeerCombat(from, f);
+                break;
+            case "loot" when IsHost && f.Length == 7:
+                _outcomes.PeerAsk(from, f);
+                break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
                 break;
@@ -517,6 +568,9 @@ public sealed class Session : IDisposable
                 break;
             case "time" when f.Length > 1 && double.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var wt):
                 ApplyTime(wt, now);
+                break;
+            case "loot":
+                _outcomes.HostLoot(f, _myId);
                 break;
 
             case "beat" when f.Length >= 3:
@@ -655,6 +709,13 @@ public sealed class Session : IDisposable
         {
             long now = _now();
             _pause.Tick(_inWorld, _myId != 0 && _relay.Connected, _gameFps);
+            _outcomes.Tick(_inWorld, _myId != 0 && _relay.Connected, IsHost, _lootDisabled ? "" : (ScopeProvider?.Invoke() ?? ""));
+            if (_outcomes.Active != _questAuto)
+            {
+                // the host's quest progress follows into the guests' copies of the same shared world (one way, vetoes in QuestMirrorRules / quest_mirror.lua)
+                _questAuto = _outcomes.Active;
+                _game.Send((_questAuto ? "QMODE|candidate|" : "QMODE|off|") + (IsHost ? _questEpoch : _questHostEpoch));
+            }
             if (now - _lastPingMs >= 2000)
             {
                 _lastPingMs = now;
@@ -793,7 +854,9 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>Plain words, never "shared" for a room that only shows peers.</summary>
-    private string RoomSentence() => RoomWord() switch
+    private string RoomSentence() => RoomSentenceBase() + (_outcomes.Active ? " Fights and loot are shared with the friends in your world." : "");
+
+    private string RoomSentenceBase() => RoomWord() switch
     {
         "shared" => "Room: shared simulation.",
         "partial" => "Room: partly shared (not every authority capability is verified" + (_roomMissing.Length > 0 ? ": " + _roomMissing.Replace(",", ", ") : "") + ").",

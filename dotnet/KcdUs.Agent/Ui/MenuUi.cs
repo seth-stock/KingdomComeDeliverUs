@@ -133,6 +133,7 @@ public static class MenuUi
     public const string PageMain = "MM_Multiplayer";
     public const string PageKeys = "MP_Keys";
     public const string PagePause = "MP_Pause";
+    public const string PageShared = "MP_Shared";
     public const string PageStory = "MP_Story";
     public const string PageWorld = "MP_World";
     public const string PageHenry = "MP_Henry";
@@ -198,6 +199,7 @@ public static class MenuUi
             new("MP_StoryPage", "Story: join or stay", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails"),
             new("MP_KeysPage", "Keys", Opens: PageKeys, Tooltip: "The keys that answer the host's question"),
             new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether a friend's pause menu holds your game"),
+            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether the damage and deaths of enemies and the loot of bodies and chests are shared with friends in your world"),
             new("MP_Web", "Settings in your browser", Menu("settings"), Tooltip: "Name, address, password, ports and the rest"),
         }, onOpen: Menu("page")),
         [ActionsDir + PageWorld + ".xml"] = Page("Game world", new Button[]
@@ -226,6 +228,11 @@ public static class MenuUi
             new("MP_StoryAsk", "Ask me each time", Menu("pref", "ask")),
             new("MP_StoryJoin", "Always join the host", Menu("pref", "join")),
             new("MP_StoryFree", "Always stay in the open world", Menu("pref", "free")),
+        }),
+        [ActionsDir + PageShared + ".xml"] = Page("Shared fights and loot", new Button[]
+        {
+            new("MP_SharedOn", "On: enemies and loot are shared in my shared world", Menu("shared", "on"), Tooltip: "A fight two of you are in costs the enemy both your blows, in both copies; an item is only kept when the host says it is yours"),
+            new("MP_SharedOff", "Off: my copy of the world stays my own", Menu("shared", "off")),
         }),
         [ActionsDir + PagePause + ".xml"] = Page("Pausing", new Button[]
         {

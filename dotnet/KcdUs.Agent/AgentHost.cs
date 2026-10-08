@@ -109,7 +109,14 @@ public sealed class AgentHost : IAsyncDisposable
 
     public string SettingsUrl => $"http://127.0.0.1:{_statusPort}/settings?t={SettingsToken}";
 
-    private Session NewSession(string role, IRelayLink relay) => new(new SessionOptions
+    private Session NewSession(string role, IRelayLink relay)
+    {
+        var s = NewSessionCore(role, relay);
+        s.ScopeProvider = () => _world?.ActiveWorldId;       // the shared world this player has loaded: friends in the same one share fights and loot
+        return s;
+    }
+
+    private Session NewSessionCore(string role, IRelayLink relay) => new(new SessionOptions
     {
         Role = role,
         PlayerName = Config.PlayerName,
@@ -117,6 +124,8 @@ public sealed class AgentHost : IAsyncDisposable
         TetherMeters = Config.TetherMeters,
         GameVersion = _release,
         SharedPause = Config.SharedPause,
+        SharedOutcomes = Config.SharedOutcomes,
+        LootJournalPath = role == GuestMode ? "" : UserFile("loot-journal.jsonl"),
     }, _game, relay, () => Environment.TickCount64, _log);
 
     /// <summary>The first start: what the command line / the settings file ask for. Idle waits for the tab.</summary>
@@ -182,6 +191,13 @@ public sealed class AgentHost : IAsyncDisposable
                 break;
             case "pref":
                 if (RailsRules.ParsePref(arg) is { } p) { Config.RailsPref = arg; Session.SetPref(p); Persist(); Session.Notify("When the host's story goes on rails: " + RailsRules.PrefText(p)); Title(p == RailsPref.Join ? Ui.MenuUi.Title.StoryJoin : p == RailsPref.Free ? Ui.MenuUi.Title.StoryFree : Ui.MenuUi.Title.StoryAsk); }
+                break;
+            case "shared":
+                if (arg is "on" or "off")
+                {
+                    Config.SharedOutcomes = arg == "on"; Session.Outcomes.SetEnabled(Config.SharedOutcomes); Persist();
+                    Session.Notify(Config.SharedOutcomes ? "Shared fights and loot: on (with friends in the same shared world)." : "Shared fights and loot: off. Every copy of the world stays its own.");
+                }
                 break;
             case "pause":
                 if (arg is "shared" or "off")
@@ -317,6 +333,7 @@ public sealed class AgentHost : IAsyncDisposable
         if ((v = f["port"]) is { Length: > 0 } && int.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out int rp) && rp is > 0 and < 65536 && rp != Config.RelayPort && Mode != GuestMode)
         { Config.RelayPort = rp; changed.Add("port"); }
         if ((v = f["pref"]) is { Length: > 0 } && RailsRules.ParsePref(v) is { } p) { Config.RailsPref = v; Session.SetPref(p); changed.Add("story answer"); }
+        if ((v = f["shared"]) is "on" or "off" && (v == "on") != Config.SharedOutcomes) { Config.SharedOutcomes = v == "on"; Session.Outcomes.SetEnabled(Config.SharedOutcomes); changed.Add("shared fights and loot"); }
         if ((v = f["pause"]) is "shared" or "off" && (v == "shared") != Config.SharedPause) { Config.SharedPause = v == "shared"; Session.Pause.SetShared(Config.SharedPause); changed.Add("pausing"); }
         if ((v = f["keys"]) is { Length: > 0 } && KeyPreset.IsKnown(v)) { Config.KeyPreset = v.ToLowerInvariant(); ApplyKeys(); changed.Add("keys"); }
         if ((v = f["worldname"]) is { Length: > 0 } && Safe.Clean(v, 40) != Config.WorldName) { Config.WorldName = Safe.Clean(v, 40); changed.Add("world name"); }

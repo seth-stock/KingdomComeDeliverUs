@@ -63,3 +63,10 @@ saving. Do not substitute an unguarded console client for this harness.
 `LiveWorldSmoke` exercises production world transfer/personalization/load/native-save readback with one real disposable game and a synthetic sender. Verify the owned process first, build this .NET project, then pass `_work/engine-current.json` and a cloned source world to its DLL. It requires the exact private folder in the log, matching process/console ownership and unchanged real-save hashes. It also retries an existing pending installation. Run only one smoke agent at a time; wait for it to exit before rebuilding its binaries.
 
 `npc_damage_probe.lua` temporarily changes one private NPC's damage path and restores health; it is not in the mod pak. Native readback, rather than `pcall` success, determines whether damage worked. `perk_portability_probe.py` reads local definitions against cloned serialized perk records and extracts no game assets. Current positive/negative results are in `docs/ENGINE-INTEGRATION-20261007.md`.
+
+**Which mod does the private game run?** The one in the REAL game folder (`<game>\Mods\kcdus`), not the copy under the session's `game-root`
+(the engine resolves `Mods` relative to the real install, whatever `-root` says). A build under test therefore has to be installed into the game
+folder (back up `kcdus.pak` and `kcdus-ui.pak` first) before `launch`; the harness does not do that for you. `KcdUsAgent --build-ui --game-dir X` writes
+into the game folder it FINDS (a folder that is not a game is ignored and the real one is used), so build the UI pak with a junction-only stand-in that
+contains `Data` and `Bin\Win64\KingdomCome.exe`, and remove the junctions with `cmd /c rmdir` (never `rm -rf`).
+Remote-console lines for the mod need the agent's sequence prefix: `KCDUS_In('1~FREEZE|1|600')`.

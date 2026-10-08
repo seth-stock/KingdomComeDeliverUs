@@ -17,6 +17,7 @@
 --                 KCDUS|LOOT|res|<from>|<tok>|<verdict>|<id>|<class>|<n>|<health>   (host) the verdict on a guest's ask
 --                 KCDUS|LOOT|unconfirmed|<id>|<class>|<n>             an item was taken back (no answer, or the host said gone)
 local K = KCDUS
+System.LogAlways("KCDUS|LOAD|loot")
 local L = { enabled = false, scope = '', host = false, snap = {}, pending = {}, tok = 0, reach = 9, settleS = 20, taken = 0, applied = 0, nonce = '' }
 K.Loot = L
 

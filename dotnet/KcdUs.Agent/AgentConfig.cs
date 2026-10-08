@@ -29,6 +29,8 @@ public sealed class AgentConfig
     public bool Hotkeys { get; set; } = true;
     /// <summary>True (the default): when a friend opens the game's pause menu, this game is held until they are back (a frame-counted lease lets it go by itself if the friend vanishes). False: nobody's menu holds anybody's world.</summary>
     public bool SharedPause { get; set; } = true;
+    /// <summary>True (the default): with a friend in the SAME shared world, damage and deaths of NPCs and the loot of bodies and stashes are shared (see docs/CAPABILITIES.md). False: every copy of the world stays its own.</summary>
+    public bool SharedOutcomes { get; set; } = true;
     /// <summary>f11f12 | f9f10 | off: the keys that answer the host's join-or-stay question (the Multiplayer tab's Keys page).</summary>
     public string KeyPreset { get; set; } = KcdUs.Agent.KeyPreset.Default;
     /// <summary>Start doing nothing: the player hosts or joins from the game's Multiplayer tab (the installer's setting).</summary>
@@ -109,6 +111,8 @@ public sealed class AgentConfig
                 case "--no-hotkeys": c.Hotkeys = false; break;
                 case "--shared-pause": c.SharedPause = true; break;
                 case "--no-shared-pause": c.SharedPause = false; break;
+                case "--shared-outcomes": c.SharedOutcomes = true; break;
+                case "--no-shared-outcomes": c.SharedOutcomes = false; break;
                 case "--idle": c.Idle = true; break;
             }
         }

@@ -198,7 +198,7 @@ public class AgentHostTests
     }
 
     [Fact]
-    public async Task Two_installs_with_the_same_mod_payload_share_a_room_that_says_it_is_presence_only()
+    public async Task Two_installs_with_the_same_mod_payload_share_a_room_that_says_it_is_partly_shared_and_what_is_missing()
     {
         string a = FakeGame("build-1"), b = FakeGame("build-1");
         try
@@ -213,14 +213,15 @@ public class AgentHostTests
             await Until(() => guest.Host.Session.GetStatus().RelayConnected);
             await Until(() => guest.Host.Session.GetStatus().RoomNote.Contains("authority.combat"));    // the Welcome has been read
             var s = guest.Host.Session.GetStatus();
-            Assert.Equal("presence", s.RoomMode);
-            Assert.Contains("NOT active", s.RoomNote);
+            Assert.Equal("partial", s.RoomMode);                                         // fights and loot are shared outcomes (engine-verified), NPC authority is not
+            Assert.Contains("partly shared", s.RoomNote);
+            Assert.Contains("authority.npc", s.RoomNote);                                // and it says what is still missing
             guest.Game.Emit("KCDUS|HELLO|0.1.0|1|pak"); guest.Game.Emit("KCDUS|READY|1");   // in a world, the line a player reads says so too
-            await Until(() => guest.Host.Session.GetStatus().Message.Contains("NOT active"));
+            await Until(() => guest.Host.Session.GetStatus().Message.Contains("partly shared"));
             Assert.True(guest.Game.Has("ADAPTER?"));                                    // and the game was asked whether the engine adapter is loaded
-            Assert.Contains("authority.combat", s.RoomNote);
+            Assert.Contains("authority.combat", s.RoomNote);                              // engine-verified is not yet integration-verified: still listed
             await Until(() => host.Host.Session.GetStatus().Players.Count == 1);
-            Assert.Equal("presence", host.Host.Session.GetStatus().RoomMode);
+            Assert.Equal("partial", host.Host.Session.GetStatus().RoomMode);
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }
@@ -282,7 +283,7 @@ public class AgentHostTests
             Assert.True(guest.Host.Session.ContentMatches);                                // DLC is not a mod difference: the world may move
             Assert.True(guest.Game.Has("NOTE|Your game has DLC your host's does not"));
             Assert.Contains("turn that DLC off in Steam", string.Join("\n", guest.Game.Snapshot()));
-            await Until(() => host.Host.Session.GetStatus().Message.Contains("NOT active") || host.Host.Session.GetStatus().RoomNote.Contains("NOT active"));   // still honestly presence
+            await Until(() => host.Host.Session.GetStatus().RoomNote.Contains("partly shared"));   // honestly partial, never "shared"
             await guest.Host.HandleAsync("world", "join");
             await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // the request IS sent
         }
