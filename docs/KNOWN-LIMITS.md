@@ -1,5 +1,16 @@
 # Known limits of Kingdom Come: Deliver Us 0.1.0
 
+## Session 4 current status (2026-10-08)
+
+These notes supersede older unavailable/absent statements below. This remains a **partly shared playtest**, not shared simulation or human-accepted multiplayer. VERSION remains 0.1.0. Use the same release tag and payload on every KCD1 computer.
+
+* **Own-menu pause:** Pausing Off also prevents your own ESC menu from stopping your world, while connected with a friend in a world. Requires the supported Windows startup adapter and launcher. Inventory pause is restored on exit. A 10-second native heartbeat expiry restores normal offline menu behavior; do not expect this adapter on Linux/Proton. Shared pause remains available. One retail-process proof, no two-computer acceptance.
+* **Shared enemies:** nearest-player ownership uses a 4 m switching margin and 2 s hold. The owner runs native AI and sends movement/weapon state; other copies suppress their brains and puppet movement. Stale state (4 s), ownership expiry (3 s), save/load and disabling sharing release puppets. Movement/suppression/release were read back in one private engine. Sword swings and hit reactions are not mirrored; some guards cannot draw weapons through the script API even in the control. Peer figures are not proven independent native combat targets. NPC/AI authority remains Candidate.
+* **Items:** host-decided body and stash takes now include ground PickableItem pickup, replicated drops, named horse saddlebags, shop-linked stashes (40 m), and pack-to-container puts. Takes require a measured Henry-pack gain; puts require a loss. A refused shop take refunds the observed personal debit; wallets, crime, barter and NPC transfers are not a shared economy. Class/count/condition snapshots do not establish exact instance/provenance conservation. Unconfirmed takes are revoked after 20 s or before supported capture, subject to successful native removal. No complete pre-transfer escrow prevents immediate use, and interrupted/rejected operations can lose items.
+* **Quest rewards:** a three-second inventory-gain window around supported host quest changes excludes observed loot and subtracts native guest payment. Keys prevent repeat payment within a load. Arbitrary concurrent gains may be misattributed; no durable reward ledger, offline reward backfill, XP sharing or universal scripted reward coverage. Quest mirroring and rewards stay Candidate.
+
+Fresh private-engine rerun: `tools/engine/shared_items_live.py`, **25 passed / 0 failed**, synthetic peer. Screenshot verified Continue before Enter. The owned game was stopped afterwards; **260 original KCD1 .whs hashes unchanged**. See [SESSION4-RESULTS.md](SESSION4-RESULTS.md) and T-57 through T-65 in [HUMAN-ACCEPTANCE-TESTS.md](HUMAN-ACCEPTANCE-TESTS.md). All human cases remain pending.
+
 Marks: **(seen)** observed working in the real game on one machine · **(tests)** covered by offline tests only · **(not seen)** built, never observed.
 
 ## Development branch status

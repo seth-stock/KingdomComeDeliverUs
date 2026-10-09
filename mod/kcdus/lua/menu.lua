@@ -37,6 +37,7 @@ K.handlers["SAVEWORLD"] = function(f)
         if state.flags~=0 then K.out('SAVEWORLD',f[2] or '',0,'holster weapons and finish combat, riding or dialogue first');return end
     end
     if K.Loot then pcall(K.Loot.settle, 0) end   -- no unconfirmed take goes into a save
+    if K.Npcs then pcall(K.Npcs.releaseAll, 'save') end   -- no puppet (brain off) goes into a save
     local ok, err = pcall(Game.SaveGameViaResting)
     K.out("SAVEWORLD", f[2] or "", ok and 1 or 0, ok and "" or K.clean(err))
 end

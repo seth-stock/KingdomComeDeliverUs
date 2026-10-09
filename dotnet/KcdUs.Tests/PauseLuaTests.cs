@@ -77,4 +77,21 @@ public class PauseLuaTests
         m.Send("1~PAUSEWATCH");
         Assert.True(m.Bool("(function() for _, a in ipairs(__actions) do if a == 'MP_MenuWatch' then return true end end return false end)()"));
     }
+
+    [Fact]
+    public void Own_pause_off_stops_the_inventory_slowing_time_and_puts_the_games_value_back_afterwards()
+    {
+        var m = World();
+        m.Do("__cvars.wh_ui_InventoryPauseEnabled = 1");
+        m.Send("1~OWNPAUSE|0");
+        Assert.Equal(0, m.Num("__cvars.wh_ui_InventoryPauseEnabled"));
+        Assert.Single(m.Lines("KCDUS|PAUSE|own|0|0"));
+        m.Send("2~OWNPAUSE|0");                                       // the agent repeats it: nothing changes
+        Assert.Single(m.Lines("KCDUS|PAUSE|own|0|0"));
+        m.Send("3~OWNPAUSE|1");
+        Assert.Equal(1, m.Num("__cvars.wh_ui_InventoryPauseEnabled"));
+        m.Send("4~OWNPAUSE|0");
+        m.Do("KCDUS.Pause.onWorldReset()");                           // a loaded world: the game's value is back at once
+        Assert.Equal(1, m.Num("__cvars.wh_ui_InventoryPauseEnabled"));
+    }
 }

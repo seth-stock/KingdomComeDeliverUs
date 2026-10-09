@@ -126,7 +126,11 @@ public sealed class AgentHost : IAsyncDisposable
         SharedPause = Config.SharedPause,
         SharedOutcomes = Config.SharedOutcomes,
         LootJournalPath = role == GuestMode ? "" : UserFile("loot-journal.jsonl"),
+        PauseGate = _pauseGate,
     }, _game, relay, () => Environment.TickCount64, _log);
+
+    // the engine adapter's pause gate (Windows: the launcher starts the game with the adapter); one per agent, the game outlives sessions
+    private readonly IPauseGate? _pauseGate = OperatingSystem.IsWindows() ? new BridgePauseGate() : null;
 
     /// <summary>The first start: what the command line / the settings file ask for. Idle waits for the tab.</summary>
     public async Task StartAsync(CancellationToken ct)
@@ -203,7 +207,7 @@ public sealed class AgentHost : IAsyncDisposable
                 if (arg is "shared" or "off")
                 {
                     Config.SharedPause = arg == "shared"; Session.Pause.SetShared(Config.SharedPause); Persist();
-                    Session.Notify(Config.SharedPause ? "Pausing is shared: a friend's pause menu holds your game until they are back." : "Pausing is not shared: a friend's pause menu never holds your game.");
+                    Session.Notify(Config.SharedPause ? "Pausing is shared: any player's pause menu pauses everyone." : "Pausing is off: with a friend here your pause menu does not pause your game, and a friend's never holds it.");
                 }
                 break;
             case "keys":

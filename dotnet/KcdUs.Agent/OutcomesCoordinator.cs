@@ -149,10 +149,25 @@ public sealed class OutcomesCoordinator : IDisposable
                 case "res" when _on && isHost && f.Length >= 9 && int.TryParse(f[2], NumberStyles.None, CultureInfo.InvariantCulture, out int to):
                     FinishAsk(to, f[3], f[4], f[5], f[6], f[7], f[8]);
                     break;
+                case "put" or "drop" when _on && f.Length >= 6 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _)
+                                           && OutcomesRules.Number(f[5], 0, 1, out _) && (f[1] == "put" || f[2].StartsWith("g@", StringComparison.Ordinal)):
+                    _toPeers($"loot|{f[1]}|{f[2]}|{f[3]}|{f[4]}|{f[5]}");      // a put or a drop cannot duplicate anything: every friend's copy just gains it
+                    break;
                 case "unconfirmed":
                     _notify("Someone already took that.");
                     break;
             }
+        }
+    }
+
+    /// <summary>A friend's put or drop: loot|put|id|class|n|health (or drop, on the ground at a g@ position).</summary>
+    public void PeerPutDrop(int from, string[] f)
+    {
+        lock (_gate)
+        {
+            if (!_on || f.Length != 6 || f[1] is not ("put" or "drop") || !OutcomesRules.ValidName(f[2]) || !OutcomesRules.ValidClass(f[3]) || !OutcomesRules.Count(f[4], out _)
+                || !OutcomesRules.Number(f[5], 0, 1, out _) || (f[1] == "drop" && !f[2].StartsWith("g@", StringComparison.Ordinal)) || !Allow()) return;
+            _toGame($"{(f[1] == "put" ? "LOOTPUT" : "LOOTDROP")}|{_scope}|{f[2]}|{f[3]}|{f[4]}|{f[5]}");
         }
     }
 

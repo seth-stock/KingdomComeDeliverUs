@@ -3,8 +3,12 @@
 // The game half (mod/kcdus/lua/pause.lua) slows the world to t_scale 0.001 and lets go BY ITSELF after a frame-counted lease; this half asks again every two
 // seconds while a friend's menu is open, so a crashed agent, a lost link or a friend who never comes back can never leave a world frozen for good.
 //
-// Only the pause MENU counts (a friend's inventory, a dialogue or a loading screen never hold anyone). Every player's own menu pauses their own game
-// natively, exactly as in the unmodded game; this option only decides whether a FRIEND's menu may hold MY world too.
+// Only the pause MENU counts (a friend's inventory, a dialogue or a loading screen never hold anyone).
+//
+// The option, as in Kingdom Come: Together (KCD2):
+//   * shared (the default): my ESC menu pauses my game, as in the unmodded game, and holds my friends' worlds too; a friend's menu holds mine;
+//   * off: while a friend is in the world with me, my ESC menu opens WITHOUT pausing my game (the engine adapter's gate, PauseGate.cs) and my inventory does
+//     not slow time; nobody's menu holds anybody. Without the adapter (Linux, or a game started without the launcher) my own menu still pauses my game.
 namespace KcdUs.Agent;
 
 public sealed class PauseCoordinator
@@ -23,13 +27,20 @@ public sealed class PauseCoordinator
     private readonly Func<int, string> _nameOf;
     private readonly object _gate = new();
     private readonly Dictionary<int, (long Since, long Seen)> _peerMenus = new();
-    private bool _menuOpen, _frozen;
-    private long _lastBeatMs, _lastAskMs;
+    private readonly IPauseGate? _ownGate;
+    private bool _menuOpen, _frozen, _levers, _gateMissingLogged;
+    private long _lastBeatMs, _lastAskMs, _lastGateMs, _lastOwnSentMs;
 
-    public PauseCoordinator(Func<long> now, Action<string> toGame, Action<string> toPeers, Action<string> notify, Action<string> log, Func<int, string> nameOf)
+    public PauseCoordinator(Func<long> now, Action<string> toGame, Action<string> toPeers, Action<string> notify, Action<string> log, Func<int, string> nameOf,
+        IPauseGate? ownGate = null)
     {
-        _now = now; _toGame = toGame; _toPeers = toPeers; _notify = notify; _log = log; _nameOf = nameOf;
+        _now = now; _toGame = toGame; _toPeers = toPeers; _notify = notify; _log = log; _nameOf = nameOf; _ownGate = ownGate;
     }
+
+    /// <summary>The ESC menu of THIS player does not pause this game right now (option off, a friend in the world, the adapter's gate is on).</summary>
+    public bool OwnMenuRuns { get { lock (_gate) return _levers; } }
+    /// <summary>The engine adapter's gate is loaded in the game (otherwise "off" cannot stop this player's own menu from pausing).</summary>
+    public bool OwnGateAvailable => _ownGate?.Available == true;
 
     /// <summary>The player's choice. Off: nobody's menu holds anybody's world, and this player's menu is not announced.</summary>
     public bool Shared { get; private set; } = true;
@@ -74,7 +85,25 @@ public sealed class PauseCoordinator
     /// <summary>The player left the world, or the relay went away: nothing may hold this world any more.</summary>
     public void Reset(string why)
     {
-        lock (_gate) { _peerMenus.Clear(); ReleaseLocked(why); _menuOpen = false; }
+        lock (_gate) { _peerMenus.Clear(); ReleaseLocked(why); _menuOpen = false; SetLeversLocked(false, _now()); }
+    }
+
+    // the levers: my own ESC menu does not pause my game (KCD2 says "levers" too). A heartbeat: the adapter lets go by itself ten seconds after the last one.
+    private void SetLeversLocked(bool on, long now)
+    {
+        if (on && _ownGate != null && now - _lastGateMs >= 1000) { _lastGateMs = now; _ownGate.Apply(true); }
+        if (on && on == _levers && now - _lastOwnSentMs >= 10000) { _lastOwnSentMs = now; _toGame("OWNPAUSE|0"); }   // again now and then: a loaded world forgets it
+        if (on == _levers) return;
+        _lastOwnSentMs = now;
+        _levers = on;
+        if (!on) { _ownGate?.Apply(false); _lastGateMs = 0; }
+        _toGame(on ? "OWNPAUSE|0" : "OWNPAUSE|1");               // pause.lua: the inventory does not slow time while the levers are on
+        if (on && _ownGate?.Available != true)
+        {
+            if (!_gateMissingLogged) _log("pause off: the engine adapter's gate is not in this game (Linux, or not started from the launcher): this player's own ESC menu still pauses their game");
+            _gateMissingLogged = true;
+        }
+        else _log(on ? "pause off: this player's ESC menu no longer pauses their game while a friend is in the world" : "own ESC menu pauses as usual again");
     }
 
     /// <summary>Who is holding this world right now (the friends whose menu is open and who still count).</summary>
@@ -95,11 +124,12 @@ public sealed class PauseCoordinator
     }
 
     /// <summary>About ten times a second.</summary>
-    public void Tick(bool inWorld, bool connected, int fps)
+    public void Tick(bool inWorld, bool connected, int fps, int friendsInWorld = 0)
     {
         lock (_gate)
         {
             long now = _now();
+            SetLeversLocked(!Shared && connected && inWorld && friendsInWorld > 0, now);
             if (Shared && connected && _menuOpen && now - _lastBeatMs >= HeartbeatMs) { _lastBeatMs = now; _toPeers("pause|1"); }   // the friends' proof that this link is alive
             var holders = HoldersLocked(now);
             bool want = Shared && connected && inWorld && holders.Count > 0;

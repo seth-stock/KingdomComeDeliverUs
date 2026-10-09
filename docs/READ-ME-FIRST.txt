@@ -8,7 +8,9 @@ You and your host must all run THIS version (0.1.0): a different version is refu
 PLAYTEST BUILD (2026-10-08). This is a development build for testing, not a finished release; nobody has played it with two people yet. The room tells you what it is:
 "partly shared". When you BOTH play the same shared world (the host's world, loaded with Game world > Join the host's world), enemies lose health and die in both copies, loot of
 bodies and chests is decided by the host (an item you took that the host did not confirm is taken back), the host's quests follow, and a friend's pause menu holds your game.
-NOT shared: where enemies walk, whom they attack, items on the ground, saddlebags, shops. If the launcher says "shared simulation", that is a bug: report it.
+Session 4 adds Candidate enemy ownership/movement, ground pickup/drop, saddlebags, shop stock, puts and inventory quest rewards.
+Limits: no mirrored sword swings, full remote AI targeting proof, shared shop wallets/crime, XP rewards, durable complete economy or two-person acceptance.
+Pausing Off prevents your own ESC pause only through the supported Windows launcher/adapter; Linux has no proved equivalent. Read SESSION4-RESULTS.md. If the launcher says "shared simulation", that is a bug: report it.
 Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). Different other mods cap the room at presence and block world/character moves. A richer-DLC guest may join a lower-DLC host; extra DLC stays out.
 A poorer-DLC guest cannot receive a richer host save: host without that DLC instead. Disable extra DLC in Steam and restart as instructed. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
 
@@ -16,7 +18,7 @@ WHAT IT IS (and is not)
   Each of you plays your OWN copy of the world. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),
   and when the host's story locks them in (a battle, the monastery, a tournament...) you are asked: join them (F11) or stay in the open world (F12).
   SHARED WORLDS: a friend can take the host's save (even a 100-hour one) and load it; or you start a new world together with new characters; each of you can then play it alone and
-  when you meet again the copy that is behind takes the other's (the old one is kept), each with their own Henry. Enemies, quests and loot are still NOT simulated together.
+  when you meet again the copy that is behind takes the other's (the old one is kept), each with their own Henry. Shared outcomes and Candidate NPC/quest/item paths are partial; there is no complete shared simulation.
   Everything is in the game's new "Multiplayer" menu (main menu and pause menu). Nobody has played this with two people yet: please send logs if something looks wrong.
 
 WHAT YOU NEED (in Steam)

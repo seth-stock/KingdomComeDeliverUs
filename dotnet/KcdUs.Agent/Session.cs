@@ -22,6 +22,8 @@ public sealed class SessionOptions
     public bool SharedOutcomes { get; init; } = true;
     /// <summary>Where the host's loot decisions are journalled (empty: not durable, tests only).</summary>
     public string LootJournalPath { get; init; } = "";
+    /// <summary>The engine adapter's pause gate (pause option off: this player's own ESC menu does not pause their game). Null: not available.</summary>
+    public IPauseGate? PauseGate { get; init; }
 }
 
 /// <summary>A player the relay told us about, with the last thing we heard of them.</summary>
@@ -99,6 +101,9 @@ public sealed class Session : IDisposable
     private string _questEpoch = Guid.NewGuid().ToString("N");
     private string _questHostEpoch = "";
     private readonly PauseCoordinator _pause;
+    private readonly NpcCoordinator _npcs;
+    /// <summary>Shared enemies: one owner per NPC near the players (docs/CAPABILITIES.md).</summary>
+    public NpcCoordinator Npcs => _npcs;
     private readonly OutcomesCoordinator _outcomes;
     private OperationJournal? _lootJournal;
 
@@ -134,11 +139,13 @@ public sealed class Session : IDisposable
         _o = o; _game = game; _relay = relay; _now = nowMs; _log = log ?? (_ => { });
         _pref = o.Pref;
         _pause = new PauseCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
-            Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id);
+            Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, o.PauseGate);
         _pause.SetShared(o.SharedPause);
         _outcomes = new OutcomesCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
             text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, LootJournal);
         _outcomes.SetEnabled(o.SharedOutcomes);
+        _npcs = new NpcCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
+            text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, _log);
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
         _relay.Frame += OnRelayFrame;
@@ -222,7 +229,7 @@ public sealed class Session : IDisposable
                         if (w == _inWorld) break;
                         _inWorld = w;
                         if (w) _game.Send("PAUSEWATCH");                // the pause menu's open/close events (mod/kcdus/lua/pause.lua)
-                        else { _pause.Reset("the player left the world"); _outcomes.Reset("the player left the world"); }
+                        else { _pause.Reset("the player left the world"); _outcomes.Reset("the player left the world"); _npcs.Reset("the player left the world"); }
                         _questHostEpoch = "";
                         _questEpoch = Guid.NewGuid().ToString("N");
                         if (_candidateQuests) _game.Send("QMRESET|" + (IsHost ? _questEpoch : ""));
@@ -299,12 +306,25 @@ public sealed class Session : IDisposable
                         _relay.Send(MessageType.HostEvent, $"quest-mirror|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}|{f[4]}");
                     }
                     break;
+                case "QREWARD":
+                    // (host) a mirrored quest step paid this: the guests in the same shared world get it too (rewards.lua takes off what their game paid already)
+                    if (_candidateQuests && IsHost && _inWorld && _myId != 0 && f.Length == 4 && QuestMirrorRules.ValidReward(f[1], f[2], f[3]))
+                        _relay.Send(MessageType.HostEvent, $"qreward|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}");
+                    break;
+                case "QRGIVEN":
+                    _log("quest reward: " + string.Join(' ', f.Skip(1)));
+                    break;
                 case "QMAPPLIED":
                     _log("Candidate quest readback: " + string.Join(' ', f.Skip(1)));
                     break;
 
                 case "CMB": _outcomes.GameCombat(f); break;
                 case "LOOT": _outcomes.GameLoot(f, IsHost); break;
+                case "NPCNEAR": _npcs.GameNear(f, IsHost); break;
+                case "NPCST": _npcs.GameStates(f); break;
+                case "NPCPUP":
+                    _log("npc puppet: " + string.Join(' ', f.Skip(1)));
+                    break;
                 case "CMBAPPLIED" or "LOOTAPPLIED" or "CMBMODE" or "LOOTMODE":
                     _log(g.Kind.ToLowerInvariant() + ": " + string.Join(' ', f.Skip(1)));
                     break;
@@ -463,6 +483,7 @@ public sealed class Session : IDisposable
                         _peerModes.Remove(id);
                         _pause.PeerLeft(id);
                         _outcomes.PeerLeft(id);
+                        _npcs.PeerLeft(id);
                         if (_peers.Remove(id, out var gone))
                         {
                             _game.Send($"PD|{id}");
@@ -527,6 +548,15 @@ public sealed class Session : IDisposable
             case "loot" when IsHost && f.Length == 7:
                 _outcomes.PeerAsk(from, f);
                 break;
+            case "loot" when f.Length == 6 && f[1] is "put" or "drop":
+                _outcomes.PeerPutDrop(from, f);
+                break;
+            case "npcnear":
+                _npcs.PeerNear(from, f, IsHost);
+                break;
+            case "npcst":
+                _npcs.PeerStates(from, f);
+                break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
                 break;
@@ -561,6 +591,10 @@ public sealed class Session : IDisposable
             case "quest-epoch" when f.Length == 2 && Guid.TryParseExact(f[1], "N", out _):
                 if (_candidateQuests) { _questHostEpoch = f[1]; _game.Send("QMRESET|" + f[1]); }
                 break;
+            case "qreward" when f.Length == 5:
+                if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch && QuestMirrorRules.ValidReward(f[2], f[3], f[4]))
+                    _game.Send($"QRGIVE|{f[2]}|{f[3]}|{f[4]}");
+                break;
             case "quest-mirror" when f.Length == 6:
                 if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch
                     && QuestMirrorRules.Valid(f[2], f[3], f[4], f[5]))
@@ -571,6 +605,9 @@ public sealed class Session : IDisposable
                 break;
             case "loot":
                 _outcomes.HostLoot(f, _myId);
+                break;
+            case "npcown":
+                _npcs.HostOwners(f);
                 break;
 
             case "beat" when f.Length >= 3:
@@ -708,8 +745,9 @@ public sealed class Session : IDisposable
         lock (_gate)
         {
             long now = _now();
-            _pause.Tick(_inWorld, _myId != 0 && _relay.Connected, _gameFps);
+            _pause.Tick(_inWorld, _myId != 0 && _relay.Connected, _gameFps, _peers.Values.Count(p => p.Id != _myId && p.InWorld));
             _outcomes.Tick(_inWorld, _myId != 0 && _relay.Connected, IsHost, _lootDisabled ? "" : (ScopeProvider?.Invoke() ?? ""));
+            _npcs.Tick(_outcomes.Active && _inWorld ? _outcomes.Scope : "", IsHost, _myId);
             if (_outcomes.Active != _questAuto)
             {
                 // the host's quest progress follows into the guests' copies of the same shared world (one way, vetoes in QuestMirrorRules / quest_mirror.lua)

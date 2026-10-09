@@ -134,14 +134,15 @@ if m:
     lua("KCDUS_In('8~LOOTTOOK|%s|%s|%s|1')" % (SC, sid3, cls3))
     time.sleep(1.2)
     out = lua("System.LogAlways('KCDUS|T|took-after|'..KCDUS_T_BEFORE..'|'..KCDUS_T_STASH3.inventory:GetCountOfClass(KCDUS_T_PICK3.class))")
-    parts = out.strip().split('|')
+    mm = re.findall(r'KCDUS\|T\|took-after\|(\d+)\|(\d+)', out)          # only this probe's line (other lines can follow it)
+    parts = list(mm[-1]) if mm else []
     ok = False
     try:
         b, a = int(parts[-2]), int(parts[-1])
         ok = a == max(b - 1, 0)
     except ValueError:
         pass
-    check("a guest loses what the host took from its copy (LOOTTOOK)", ok and 'KCDUS|LOOTAPPLIED|' + sid3 in log(), out.strip()[-30:])
+    check("a guest loses what the host took from its copy (LOOTTOOK)", ok and 'KCDUS|LOOTAPPLIED|' + sid3 in log(), '|'.join(parts))
 
 lua("KCDUS_In('9~LOOTMODE|0') KCDUS_In('10~CMBMODE|0')")
 print()

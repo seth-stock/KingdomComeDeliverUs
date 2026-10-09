@@ -33,7 +33,7 @@ For two to four people, each on their own computer, each with the **same install
 
 | # | Do | Expect |
 |---|---|---|
-| T-07 | Install a build whose `kcdus.pak` differs (the host sends you one) on B, join A. | B's launcher: "different mod payloads … both must install the same build". A shows nothing joined. |
+| T-07 | Install a build whose `kcdus.pak` differs (the host sends you one) on B, join A. | B's launcher: "different mod payloads â€¦ both must install the same build". A shows nothing joined. |
 | T-08 | Host sets a password; B joins without, then with. | Refused with a password message; then admitted. |
 | T-09 | B joins A, a third and a fourth machine join, a fifth tries. | The room holds four; the fifth is told it is full. |
 | T-10 | Machine D has an extra DLC or mod folder in `Mods\` that A does not. D joins A. | D is **admitted**. Both launchers say D's game has other DLC or mods and that worlds and Henrys will not be moved. |
@@ -62,11 +62,11 @@ These are **personal-Henry and world moves**, not shared simulation. Both machin
 
 | # | Do | Expect |
 |---|---|---|
-| T-19 | A holsters weapons, finishes combat and dialogue, saves. B uses the Multiplayer tab: **Game world → Join the host's world**, with **Which Henry → my own**. | B receives the world, a loading screen follows, B plays in A's world as B's own Henry. The launcher says the native readback was accepted. |
+| T-19 | A holsters weapons, finishes combat and dialogue, saves. B uses the Multiplayer tab: **Game world â†’ Join the host's world**, with **Which Henry â†’ my own**. | B receives the world, a loading screen follows, B plays in A's world as B's own Henry. The launcher says the native readback was accepted. |
 | T-20 | B checks stats, skills, perks and inventory against what B had before. | Levels, XP, selected perks and inventory counts match B's Henry (item order may differ). |
 | T-21 | B is on a horse, or in a fight, when asking. | The move is **refused with a reason**, and B's save is untouched. |
 | T-22 | Cancel the load halfway (close the game on the loading screen), restart, ask again. | The retry completes or is refused cleanly. B's original saves are untouched (compare the file list before and after). |
-| T-23 | **Game world → Send my Henry home.** | B returns to B's own save; the shared one is kept as an archive. |
+| T-23 | **Game world â†’ Send my Henry home.** | B returns to B's own save; the shared one is kept as an archive. |
 | T-24 | Look at the five playline slots on B before and after. | Still exactly five. Your old saves are still in the archive folder the Multiplayer tab names. |
 
 ## F. Reconnect (two machines, 15 minutes)
@@ -115,7 +115,7 @@ Use disposable copies of ONE save on both machines (the host sends its world wit
 
 | # | Do | Expect | Failure looks like |
 |---|---|---|---|
-| T-43 | Both load the SAME shared world. Read the launcher line. Then one of you loads another save. | "Fights and loot are shared…" while both are in the shared world; it goes off (a notice) as soon as one is not. | It claims sharing across different saves. |
+| T-43 | Both load the SAME shared world. Read the launcher line. Then one of you loads another save. | "Fights and loot are sharedâ€¦" while both are in the shared world; it goes off (a notice) as soon as one is not. | It claims sharing across different saves. |
 | T-44 | Stand together near a bandit. Only A attacks him; B watches B's own copy. | B's copy of the bandit loses health as A hits (B sees it stagger-free: no hit reaction, health bar drops) and dies when A kills him. | B's bandit unharmed, or A is credited on B's side with XP, a crime or anger. |
 | T-45 | A and B both hit the same enemy. | He dies after roughly half the blows each alone would need, in both copies. | He survives twice the blows. |
 | T-46 | A kills a bandit while B is 80 m away. B walks there later. | The corpse is already there in B's copy. | B meets a live bandit. |
@@ -131,3 +131,21 @@ Use disposable copies of ONE save on both machines (the host sends its world wit
 | T-56 | Set **Shared fights and loot: Off** on B. Repeat T-44 and T-47. | Nothing is shared with B; B's copy stays its own. | B still receives damage or loot changes. |
 
 Report with the installer SHA-256, the commit, `%LocalAppData%\KCDUS\logs\agent.log` from both machines, and the `KCDUS|CMB`, `KCDUS|LOOT` and `KCDUS|PAUSE` lines of each `kcd.log`.
+
+## Session 4 acceptance: all PENDING (two computers, disposable worlds only)
+
+Record release tag/commit, installer and Lua/native hashes, engine build, DLC, settings and logs for both participants. Every item test records counts in each Henry plus all copies of the source before/after; unexpected loss is a failure as well as duplication. Restart/kill only the owned test agent PID. Save/reload both copies to check persistence. Do not infer shared simulation from these cases.
+
+| ID | Procedure | Required outcome / remaining gate |
+|---|---|---|
+| T-57 | Launch through the Windows adapter on both PCs, same world. Set Pausing Off, open your own ESC and inventory while friend moves; then disconnect agent and wait 12 s. | Own ESC world continues only while the connected gate is active; heartbeat expiry restores offline pause; inventory cvar restores. Unsupported native engine and Linux must not claim this pass. |
+| T-58 | A bandit near A walks/chases; B approaches, crosses nearest-owner boundary repeatedly, then leaves/loads/disconnects. | One brain owner; no oscillation before 2 s/4 m margin; positions agree; stale puppets release. Record missing swing/draw/targeting behavior separately. |
+| T-59 | Attack that enemy from both PCs; let it attack each Henry; repeat after streaming 100 m away. | Damage/death agree without duplicate rewards; actual attacks target each independent Henry. Invulnerable peer figures or missing native attack targets fail this target. |
+| T-60 | Both take the same ground item; drop a separate stack, let friend pick it up, then repeat with delayed/retried replies. | One legitimate owner, matching ground/drop count, no double spawn/regrant; condition and quantity preserved. |
+| T-61 | Named horse saddlebags: both take last item, then put/withdraw stacks; ride away and return. | Host-decided stock, each take/put once; no confusion between horses, no duplication or disappearance through movement/rejoin. |
+| T-62 | Both open same chest; take/put concurrently. Wait for native restock without touching pack. | Conservation and stock agree; restock never reported as a player put. Guest/host simultaneous native UI ordering must be demonstrated. |
+| T-63 | Buy the last shop item concurrently, including a multi-item barter; interrupt one reply. | At most one confirmed purchase; failed goods removed and observed money refunded once. Record shared-wallet/barter/crime limitations; do not mark a full economy accepted. |
+| T-64 | Supported base quest pays native items/currency; complete mirrored step/retry. During its 3 s window take a known loot item, then an unrelated unobserved gain. | Native reward subtraction prevents double payment; known loot excluded; replay within load does not pay twice. Heuristic false attribution, XP and restart/backfill limits are failures for full reward parity. |
+| T-65 | Disconnect/restart host or guest during take/put/reward; try capture while native rollback is deliberately blocked; disable sharing/quest/pause options, rejoin/load. | Unknown host decisions quarantined; stale asks cannot mutate new world; unresolved capture refuses; no leaked brain/menu holds. Record item loss and undurable reward replay. |
+
+T-53 is superseded on supported Windows installs by T-57: Pausing Off can now gate the player's own menu. Historical T-34/T-35 assumptions about KCD1 absence are likewise superseded; human evidence is still required.

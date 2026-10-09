@@ -70,3 +70,18 @@ folder (back up `kcdus.pak` and `kcdus-ui.pak` first) before `launch`; the harne
 into the game folder it FINDS (a folder that is not a game is ignored and the real one is used), so build the UI pak with a junction-only stand-in that
 contains `Data` and `Bin\Win64\KingdomCome.exe`, and remove the junctions with `cmd /c rmdir` (never `rm -rf`).
 Remote-console lines for the mod need the agent's sequence prefix: `KCDUS_In('1~FREEZE|1|600')`.
+
+## Session 4 NPC/item probe
+
+`shared_items_live.py` exercises NPC ownership/release, ground/drop transfers,
+saddlebags, shop stock/refunds and an inventory reward with a synthetic peer.
+It mutates only the verified private test world. Stop the old owned session
+with `python tools/engine/stop_owned_session.py` first. Launch a fresh cloned
+world using the flow above and the rebuilt startup adapter; retail mode cannot
+execute the probe's Lua, so use the harness's devmode path. Capture and inspect
+the owned window **before Enter**: the main-menu selection can be Quit rather
+than Continue. Wait for native world readback, then run the probe once and
+require its explicit summary. Stop the owned session and verify the real-save
+hashes afterwards. Session 4 rerun: 25 checks, 0 failed; this is one engine with
+a synthetic peer, not two-computer acceptance. Game screenshots and test saves
+stay under ignored `_work` and must not be distributed.

@@ -26,7 +26,7 @@ chmod +x "$PKG/agent/KcdUsAgent"
 echo "== launcher + docs"
 cp "$REPO/linux/kcdus" "$PKG/kcdus"; chmod +x "$PKG/kcdus"
 cp "$REPO/VERSION" "$REPO/LICENSE" "$REPO/NOTICE" "$REPO/AUTHORS" "$PKG/"
-for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md MENU.md SHARED-WORLDS.md FEATURE-PARITY.md CAPABILITIES.md HUMAN-ACCEPTANCE-TESTS.md SESSION2-RESULTS.md WARHORSE-MODDING-EULA.txt; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
+for d in LINUX.md PLAYING-TOGETHER.md KNOWN-LIMITS.md MENU.md SHARED-WORLDS.md FEATURE-PARITY.md CAPABILITIES.md HUMAN-ACCEPTANCE-TESTS.md SESSION2-RESULTS.md SESSION4-RESULTS.md WARHORSE-MODDING-EULA.txt; do cp "$REPO/docs/$d" "$PKG/docs/" 2>/dev/null || true; done
 [[ -f "$PKG/docs/WARHORSE-MODDING-EULA.txt" ]] || { echo "the Warhorse modding EULA is missing from docs/: the package must carry it (EULA 4.7)" >&2; exit 1; }
 cat >"$PKG/READ-ME-FIRST.txt" <<EOF
 Kingdom Come: Deliver Us $VERSION -- Linux build (unofficial, community)
@@ -40,6 +40,8 @@ Kingdom Come: Deliver Us $VERSION -- Linux build (unofficial, community)
 5. Without the tab:  ./kcdus host   or   ./kcdus join HOST[:PORT]
 6. F11 / F12 answer the host's question if your user can read /dev/input; otherwise: ./kcdus join-story | stay-story
 
+Session 4 PLAYTEST: read docs/SESSION4-RESULTS.md and docs/HUMAN-ACCEPTANCE-TESTS.md.
+No real Proton gameplay proof; Windows-only own-menu pause/outfit/character adapters are not proved on Linux.
 New and not run under a real Proton by its authors: read docs/LINUX.md ("What is and is not tested").
 KEEP TCP 4600 CLOSED to other machines (./kcdus harden): the engine's remote console has no password.
 Not affiliated with or endorsed by Warhorse Studios or Deep Silver. GPL-3.0-only; see LICENSE and NOTICE.

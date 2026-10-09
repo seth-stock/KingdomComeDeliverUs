@@ -26,8 +26,10 @@ function M.step()
     local s, c, done = read(q)
     local signature = s .. '|' .. c .. '|' .. done
     if M.cache[q.code] ~= signature then
+        local prev = M.cache[q.code]
         M.cache[q.code] = signature
         K.out('QM', q.code, s, c, done)
+        if K.Rewards then K.Rewards.questChanged(q.code, signature, prev) end   -- (host) what this step pays is measured (rewards.lua)
     end
 end
 K.handlers.QMODE = function(f)
@@ -70,6 +72,7 @@ K.handlers.QMAPPLY = function(f)
     if completed == '1' and not QuestSystem.IsQuestCompleted(code) then
         K.out('QMAPPLIED', code, 'quest-completion-unverified'); return -- never substitute CancelQuest/DeactivateQuest for successful completion
     end
+    if K.Rewards then K.Rewards.appliedHere(code) end   -- (guest) what the native scripts pay for it now is not paid twice (rewards.lua)
     K.out('QMAPPLIED', code, 'readback-matched')
 end
 K.every(0.1, 'quest-mirror-candidate', function() K.try('quest-mirror', M.step) end)

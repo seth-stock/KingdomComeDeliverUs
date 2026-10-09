@@ -82,6 +82,64 @@ static int item_info(void* binding,void* handler,unsigned long long uid) {
     virtual_function<void(*)(void*)>(table,0x20)(table);
     return result;
 }
+// ---------------------------------------------------------------------------
+// The pause gate (docs/CAPABILITIES.md, "Pausing"): CCryAction::PauseGame(pause, source, force, fadeMs) at RVA 0x5ba0e8 (vtable 0x2734e30 slot 0x70 of
+// this exact engine; it keeps one pause counter per source at this+8+4*source). While the agent says so (a session with a friend in the world and the
+// pause option "off"), a PAUSE from a source in the mask is declined: the menu opens and the world keeps running. A resume always runs. The agent keeps
+// the gate alive with a heartbeat; ten seconds without one and every pause runs again, so a lost agent can never leave menus unable to pause.
+// Agent <-> bridge: the named mapping Local\KcdUsBridgePause.v1 (one game per machine: the launcher refuses a second).
+struct PauseShared {
+    unsigned magic, version;
+    volatile long leversOn;                  // agent: 1 = decline paused sources in mask
+    volatile unsigned mask;                  // agent: the sources to decline (bit = source)
+    volatile long long agentBeatMs;          // agent: GetTickCount64() of its last heartbeat
+    volatile long armed;                     // bridge: the hook is installed
+    volatile long calls, declined;           // bridge: PauseGame calls seen / declined
+    volatile long histNext;                  // bridge: the next history slot
+    volatile unsigned hist[16];              // bridge: (pause<<16)|source of the last calls
+};
+static PauseShared* pause_shared;
+using PauseFn=void(*)(void*,bool,unsigned short,bool,unsigned);
+static PauseFn pause_original;
+static const size_t pause_rva=0x5ba0e8;
+static bool pause_declines(bool pause,unsigned short source) {
+    auto s=pause_shared;
+    if(!s || !pause || source>=32 || !s->leversOn || !((s->mask>>source)&1u))return false;
+    long long beat=s->agentBeatMs,now=static_cast<long long>(GetTickCount64());
+    return beat>0 && now-beat>=0 && now-beat<10000;
+}
+static void pause_gate(void* self,bool pause,unsigned short source,bool force,unsigned fade) {
+    if(auto s=pause_shared) {
+        InterlockedIncrement(&s->calls);
+        long slot=InterlockedIncrement(&s->histNext)-1;
+        s->hist[slot&15]=(pause?0x10000u:0u)|source;
+        if(pause_declines(pause,source)){InterlockedIncrement(&s->declined);return;}
+    }
+    pause_original(self,pause,source,force,fade);
+}
+static void install_pause_gate(BYTE* base) {
+    HANDLE map=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(PauseShared),L"Local\\KcdUsBridgePause.v1");
+    if(!map)return;
+    auto s=static_cast<PauseShared*>(MapViewOfFile(map,FILE_MAP_ALL_ACCESS,0,0,sizeof(PauseShared)));
+    if(!s){CloseHandle(map);return;}
+    s->magic=0x4b435553;s->version=1;s->leversOn=0;s->armed=0;
+    // the first three instructions (mov [rsp+8],rbx / mov [rsp+10h],rsi / mov [rsp+18h],rdi): 15 position-independent bytes
+    const BYTE prologue[]={0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x74,0x24,0x10,0x48,0x89,0x7c,0x24,0x18,0x41,0x56};
+    BYTE* fn=base+pause_rva;
+    if(memcmp(fn,prologue,sizeof(prologue))){pause_shared=s;return;}   // not this engine's PauseGame: never patched
+    auto tramp=static_cast<BYTE*>(VirtualAlloc(nullptr,64,MEM_COMMIT|MEM_RESERVE,PAGE_EXECUTE_READWRITE));
+    if(!tramp){pause_shared=s;return;}
+    const BYTE jump[]={0xff,0x25,0,0,0,0};
+    memcpy(tramp,fn,15);memcpy(tramp+15,jump,6);*reinterpret_cast<void**>(tramp+21)=fn+15;
+    FlushInstructionCache(GetCurrentProcess(),tramp,64);
+    pause_original=reinterpret_cast<PauseFn>(tramp);
+    pause_shared=s;
+    DWORD old;if(!VirtualProtect(fn,15,PAGE_EXECUTE_READWRITE,&old))return;
+    memcpy(fn,jump,6);*reinterpret_cast<void**>(fn+6)=reinterpret_cast<void*>(pause_gate);fn[14]=0x90;
+    DWORD ignored;VirtualProtect(fn,15,old,&ignored);
+    FlushInstructionCache(GetCurrentProcess(),fn,15);
+    s->armed=1;
+}
 static void initialize(HMODULE module) {
     if(engine || !module)return;
     wchar_t name[MAX_PATH];if(!GetModuleFileNameW(module,name,_countof(name)))return;
@@ -101,6 +159,7 @@ static void initialize(HMODULE module) {
     *reinterpret_cast<void**>(entry+sizeof(jump))=reinterpret_cast<void*>(item_info);
     memset(entry+14,0x90,3);DWORD ignored;VirtualProtect(entry,sizeof(signature),old,&ignored);
     FlushInstructionCache(GetCurrentProcess(),entry,sizeof(signature));
+    install_pause_gate(base);
 }
 static decltype(&LoadLibraryA) previous_loader;
 static HMODULE WINAPI load_game(LPCSTR name) {

@@ -217,7 +217,9 @@ def launch(source):
     import shutil
     # KCDUS_PROBE_MOD: a staged mod folder (a build under test) instead of the installed one; the installed game is never touched
     shutil.copytree(Path(os.environ.get('KCDUS_PROBE_MOD') or (GAME / 'Mods' / 'kcdus')), game_root / 'Mods' / 'kcdus')
-    args = [str(GAME / 'Bin' / 'Win64' / 'KingdomCome.exe'), '-devmode', '-root', str(game_root),
+    # KCDUS_PROBE_RETAIL=1: start without -devmode, as players do (the launcher never passes it)
+    dev = [] if os.environ.get('KCDUS_PROBE_RETAIL') == '1' else ['-devmode']
+    args = [str(GAME / 'Bin' / 'Win64' / 'KingdomCome.exe')] + dev + ['-root', str(game_root),
             '+sys_user_folder', profile, '+sys_user_subfolder', '',
             '+sys_useSteamCloudForPlatformSaving', '0', '+log_EnableRemoteConsole', '1',
             '+sys_intromoviesduringinit', '0', '+r_Fullscreen', '0', '+r_width', '1280', '+r_height', '720']

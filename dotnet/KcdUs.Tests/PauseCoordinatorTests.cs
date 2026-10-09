@@ -144,4 +144,110 @@ public class PauseCoordinatorTests
         Assert.False(r.P.Frozen);
         Assert.Empty(r.P.Holders());
     }
+
+    // ---- the option "off": this player's own ESC menu does not pause their game while a friend is in the world (the engine adapter's gate)
+
+    private sealed class FakeGate : IPauseGate
+    {
+        public bool Available { get; set; } = true;
+        public readonly List<bool> Calls = new();
+        public void Apply(bool on) => Calls.Add(on);
+    }
+
+    private sealed class GateRig
+    {
+        public long Now = 100_000;
+        public readonly List<string> ToGame = new(), ToPeers = new(), Notes = new(), Log = new();
+        public readonly FakeGate Gate = new();
+        public readonly PauseCoordinator P;
+        public GateRig() { P = new PauseCoordinator(() => Now, ToGame.Add, ToPeers.Add, Notes.Add, Log.Add, id => "Hans", Gate); }
+        public void Step(long ms, bool inWorld = true, bool connected = true, int friends = 1) { Now += ms; P.Tick(inWorld, connected, 60, friends); }
+    }
+
+    [Fact]
+    public void Shared_mode_never_touches_the_gate_the_menu_pauses_as_in_the_unmodded_game()
+    {
+        var r = new GateRig();
+        for (int i = 0; i < 30; i++) r.Step(100);
+        Assert.Empty(r.Gate.Calls);
+        Assert.False(r.P.OwnMenuRuns);
+        Assert.DoesNotContain(r.ToGame, l => l.StartsWith("OWNPAUSE"));
+    }
+
+    [Fact]
+    public void Off_with_a_friend_in_the_world_keeps_the_gate_on_with_a_heartbeat_every_second()
+    {
+        var r = new GateRig();
+        r.P.SetShared(false);
+        r.Step(100);
+        Assert.True(r.P.OwnMenuRuns);
+        Assert.Equal("OWNPAUSE|0", r.ToGame.Last());                       // the inventory does not slow time either
+        for (int i = 0; i < 50; i++) r.Step(100);                           // 5 s
+        Assert.InRange(r.Gate.Calls.Count(c => c), 5, 7);
+        Assert.DoesNotContain(false, r.Gate.Calls);
+    }
+
+    [Fact]
+    public void The_gate_turns_off_at_once_when_the_last_friend_leaves_the_world_or_the_option_goes_back_to_shared()
+    {
+        var r = new GateRig();
+        r.P.SetShared(false);
+        r.Step(100);
+        r.Step(100, friends: 0);
+        Assert.False(r.P.OwnMenuRuns);
+        Assert.False(r.Gate.Calls.Last());
+        Assert.Equal("OWNPAUSE|1", r.ToGame.Last());
+        r.Step(100);
+        Assert.True(r.P.OwnMenuRuns);
+        r.P.SetShared(true);
+        r.Step(100);
+        Assert.False(r.P.OwnMenuRuns);
+        Assert.False(r.Gate.Calls.Last());
+    }
+
+    [Theory]
+    [InlineData(false, true)]   // in the main menu / loading
+    [InlineData(true, false)]   // the relay went away
+    public void No_world_or_no_link_means_menus_pause_as_usual(bool inWorld, bool connected)
+    {
+        var r = new GateRig();
+        r.P.SetShared(false);
+        r.Step(100);
+        r.Step(100, inWorld: inWorld, connected: connected);
+        Assert.False(r.P.OwnMenuRuns);
+        Assert.False(r.Gate.Calls.Last());
+    }
+
+    [Fact]
+    public void Reset_turns_the_gate_off()
+    {
+        var r = new GateRig();
+        r.P.SetShared(false);
+        r.Step(100);
+        r.P.Reset("left");
+        Assert.False(r.P.OwnMenuRuns);
+        Assert.False(r.Gate.Calls.Last());
+    }
+
+    [Fact]
+    public void Without_the_adapter_the_option_still_works_for_friends_and_says_that_the_own_menu_still_pauses()
+    {
+        var r = new GateRig();
+        r.Gate.Available = false;
+        r.P.SetShared(false);
+        r.Step(100);
+        Assert.Contains(r.Log, l => l.Contains("still pauses"));
+        r.P.PeerMenu(2, true);
+        r.Step(100);
+        Assert.False(r.P.Frozen);                                           // off: a friend's menu never holds this world
+    }
+
+    [Fact]
+    public void While_on_the_game_is_told_again_every_ten_seconds_because_a_loaded_world_forgets()
+    {
+        var r = new GateRig();
+        r.P.SetShared(false);
+        for (int i = 0; i < 250; i++) r.Step(100);                          // 25 s
+        Assert.InRange(r.ToGame.Count(l => l == "OWNPAUSE|0"), 3, 4);
+    }
 }

@@ -38,6 +38,10 @@ function System.SetCVar(n, v) __cvars[n] = v end
 function System.AddCCommand(name, code, help) __cmds[name] = { code = code, help = help } end
 function System.SpawnEntity(params)
     if __world.failSpawn then error("spawn refused") end
+    if params.class == 'PickableItem' then
+        local pr = params.properties
+        return __mkGround(pr.guidItemClassId, pr.nAmount, params.position.x, params.position.y, params.position.z, pr.fHealth)
+    end
     __nextId = __nextId + 1
     local e = { id = __nextId, class = params.class, name = params.name,
                 pos = { x = params.position.x, y = params.position.y, z = params.position.z }, angles = { x = 0, y = 0, z = 0 },
@@ -77,7 +81,10 @@ function System.SpawnEntity(params)
     return e
 end
 function System.GetEntity(id) return __entities[id] end
-function System.RemoveEntity(id) __removed[#__removed + 1] = id; __entities[id] = nil end
+function System.RemoveEntity(id)
+    __removed[#__removed + 1] = id; __entities[id] = nil
+    for i = #__world_ents, 1, -1 do if __world_ents[i].id == id and id ~= nil then table.remove(__world_ents, i) end end
+end
 
 -- NPCs and stashes for the shared fights and loot: __world_ents is everything GetEntitiesInSphere can see
 __world_ents = {}
@@ -96,6 +103,7 @@ local function __inventoryFor(e)
     e.inventory = {
         GetInventoryTable = function(self) local t = {}; for i, it in ipairs(e.items) do t[i - 1] = it end return t end,
         GetCountOfClass = function(self, c) local n = 0; for _, it in ipairs(e.items) do if it.class == c then n = n + it.amount end end return n end,
+        AddItem = function(self, it) e.items[#e.items + 1] = it end,
         DeleteItemOfClass = function(self, c, n)
             for i = #e.items, 1, -1 do
                 local it = e.items[i]
@@ -121,18 +129,47 @@ function __mkNpc(name, hp, x, y, z, class)
             if e.hp <= 0 then e.dead = true end
         end,
     }
+    -- the brain switch, placement, animation and weapon (npcs.lua's puppets)
+    e.brain = true; e.angles = { x = 0, y = 0, z = 0 }; e.anim = nil; e.weapon = false; e.moves = 0
+    function e:DisableBehaviorTreeEvaluation() self.brain = false end
+    function e:EnableBehaviorTreeEvaluation() self.brain = true end
+    function e:SetWorldPos(p) self.pos = { x = p.x, y = p.y, z = p.z }; self.moves = self.moves + 1 end
+    function e:SetWorldAngles(a) self.angles = { x = a.x, y = a.y, z = a.z } end
+    function e:GetWorldAngles() return self.angles end
+    function e:StartAnimation(slot, clip) self.anim = clip; return true end
+    function e:StopAnimation() self.anim = nil end
+    function e:SetAnimationSpeed() end
+    e.human = { IsWeaponDrawn = function() return e.weapon end, DrawWeapon = function() if not e.refuseDraw then e.weapon = true end end, HolsterWeapon = function() e.weapon = false end }
     __inventoryFor(e)
     __world_ents[#__world_ents + 1] = e
     return e
 end
+__stashN = 0
 function __mkStash(x, y, z, items)
-    local e = { class = 'Stash', name = '', pos = { x = x, y = y, z = z }, items = items or {} }
+    __stashN = __stashN + 1
+    local e = { id = 'stash' .. __stashN, class = 'Stash', name = '', pos = { x = x, y = y, z = z }, items = items or {} }
     function e:GetName() return self.name end
     function e:GetWorldPos() return self.pos end
     __inventoryFor(e)
     __world_ents[#__world_ents + 1] = e
     return e
 end
+-- a thing lying on the ground (PickableItem); npcOnly / shop display / a body's are not the player's to pick up
+__groundN = 0
+function __mkGround(class, amount, x, y, z, health)
+    __groundN = __groundN + 1
+    local e = { id = 'ground' .. __groundN, class = 'PickableItem', name = '', pos = { x = x, y = y, z = z }, npcOnly = false, shopItem = false }
+    local rec = { class = class, amount = amount or 1, health = health or 1 }
+    e.rec = rec
+    function e:GetName() return self.name end
+    function e:GetWorldPos() return self.pos end
+    e.item = { GetId = function() return rec end, IsFromShop = function() return e.shopItem end, BelongsToDeadBody = function() return false end }
+    __world_ents[#__world_ents + 1] = e
+    return e
+end
+Shops = { IsLinkedWithShop = function(id) for _, e in ipairs(__world_ents) do if e.id == id and id ~= nil then return e.shopLink end end return nil end }
+Framework = Framework or {}
+Framework.IsValidWUID = function(v) return v ~= nil end
 function __item(class, amount, health) return { class = class, amount = amount or 1, health = health or 1 } end
 
 Script = {}

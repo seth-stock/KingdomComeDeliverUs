@@ -198,8 +198,8 @@ public static class MenuUi
             new("MP_WorldPage", "Game world", Opens: PageWorld, Tooltip: "Join the host's world, start a new one together, which Henry you play, and how the two copies are reconciled"),
             new("MP_StoryPage", "Story: join or stay", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails"),
             new("MP_KeysPage", "Keys", Opens: PageKeys, Tooltip: "The keys that answer the host's question"),
-            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether a friend's pause menu holds your game"),
-            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether the damage and deaths of enemies and the loot of bodies and chests are shared with friends in your world"),
+            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether the pause menu pauses: your own, and a friend's"),
+            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether enemies (where they go, whom they fight, their health) and items (bodies, chests, the ground, saddlebags, shops, quest rewards) are shared with friends in your world"),
             new("MP_Web", "Settings in your browser", Menu("settings"), Tooltip: "Name, address, password, ports and the rest"),
         }, onOpen: Menu("page")),
         [ActionsDir + PageWorld + ".xml"] = Page("Game world", new Button[]
@@ -231,13 +231,13 @@ public static class MenuUi
         }),
         [ActionsDir + PageShared + ".xml"] = Page("Shared fights and loot", new Button[]
         {
-            new("MP_SharedOn", "On: enemies and loot are shared in my shared world", Menu("shared", "on"), Tooltip: "A fight two of you are in costs the enemy both your blows, in both copies; an item is only kept when the host says it is yours"),
+            new("MP_SharedOn", "On: enemies and items are shared in my shared world", Menu("shared", "on"), Tooltip: "Each enemy is run by the nearest player's game and follows it in the others; both your blows count; an item is only kept when the host says it is yours"),
             new("MP_SharedOff", "Off: my copy of the world stays my own", Menu("shared", "off")),
         }),
         [ActionsDir + PagePause + ".xml"] = Page("Pausing", new Button[]
         {
-            new("MP_PauseShared", "Shared: a friend's pause holds my game", Menu("pause", "shared"), Tooltip: "While a friend's pause menu is open your game is held too, and lets go by itself if they vanish"),
-            new("MP_PauseOff", "Off: a friend's pause never holds my game", Menu("pause", "off"), Tooltip: "Your own pause menu still pauses your own game, as in the unmodded game"),
+            new("MP_PauseShared", "Shared: any player's pause menu pauses everyone", Menu("pause", "shared"), Tooltip: "Your menu pauses your game as usual; while a friend's pause menu is open your game is held too, and lets go by itself if they vanish"),
+            new("MP_PauseOff", "Off: the pause menu pauses nobody", Menu("pause", "off"), Tooltip: "With a friend in the world your own pause menu opens without pausing your game (needs the launcher's engine adapter), your inventory does not slow time, and a friend's menu never holds you"),
         }),
         [ActionsDir + PageKeys + ".xml"] = Page("Keys", new Button[]
         {
@@ -360,7 +360,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 7;
+    public const int Revision = 8;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 
