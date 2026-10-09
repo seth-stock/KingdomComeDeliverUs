@@ -55,3 +55,34 @@ function N.findItem(inventory,identity)
     end
     return found
 end
+
+-- Candidate host-local whole-instance primitive. The caller must establish
+-- authority/epoch and journal intent first. It is NOT a network transaction,
+-- receipt, split/merge implementation or stock-UI interception. One native
+-- AddItem moves the existing instance out of its old inventory: never remove
+-- it and create a replacement, which destroys metadata and risks item loss.
+function N.transferInstance(source,destination,identity)
+    if source==destination or not source or not destination or not valid(identity) then return false,'invalid' end
+    local id=N.findItem(source,identity)
+    local _,before=N.item(id)
+    if not id or not before or before.kcdusOwner==nil then return false,'source-unverified' end
+    if before.kcdusEquipped~=0 then return false,'equipped' end
+    local ok,items=pcall(function() return destination:GetInventoryTable() end)
+    if not ok or type(items)~='table' then return false,'destination-unverified' end
+    for _,other in pairs(items) do
+        local _,metadata=N.item(other)
+        if not metadata then return false,'destination-unverified' end
+        -- Native AddItem may merge a stack and retire the source instance.
+        -- Reject a possible merge before mutation; lineage needs its own path.
+        if metadata.class==before.class then return false,'merge-not-supported' end
+        if metadata.kcdusPersistent==identity then return false,'duplicate' end
+    end
+    local called=pcall(function() destination:AddItem(id) end)
+    local inSource=N.findItem(source,identity)
+    local inDestination=N.findItem(destination,identity)
+    local _,after=N.item(inDestination)
+    if not called or inSource or not inDestination or not after or after.kcdusOwner==nil or
+       after.kcdusOwner==before.kcdusOwner or after.class~=before.class or
+       after.amount~=before.amount or after.health~=before.health then return false,'uncertain' end
+    return true,'applied'
+end

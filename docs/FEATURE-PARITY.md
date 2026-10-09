@@ -1,5 +1,9 @@
 # Multiplayer feature parity and acceptance contract
 
+## Session 7 status (2026-10-09)
+
+KCD1 targeted native work proves an installed ordinary-NPC MotionIdle action, exclusive whole-instance inventory transfer, native progression readback and injury/timed-buff serialization. The new transfer helper is not wired into online durability/stock UI, and the action/capture paths require private harness gates. Full combat, quest/XP effect authority and character restoration are still unfinished; KCD2 gameplay source is unchanged. No shared simulation, full parity or human acceptance is claimed. See [SESSION7-RESULTS.md](SESSION7-RESULTS.md).
+
 ## Session 6 status (2026-10-09)
 
 Full multiplayer remains unfinished. KCD1 native readback confirms that ordinary NPCs ignore SimulateOnAction and fail PlayAnim's channel guard; a direct native animation bypass faulted and was removed. The safe reader remains available. KCD1 damage application now requires health/death readback. KCD2 native hit watches now track avatar lifetimes and verify health/stamina restoration before forwarding damage. These are reliability fixes, not complete independent combat/economy/quests/character integrations. See [SESSION6-RESULTS.md](SESSION6-RESULTS.md). No new human acceptance or gameplay parity is claimed.

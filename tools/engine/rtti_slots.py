@@ -37,9 +37,19 @@ def offset(rva):
         if start <= rva < start + size:
             return off + rva - start
 
+if a.name.startswith('@'):
+    table=int(a.name[1:],16)
+    loc=struct.unpack_from('<Q',d,offset(table-base-8))[0]
+    sig,object_off,_,td,_,self_rva=struct.unpack_from('<IIIIII',d,offset(loc-base))
+    if sig!=1 or base+self_rva!=loc:raise ValueError('Invalid x64 RTTI locator')
+    begin=offset(td+16);end=d.index(b'\0',begin)
+    a.name=d[begin:end].decode('ascii')
+    print('Resolved table type:',a.name,'base offset',hex(object_off))
+
 pos = 0
 while True:
-    pos = d.find(b'.?AV', pos)
+    candidates=[v for v in (d.find(b'.?AV',pos),d.find(b'.?AU',pos)) if v>=0]
+    pos=min(candidates) if candidates else -1
     if pos < 0: break
     end = d.find(b'\0', pos, pos + 512)
     name = d[pos:end].decode('ascii', errors='replace') if end >= 0 else ''

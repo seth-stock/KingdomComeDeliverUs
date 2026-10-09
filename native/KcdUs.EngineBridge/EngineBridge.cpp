@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 
 static BYTE* engine;
 template<class T> static T function(size_t rva) { return reinterpret_cast<T>(engine+rva); }
@@ -37,6 +38,7 @@ static void hex(const BYTE* source,size_t length,char* output) {
     for(size_t i=0;i<length;i++){output[2*i]=digits[source[i]>>4];output[2*i+1]=digits[source[i]&15];}
     output[2*length]=0;
 }
+#include "BuffSnapshot.h"
 static int soul_info(void* binding,void* handler,unsigned long long uid) {
     // Explicit extension: GetItem accepts a type-5 soul WUID for read-only
     // identity lookup. Type-2 item behavior remains unchanged.
@@ -52,6 +54,7 @@ static int soul_info(void* binding,void* handler,unsigned long long uid) {
     char persistent[33];hex(soul+0x38,16,persistent);const char* text=persistent;
     function<void(*)(void*,const char*,const void*)>(0x2b6a44)(table,"kcdusPersistent",&text);
     int version=1;function<void(*)(void*,const char*,const void*)>(0x2b6a0c)(table,"kcdusSoul",&version);
+    private_soul_state(soul,table);
     int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
     virtual_function<void(*)(void*)>(table,0x20)(table);return result;
 }
@@ -70,6 +73,10 @@ static int item_info(void* binding,void* handler,unsigned long long uid) {
     auto put_int=function<void(*)(void*,const char*,const void*)>(0x2b6a0c);
     auto put_entity=function<void(*)(void*,const char*,const void*)>(0x10b35d0);
     put_handle(table,"id",item+8);
+    // Native inventory AddItem assigns its owner's WUID to item+0x68.
+    // Expose the actual owner, rather than interpreting item+0x20 (a class
+    // definition pointer) as ownership. Wire/economy authority is separate.
+    put_handle(table,"kcdusOwner",item+0x68);
     char guid[64]={};function<void(*)(const void*,char*)>(0x645ea0)(item+0x28,guid);
     const char* text=guid;put_text(table,"class",&text);
     put_float(table,"health",item+0x3c);put_int(table,"amount",item+0x38);

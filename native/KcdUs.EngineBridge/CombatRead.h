@@ -5,6 +5,7 @@
 struct CombatRead {
     int version, actorPresent, channelGuard, inputSupported, animationReady;
     unsigned actorVtableRva, animationVtableRva;
+    int combatActorPresent;
 };
 
 // The existing human:PlayAnim binding is extended with one reserved fragment
@@ -21,6 +22,8 @@ static bool combat_read(void* binding,void* handler,CombatRead* out) {
         out->actorVtableRva=static_cast<unsigned>(actorVtable-engine);
         out->inputSupported=*reinterpret_cast<void**>(actorVtable+0x460)!=engine+0x2e39b0;
         out->channelGuard=function<bool(*)(void*)>(0x370ed4)(actor)?1:0;
+        auto combat=*reinterpret_cast<BYTE**>(actor+0x1a0);
+        out->combatActorPresent=combat && *reinterpret_cast<BYTE**>(combat)==engine+0x2228be8?1:0;
         // The shipped GetAnimatedCharacter path is actor+0x2f8 -> +0x20
         // (C_Human +0x628, then +0x2d0). This is NOT a combat actor.
         auto expansion=*reinterpret_cast<BYTE**>(actor+0x2f8);
@@ -36,9 +39,15 @@ static bool combat_read(void* binding,void* handler,CombatRead* out) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { *out={};return false; }
 }
 
+#include "NativeActions.h"
 using PlayAnimBindingFn=int(*)(void*,void*,const char*,const char*);
 static PlayAnimBindingFn play_anim_original;
 static int play_anim_binding(void* binding,void* handler,const char* fragment,const char* tags) {
+    if(fragment && !strcmp(fragment,"@kcdus/state-capture")) {
+        private_soul_state_requested=true;
+        return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+    }
+    if(fragment && !strncmp(fragment,"@kcdus/action/",14))return native_action_binding(binding,handler,fragment+14,tags);
     if(!fragment || strcmp(fragment,"@kcdus/combat-read"))
         return play_anim_original(binding,handler,fragment,tags);
     CombatRead read{};
@@ -55,12 +64,14 @@ static int play_anim_binding(void* binding,void* handler,const char* fragment,co
     put(table,"animationReady",&read.animationReady);
     put(table,"actorVtableRva",&read.actorVtableRva);
     put(table,"animationVtableRva",&read.animationVtableRva);
+    put(table,"combatActorPresent",&read.combatActorPresent);
     int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
     virtual_function<void(*)(void*)>(table,0x20)(table);
     return result;
 }
 
 static void install_combat_read() {
+    configure_action_probe();
     // C_ScriptBindHuman primary vtable, PlayAnim at +0x128, verified from
     // registration -> virtual thunk -> real binding. Exact file hash was
     // checked by initialize before this runs. Compare the original slot too.

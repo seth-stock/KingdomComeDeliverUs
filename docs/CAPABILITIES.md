@@ -1,5 +1,9 @@
 # Capabilities and what a room really is
 
+## Session 7 status (2026-10-09)
+
+Full multiplayer remains unfinished. A private ordinary-NPC animation factory reached an installed MotionIdle action; spawned presence bodies still have a scope conflict. Exact whole-item native transfers and injury/timed-buff serialization were observed, and a guarded host-local transfer helper is implemented. The helper is not integrated into room durability/UI interception; buff restoration and causal quest/XP authority remain missing. No new gameplay capability or human acceptance is promoted. See [SESSION7-RESULTS.md](SESSION7-RESULTS.md) and [SESSION7-HANDOFF.md](SESSION7-HANDOFF.md).
+
 ## Session 6 status (2026-10-09)
 
 Full multiplayer remains unfinished. KCD1 native input on ordinary NPCs is a confirmed no-op; a direct animation bypass faulted and was removed. A safe native diagnostic reader and verified health/death application remain. KCD2 hit watches now check avatar lifetimes and native health/stamina restoration. These reliability changes do not establish complete combat/economy/quests/personal state. See [SESSION6-RESULTS.md](SESSION6-RESULTS.md).

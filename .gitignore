@@ -1,5 +1,6 @@
 # Build output
 build/engine/
+build/engine-tests/
 bin/
 obj/
 out/

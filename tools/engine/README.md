@@ -1,5 +1,21 @@
 # Private KCD1 engine probes
 
+Session 7: read `docs/SESSION7-RESULTS.md` and `docs/SESSION7-HANDOFF.md`.
+`native_factory_probe.lua` tests a private ordinary-NPC generic action factory,
+not real combat. `native_state_read.lua` and `native_buff_capture_probe.lua`
+capture native progression/buff state; they do not restore it.
+`native_item_owner_probe.lua` tests the new `NativeIdentity.transferInstance`
+helper (load the current source native_identity.lua into the private process
+first if the installed pak is older). These are separate guarded probes,
+never a batch of all engine experiments. Normal installed games remain on
+session 6. Native action/capture gates cannot be armed by normal-profile UI.
+
+Ghidra at E:\Ghidra: one targeted headless job, JDK 25, heap maximum 2G,
+direct-memory maximum 256m, CPU limit 2, `-noanalysis -max-cpu 2`.
+Use `tools/engine/ghidra/prepare_targets.py` and `TargetedDecompile.java` with
+inputs/outputs in ignored `_work`. Never publish the imported game binary,
+Ghidra project, decompilation or local game asset/script inspection.
+
 Session 6: `native_combat_read.lua` exercises the read-only Windows adapter
 extension (`human:PlayAnim('@kcdus/combat-read','')`). See
 `docs/SESSION6-RESULTS.md` before combat work. Ordinary NPC input is a native
