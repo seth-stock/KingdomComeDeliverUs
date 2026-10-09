@@ -158,3 +158,9 @@ T-53 is superseded on supported Windows installs by T-57: Pausing Off can now ga
 | T-67 | Complete a mirrored quest that natively pays money/items; deliver reward before quest application; force an inert add. | Pre-mutation baseline subtracts native payment, early reward waits, inventory delta proves a grant, uncertain creation is not retried. Repeat after restart to expose still-undurable receipts and attribution gaps. |
 | T-68 | Both enter one shared open world; `kcdus_weather on` on both. Try clear/storm presets outside, scene transitions, reload and off. | Native renderer agrees, repeated heartbeat does not restart blend, reload reapplies. No preservation/restoration of native scripted weather is claimed until proved. Candidate defaults off and setting is session-local. |
 | T-69 | Stream an NPC out/back so its native handle changes while an old puppet exists; release/save/disable sharing. | Old puppet never moves or enables the replacement handle; new authoritative sample can establish a fresh puppet. |
+
+## Session 6 cases: all PENDING
+
+| ID | Test | Required evidence |
+|---|---|---|
+| T-70 | In two disposable copies of the same world, damage and kill a named NPC; inspect both health/death and CMBAPPLIED logs. Repeat after streaming/reload. | Only native readback-confirmed damage is labelled applied; partial/failed mutations are not echoed. Record absent independent targeting/attack/block/credit support as failures of full combat, not acceptance. |

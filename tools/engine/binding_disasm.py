@@ -22,6 +22,34 @@ def va(offset):
     return None
 decoder=Cs(CS_ARCH_X86,CS_MODE_64)
 for term in sys.argv[2:]:
+    if term.startswith('&'):
+        target = int(term[1:], 16)
+        for name, rva, offset, size in sections:
+            if name != '.text': continue
+            code = data[offset:offset + size]
+            for at in range(size - 7):
+                if code[at:at + 2] not in (b'\x48\x8d', b'\x4c\x8d') or code[at + 2] & 0xc7 != 0x05: continue
+                pc = base + rva + at
+                if pc + 7 + struct.unpack_from('<i', code, at + 3)[0] != target: continue
+                print('Address reference:', hex(pc))
+                for ins in decoder.disasm(code[at:at + 100], pc): print(hex(ins.address), ins.mnemonic, ins.op_str)
+        continue
+    if term.startswith('^'):
+        # Dump the containing runtime function, starting at a known instruction
+        # boundary instead of guessing a byte offset before a registration.
+        target = int(term[1:], 16)
+        for name, rva, offset, size in sections:
+            if name != '.pdata': continue
+            for at in range(offset, offset + size - 11, 12):
+                begin, end, _ = struct.unpack_from('<III', data, at)
+                if not base + begin <= target < base + end: continue
+                print('Containing function:', hex(base + begin), hex(base + end))
+                for _, code_rva, code_offset, code_size in sections:
+                    if code_rva <= begin < code_rva + code_size:
+                        start = code_offset + begin - code_rva
+                        for ins in decoder.disasm(data[start:start + end - begin], base + begin):
+                            print(hex(ins.address), ins.mnemonic, ins.op_str)
+        continue
     if term.startswith('?'):
         value=int(term[1:],16);pattern=struct.pack('<I',value)
         functions=[]

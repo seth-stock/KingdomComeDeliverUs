@@ -1,5 +1,16 @@
 # Private KCD1 engine probes
 
+Session 6: `native_combat_read.lua` exercises the read-only Windows adapter
+extension (`human:PlayAnim('@kcdus/combat-read','')`). See
+`docs/SESSION6-RESULTS.md` before combat work. Ordinary NPC input is a native
+no-op. A direct PlayAnim bypass faulted during script-action cancellation and
+was removed; an animation controller does not establish a safe writer. Never
+restore that bypass or the Player/channel proxy as a runtime fix.
+
+`rtti_slots.py` and `binding_disasm.py` are read-only local PE inspection tools.
+The latter accepts `^<VA>` for a containing runtime function and `&<VA>` for
+RIP-relative address references. Quote these arguments in PowerShell.
+
 These are developer experiments. They are not loaded by `kcdus.pak` and are not
 a multiplayer implementation. Some deliberately retained experiments crashed
 the private game process; do not run them in a real save/profile or run all

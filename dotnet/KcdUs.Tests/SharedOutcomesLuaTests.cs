@@ -121,6 +121,38 @@ public class SharedOutcomesLuaTests
 
     // ------------------------------------------------------------------ loot
 
+    [Fact]
+    public void Accepted_but_inert_native_damage_is_not_counted_as_applied()
+    {
+        var m = Combat();
+        m.Do("__world_ents[1].soul.DealDamage=function() end");
+        m.Send("2~CMBAPPLY|" + Scope + "|bandit_7|12|0");
+        Assert.Equal(0, m.Num("KCDUS.Combat.applied"));
+        Assert.Single(m.Lines("KCDUS|CMBAPPLIED|bandit_7|100.00|100.00|readback-unverified"));
+    }
+
+    [Fact]
+    public void Partial_native_damage_before_an_error_does_not_echo_or_claim_success()
+    {
+        var m = Combat();
+        m.Do("__world_ents[1].soul.DealDamage=function() __world_ents[1].hp=94; error('native partial') end");
+        m.Send("2~CMBAPPLY|" + Scope + "|bandit_7|12|0");
+        Assert.Equal(0, m.Num("KCDUS.Combat.applied"));
+        Assert.Single(m.Lines("KCDUS|CMBAPPLIED|bandit_7|100.00|94.00|call-failed"));
+        m.ClearLog();m.Advance(1);
+        Assert.Empty(m.Lines("KCDUS|CMB|"));
+    }
+
+    [Fact]
+    public void Missing_native_health_readback_is_uncertain()
+    {
+        var m = Combat();
+        m.Do("__world_ents[1].soul.DealDamage=function() __world_ents[1].soul.GetState=function() return nil end end");
+        m.Send("2~CMBAPPLY|" + Scope + "|bandit_7|12|0");
+        Assert.Equal(0, m.Num("KCDUS.Combat.applied"));
+        Assert.Single(m.Lines("KCDUS|CMBAPPLIED|bandit_7|100.00|?|readback-unverified"));
+    }
+
     private const string Coin = "5ef63059-322e-4e1b-abe8-926e100c770e";
     private const string Coat = "a856e87a-8065-4338-919d-0aff7a63341d";
 

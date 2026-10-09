@@ -1,5 +1,9 @@
 # Multiplayer feature parity and acceptance contract
 
+## Session 6 status (2026-10-09)
+
+Full multiplayer remains unfinished. KCD1 native readback confirms that ordinary NPCs ignore SimulateOnAction and fail PlayAnim's channel guard; a direct native animation bypass faulted and was removed. The safe reader remains available. KCD1 damage application now requires health/death readback. KCD2 native hit watches now track avatar lifetimes and verify health/stamina restoration before forwarding damage. These are reliability fixes, not complete independent combat/economy/quests/character integrations. See [SESSION6-RESULTS.md](SESSION6-RESULTS.md). No new human acceptance or gameplay parity is claimed.
+
 ## Session 5 status (2026-10-09)
 
 Full campaign multiplayer and parity remain unfinished. KCD1 now has sequenced, incarnation/term-checked NPC movement, stale-handle protection, pre-mutation reward baselines and verified item grants. Weather presets are Candidate, default off (`kcdus_weather on` on both clients), with no current-profile or scripted-weather preservation proof. KCD2 whole-item put compensation preserves the observed native instance on definitive refusal; unknown outcomes remain unresolved and cannot trigger a speculative refund. KCD1 wire is **3**, KCD2 wire **15**; older agents/relays are refused. Neither game has complete native economy interception, universal quest/XP/effect authority or arbitrary complete character restoration. See [SESSION5-RESULTS.md](SESSION5-RESULTS.md).

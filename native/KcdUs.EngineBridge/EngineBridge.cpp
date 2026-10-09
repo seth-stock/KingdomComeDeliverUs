@@ -140,6 +140,7 @@ static void install_pause_gate(BYTE* base) {
     FlushInstructionCache(GetCurrentProcess(),fn,15);
     s->armed=1;
 }
+#include "CombatRead.h"
 static void initialize(HMODULE module) {
     if(engine || !module)return;
     wchar_t name[MAX_PATH];if(!GetModuleFileNameW(module,name,_countof(name)))return;
@@ -160,6 +161,7 @@ static void initialize(HMODULE module) {
     memset(entry+14,0x90,3);DWORD ignored;VirtualProtect(entry,sizeof(signature),old,&ignored);
     FlushInstructionCache(GetCurrentProcess(),entry,sizeof(signature));
     install_pause_gate(base);
+    install_combat_read();
 }
 static decltype(&LoadLibraryA) previous_loader;
 static HMODULE WINAPI load_game(LPCSTR name) {

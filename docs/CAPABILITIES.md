@@ -1,5 +1,9 @@
 # Capabilities and what a room really is
 
+## Session 6 status (2026-10-09)
+
+Full multiplayer remains unfinished. KCD1 native input on ordinary NPCs is a confirmed no-op; a direct animation bypass faulted and was removed. A safe native diagnostic reader and verified health/death application remain. KCD2 hit watches now check avatar lifetimes and native health/stamina restoration. These reliability changes do not establish complete combat/economy/quests/personal state. See [SESSION6-RESULTS.md](SESSION6-RESULTS.md).
+
 ## Session 5 status (2026-10-09)
 
 Full campaign multiplayer and parity remain unfinished. KCD1 now has sequenced, incarnation/term-checked NPC movement, stale-handle protection, pre-mutation reward baselines and verified item grants. Weather presets are Candidate, default off (`kcdus_weather on` on both clients), with no current-profile or scripted-weather preservation proof. KCD2 whole-item put compensation preserves the observed native instance on definitive refusal; unknown outcomes remain unresolved and cannot trigger a speculative refund. KCD2 source wire is now **15**. Neither game has complete native economy interception, universal quest/XP/effect authority or arbitrary complete character restoration. See [SESSION5-RESULTS.md](SESSION5-RESULTS.md).

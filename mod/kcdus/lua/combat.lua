@@ -34,7 +34,7 @@ C.isPerson = isPerson
 
 local function health(e)
     local ok, v = pcall(function() return e.soul:GetState('health') end)
-    if ok and type(v) == 'number' then return v end
+    if ok and type(v) == 'number' and v==v and math.abs(v)<math.huge then return v end
     return nil
 end
 
@@ -115,11 +115,17 @@ K.handlers['CMBAPPLY'] = function(f)
     if dead == '1' then d = before + 1000 end                     -- the friend's copy of this NPC died: so does this one
     if d <= 0 then K.out('CMBAPPLIED', name, before, before, 'nothing'); return end
     local ok = pcall(function() e.soul:DealDamage(0, d, nil, true) end)
-    local after = health(e) or before
-    C.hp[name] = after                                             -- the local watcher must not report this back as the local player's blow
-    if isDead(e) then C.dead[name] = true end
-    C.applied = C.applied + 1
-    K.out('CMBAPPLIED', name, fmt(before), fmt(after), ok and 'applied' or 'call-failed')
+    local after = health(e)
+    local nowDead=isDead(e)
+    -- Suppress echo even if the engine partially mutated before raising an
+    -- error. A successful binding call alone is never an accepted outcome.
+    C.hp[name] = after
+    if nowDead then C.dead[name] = true end
+    local expected=math.max(0,before-d)
+    local verified=ok and after~=nil and math.abs(after-expected)<=0.02 and (dead~='1' or nowDead)
+    if verified then C.applied=C.applied+1 else C.refused=C.refused+1 end
+    local note=verified and 'applied' or not ok and 'call-failed' or 'readback-unverified'
+    K.out('CMBAPPLIED', name, fmt(before), after and fmt(after) or '?', note)
 end
 
 K.every(0.2, 'combat-shared', function() K.try('combat', C.scan) end)
