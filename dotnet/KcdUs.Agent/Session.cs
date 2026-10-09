@@ -102,6 +102,7 @@ public sealed class Session : IDisposable
     private string _questHostEpoch = "";
     private readonly PauseCoordinator _pause;
     private readonly NpcCoordinator _npcs;
+    private readonly WeatherCoordinator _weather;
     /// <summary>Shared enemies: one owner per NPC near the players (docs/CAPABILITIES.md).</summary>
     public NpcCoordinator Npcs => _npcs;
     private readonly OutcomesCoordinator _outcomes;
@@ -146,6 +147,7 @@ public sealed class Session : IDisposable
         _outcomes.SetEnabled(o.SharedOutcomes);
         _npcs = new NpcCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
             text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, _log);
+        _weather=new WeatherCoordinator(nowMs,line=>_game.Send(line),text=>{if(_myId!=0)_relay.Send(MessageType.HostEvent,text);});
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
         _relay.Frame += OnRelayFrame;
@@ -229,7 +231,7 @@ public sealed class Session : IDisposable
                         if (w == _inWorld) break;
                         _inWorld = w;
                         if (w) _game.Send("PAUSEWATCH");                // the pause menu's open/close events (mod/kcdus/lua/pause.lua)
-                        else { _pause.Reset("the player left the world"); _outcomes.Reset("the player left the world"); _npcs.Reset("the player left the world"); }
+                        else { _pause.Reset("the player left the world"); _outcomes.Reset("the player left the world"); _npcs.Reset("the player left the world"); _weather.Reset(); }
                         _questHostEpoch = "";
                         _questEpoch = Guid.NewGuid().ToString("N");
                         if (_candidateQuests) _game.Send("QMRESET|" + (IsHost ? _questEpoch : ""));
@@ -322,6 +324,10 @@ public sealed class Session : IDisposable
                 case "LOOT": _outcomes.GameLoot(f, IsHost); break;
                 case "NPCNEAR": _npcs.GameNear(f, IsHost); break;
                 case "NPCST": _npcs.GameStates(f); break;
+                case "WOPT" when f.Length==2 && f[1] is "on" or "off":
+                    _weather.Enabled=f[1]=="on";
+                    if(!_weather.Enabled) _weather.Reset();
+                    break;
                 case "NPCPUP":
                     _log("npc puppet: " + string.Join(' ', f.Skip(1)));
                     break;
@@ -557,6 +563,9 @@ public sealed class Session : IDisposable
             case "npcst":
                 _npcs.PeerStates(from, f);
                 break;
+            case "npcst2":
+                _npcs.PeerStatesV2(from,f);
+                break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
                 break;
@@ -608,6 +617,12 @@ public sealed class Session : IDisposable
                 break;
             case "npcown":
                 _npcs.HostOwners(f);
+                break;
+            case "npcown2":
+                _npcs.HostOwnersV2(f);
+                break;
+            case "weather":
+                _weather.HostWeather(f);
                 break;
 
             case "beat" when f.Length >= 3:
@@ -748,6 +763,8 @@ public sealed class Session : IDisposable
             _pause.Tick(_inWorld, _myId != 0 && _relay.Connected, _gameFps, _peers.Values.Count(p => p.Id != _myId && p.InWorld));
             _outcomes.Tick(_inWorld, _myId != 0 && _relay.Connected, IsHost, _lootDisabled ? "" : (ScopeProvider?.Invoke() ?? ""));
             _npcs.Tick(_outcomes.Active && _inWorld ? _outcomes.Scope : "", IsHost, _myId);
+            _weather.Tick(_outcomes.Active && _inWorld ? _outcomes.Scope : "",IsHost,
+                IsHost ? _story.Active is null : _hostTier==StoryTier.Open);
             if (_outcomes.Active != _questAuto)
             {
                 // the host's quest progress follows into the guests' copies of the same shared world (one way, vetoes in QuestMirrorRules / quest_mirror.lua)

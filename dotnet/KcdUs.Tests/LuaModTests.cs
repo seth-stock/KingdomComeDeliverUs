@@ -12,7 +12,7 @@ public class LuaModTests
     {
         var m = new LuaMod();
         Assert.Empty(m.Lines("KCDUS|ERR"));
-        Assert.Equal(new[] { "KCDUS|HELLO|0.0.0-dev|1|dev" }, m.Lines("KCDUS|HELLO"));
+        Assert.Equal(new[] { "KCDUS|HELLO|0.0.0-dev|"+KcdUs.Wire.Proto.ProtocolVersion+"|dev" }, m.Lines("KCDUS|HELLO"));
         foreach (var c in new[] { "kcdus", "kcdus_say", "kcdus_status", "kcdus_off", "kcdus_on" })
             Assert.True(m.Bool($"__cmds[\"{c}\"] ~= nil"), c);
         // the agent's command must take the whole line as one quoted argument

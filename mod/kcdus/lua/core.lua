@@ -225,6 +225,7 @@ function K.hookPlayer()
                 if K.Loot and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Loot.onWorldReset() end
                 if K.Npcs and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Npcs.onWorldReset() end
                 if K.Rewards and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Rewards.onWorldReset() end
+                if K.Weather and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Weather.onWorldReset() end
                 if K.NativeIdentity and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.NativeIdentity.clear() end
                 K.try("hook:" .. name, K.kick)
                 return old(...)

@@ -1,3 +1,7 @@
+SESSION 5 DEVELOPMENT BUILD: full campaign co-op remains unfinished. Read SESSION5-RESULTS.md.
+KCD2 uses wire 15; use matching new agents/relay/pak. KCD1 weather is Candidate and defaults off.
+NPC ownership/reward readback and definite-refusal item compensation improved; complete economy/characters/quests are still open.
+
 KINGDOM COME: DELIVER US 0.1.0 -- co-op for Kingdom Come: Deliverance (the FIRST game)
 =======================================================================================
 

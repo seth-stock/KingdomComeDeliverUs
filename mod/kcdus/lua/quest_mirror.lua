@@ -57,6 +57,7 @@ K.handlers.QMAPPLY = function(f)
     end
     -- Native state may not be rolled backwards or canceled from absence in a snapshot.
     if QuestSystem.IsQuestCompleted(code) then K.out('QMAPPLIED', code, 'already'); return end
+    if K.Rewards then K.Rewards.beginApply(code) end -- before any native quest reward can enter the pack
     if started == '1' and not QuestSystem.IsQuestStarted(code) then
         QuestSystem.ActivateQuest(code)
         if not QuestSystem.IsQuestStarted(code) then K.out('QMAPPLIED', code, 'start-refused'); return end

@@ -13,7 +13,7 @@ using System.Globalization;
 
 namespace KcdUs.Agent;
 
-public sealed class NpcCoordinator
+public sealed partial class NpcCoordinator
 {
     public const long StaleMs = 4000;
     public const double SwitchMarginM = 4.0;
@@ -21,7 +21,7 @@ public sealed class NpcCoordinator
     public const long OwnPeriodMs = 1000;
     public const long ModeRepeatMs = 10000;
     public const int MaxNpcs = 96;
-    public const int MaxStatesPerSecond = 12;
+    public const int MaxStatesPerSecond = 48; // 96 owned NPCs / 12 rows per packet * 5 Hz = 40; retain bounded burst headroom
 
     private readonly Func<long> _now;
     private readonly Action<string> _toGame, _toPeers, _toGuests, _log;
@@ -56,6 +56,7 @@ public sealed class NpcCoordinator
             {
                 _on = want; _scope = want ? scope : ""; _myId = myId;
                 _near.Clear(); _owner.Clear(); _challenger.Clear();
+                ResetAuthority(isHost);
                 _toGame(want ? $"NPCMODE|1|{_scope}|{_myId}" : "NPCMODE|0");
                 _lastModeMs = now;
                 _log(want ? "shared enemies: on (one owner per NPC near the players)" : "shared enemies: off (every NPC is this game's own again)");
@@ -66,7 +67,7 @@ public sealed class NpcCoordinator
         }
     }
 
-    public void Reset(string why) { lock (_gate) { if (_on) { _on = false; _scope = ""; _near.Clear(); _owner.Clear(); _challenger.Clear(); _toGame("NPCMODE|0"); _log("shared enemies: off (" + why + ")"); } } }
+    public void Reset(string why) { lock (_gate) { if (_on) { _on = false; _scope = ""; _near.Clear(); _owner.Clear(); _challenger.Clear(); ResetAuthority(false); _toGame("NPCMODE|0"); _log("shared enemies: off (" + why + ")"); } } }
 
     public void PeerLeft(int id)
     {
@@ -99,7 +100,7 @@ public sealed class NpcCoordinator
         lock (_gate)
         {
             if (!_on || f.Length < 2 || !ValidStates(f[1])) return;
-            _toPeers($"npcst|{_scope}|{f[1]}");
+            SendStatesV2(f[1]);
         }
     }
 
@@ -164,18 +165,23 @@ public sealed class NpcCoordinator
         foreach (var (name, m) in _near.OrderBy(kv => kv.Value.Values.Min(v => v.D)).Take(MaxNpcs))
         {
             var best = m.OrderBy(kv => kv.Value.D).ThenBy(kv => kv.Key).First();
-            if (!_owner.TryGetValue(name, out int cur) || !m.ContainsKey(cur)) { _owner[name] = best.Key; _challenger.Remove(name); continue; }
+            if (!_owner.TryGetValue(name, out int cur) || !m.ContainsKey(cur)) { SetOwner(name,best.Key); _challenger.Remove(name); continue; }
             if (best.Key == cur || best.Value.D + SwitchMarginM >= m[cur].D) { _challenger.Remove(name); continue; }
             if (!_challenger.TryGetValue(name, out var c) || c.Who != best.Key) { _challenger[name] = (best.Key, now); continue; }
-            if (now - c.Since >= SwitchHoldMs) { _owner[name] = best.Key; _challenger.Remove(name); }
+            if (now - c.Since >= SwitchHoldMs) { SetOwner(name,best.Key); _challenger.Remove(name); }
         }
         foreach (var name in _owner.Keys.Where(n => !_near.ContainsKey(n)).ToList()) _owner.Remove(name);
+        // The union can grow while players travel: keep the supported interest set bounded.
+        var supported = _near.OrderBy(kv => kv.Value.Values.Min(v => v.D)).ThenBy(kv=>kv.Key,StringComparer.Ordinal).Take(MaxNpcs).Select(kv=>kv.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var name in _owner.Keys.Where(n=>!supported.Contains(n)).ToArray()) _owner.Remove(name);
+        foreach (var name in _terms.Keys.Where(n=>!_owner.ContainsKey(n)).ToArray()) _terms.Remove(name);
         if (_owner.Count == 0) return;
+        long revision = ++_ownerRevision;
         foreach (var chunk in _owner.Chunk(24))
         {
-            string body = string.Join(";", chunk.Select(kv => kv.Key + ":" + kv.Value.ToString(CultureInfo.InvariantCulture)));
-            _toGame($"NPCOWN|{_scope}|{body}");
-            _toGuests($"npcown|{_scope}|{body}");
+            string body = string.Join(";", chunk.Select(kv => FormattableString.Invariant($"{kv.Key}:{kv.Value}:{_terms[kv.Key]}")));
+            _toGame(FormattableString.Invariant($"NPCOWN2|{_scope}|{_authority}|{revision}|{body}"));
+            _toGuests(FormattableString.Invariant($"npcown2|{_scope}|{_authority}|{revision}|{body}"));
         }
     }
 

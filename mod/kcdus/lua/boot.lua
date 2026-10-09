@@ -20,6 +20,10 @@ function KCDUS_QuestMode(mode)
 end
 command("kcdus_pause_mode", "KCDUS_PauseMode(%line)", "Pausing in a co-op session: shared (a friend's pause menu holds your game; default) | off")
 command("kcdus_shared", "KCDUS_SharedMode(%line)", "Shared fights and loot with the friends in your world: on (default) | off")
+command("kcdus_weather", "KCDUS_WeatherMode(%line)", "Shared open-world weather presets: on|off (session-local)")
+function KCDUS_WeatherMode(a)
+    if a=='on' or a=='off' then K.out('WOPT',a) else K.log('kcdus_weather on|off') end
+end
 function KCDUS_PauseMode(a) a = tostring(a or ""):lower(); if a:find("off") then K.out("MENU", "pause", "off") elseif a:find("shared") or a:find("on") then K.out("MENU", "pause", "shared") else K.log("kcdus_pause_mode shared|off") end end
 function KCDUS_SharedMode(a) a = tostring(a or ""):lower(); if a:find("off") then K.out("MENU", "shared", "off") elseif a:find("on") then K.out("MENU", "shared", "on") else K.log("kcdus_shared on|off") end end
 command("kcdus_join", "KCDUS.out('KEY', 'join')", "Join your host in the story stretch you were asked about")

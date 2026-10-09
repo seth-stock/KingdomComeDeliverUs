@@ -40,7 +40,7 @@ function N.release(name, why)
     if not p then return end
     N.puppets[name] = nil
     local e = System.GetEntityByName(name)
-    if e then
+    if e and e.id == p.id then
         pcall(function() e:StopAnimation(0, K.Locomotion and K.Locomotion.layer or 0) end)
         brain(e, true)
     end
@@ -52,7 +52,7 @@ function N.releaseAll(why) for name in pairs(N.puppets) do N.release(name, why) 
 
 local function take(name, e, now)
     if not brain(e, false) then return nil end
-    local p = { at = now, g = { key = name, flags = 0 } }
+    local p = { id = e.id, at = now, g = { key = name, flags = 0 } }
     N.puppets[name] = p
     N.taken = N.taken + 1
     K.out('NPCPUP', name, 'on', N.own[name] and N.own[name].owner or '')
@@ -62,6 +62,7 @@ end
 local function steer(name, p, now)
     local e = System.GetEntityByName(name)
     if not e or isDead(e) then N.release(name, 'dead'); return end
+    if e.id ~= p.id then N.release(name, 'stream-replaced'); return end
     if now - p.at > N.staleS then N.release(name, 'stale'); return end
     local dt = math.min(0.5, now - p.at)
     local tx, ty, tz = p.x + p.vx * dt, p.y + p.vy * dt, p.z
@@ -122,6 +123,7 @@ function N.report()
         if o.owner == N.me and now - o.at <= N.ownTtl then
             local e = System.GetEntityByName(name)
             if e and living(e) then
+                if N.puppets[name] and N.puppets[name].id ~= e.id then N.release(name, 'stream-replaced') end
                 local q = e:GetWorldPos()
                 local l = N.last[name]
                 local vx, vy = 0, 0
@@ -185,4 +187,60 @@ K.every(0.1, 'npc-drive', function() K.try('npc-drive', N.drive) end)
 K.every(0.2, 'npc-report', function() K.try('npc-report', N.report) end)
 K.every(1.0, 'npc-near', function() K.try('npc-near', N.near) end)
 
-function N.onWorldReset() N.puppets = {}; N.own = {}; N.last = {} end
+-- Ownership v2: host incarnation + per-NPC term + monotonic sample sequence.
+-- Legacy handlers remain for private historical probes, but cannot bypass an active v2 authority.
+local legacyOwn, legacySet = K.handlers.NPCOWN, K.handlers.NPCSET
+K.handlers.NPCOWN=function(f) if not N.authority then legacyOwn(f) end end
+K.handlers.NPCSET=function(f) if not N.authority then legacySet(f) end end
+local function counter(s) local n=tonumber(s); return n and n>0 and n<1000000000000 and n==math.floor(n) and n or nil end
+K.handlers.NPCOWN2=function(f)
+    if not N.enabled or f[2]~=N.scope or type(f[3])~='string' or #f[3]~=32 or string.find(f[3],'[^0-9a-f]') then return end
+    local revision=counter(f[4]); if not revision then return end
+    N.retired=N.retired or {}
+    if N.retired[f[3]] then return end
+    if N.authority~=f[3] then
+        N.releaseAll('authority-change')
+        if N.authority then N.retired[N.authority]=true end
+        N.authority=f[3]; N.ownerRevision=0; N.own={}; N.samples={}
+    end
+    if revision<(N.ownerRevision or 0) then return end
+    local updates={}
+    for entry in string.gmatch(f[5] or '', '[^;]+') do
+        local name,owner,term=string.match(entry,'^([^:]+):(%d+):(%d+)$')
+        term=counter(term)
+        if not name or not validName(name) or not term or tonumber(owner)<1 or tonumber(owner)>255 or updates[name] then return end
+        local old=N.own[name]
+        if old and old.term and (term<old.term or term==old.term and owner~=old.owner) then return end
+        updates[name]={owner=owner,term=term,at=K.now()}
+    end
+    for name,o in pairs(updates) do
+        local old=N.own[name]
+        if old and (old.owner~=o.owner or old.term~=o.term) then N.release(name,'ownership-term') end
+        N.own[name]=o
+        if o.owner==N.me then N.release(name,'mine') end
+    end
+    N.ownerRevision=revision
+end
+K.handlers.NPCSET2=function(f)
+    if not N.enabled or f[2]~=N.scope or not N.authority or f[3]~=N.authority or f[4]==N.me then return end
+    local sequence=counter(f[5]); if not sequence or sequence<=((N.samples or {})[f[4]] or 0) then return end
+    local rows={}
+    for entry in string.gmatch(f[6] or '', '[^;]+') do
+        local name,term,body=string.match(entry,'^([^,]+),(%d+),(.+)$')
+        local o=name and N.own[name]
+        if o and o.owner==f[4] and counter(term)==o.term then rows[#rows+1]=name..','..body end
+    end
+    if #rows==0 then return end
+    N.samples=N.samples or {}; N.samples[f[4]]=sequence
+    legacySet({'NPCSET',f[2],f[4],table.concat(rows,';')})
+end
+local legacyMode=K.handlers.NPCMODE
+K.handlers.NPCMODE=function(f)
+    if f[2]~='1' or f[3]~=N.scope or f[4]~=N.me then
+        N.authority=nil; N.ownerRevision=0; N.samples={}; N.retired={}
+    end
+    legacyMode(f)
+end
+function N.onWorldReset()
+    N.puppets={}; N.own={}; N.last={}; N.authority=nil; N.ownerRevision=0; N.samples={}; N.retired={}
+end

@@ -137,7 +137,7 @@ public class RelayTests
         await using var host = await TestClient.Connect(relay.Port);
         await host.Hello("Henry", "host", release: Rel);
         var w = await host.Next(MessageType.Welcome);
-        Assert.Equal(new[] { "1", "1", "2", "0.1.0", "Test", "presence" }, w.Fields.Take(6));        // protocol 2; the room says what it is
+        Assert.Equal(new[] { "1", "1", Proto.ProtocolVersion.ToString(), "0.1.0", "Test", "presence" }, w.Fields.Take(6));
         Assert.Equal(Proto.ProtocolVersion, int.Parse(w.Fields[2]));
         Assert.Equal("", (await host.Next(MessageType.PlayerList)).Text);
 

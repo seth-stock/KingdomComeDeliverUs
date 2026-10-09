@@ -115,8 +115,11 @@ local function __inventoryFor(e)
         end,
     }
 end
+__npcN = 0
 function __mkNpc(name, hp, x, y, z, class)
+    __npcN = __npcN + 1
     local e = { class = class or 'NPC', name = name, pos = { x = x, y = y, z = z }, hp = hp, dead = false, dealt = 0, calls = {} }
+    e.id = 'npc' .. __npcN
     function e:GetName() return self.name end
     function e:GetWorldPos() return self.pos end
     function e:IsDead() return self.dead end

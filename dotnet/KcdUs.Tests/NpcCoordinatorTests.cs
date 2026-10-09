@@ -38,8 +38,8 @@ public class NpcCoordinatorTests
         r.Step(1000);
         Assert.Equal(1, r.N.Owners["bandit_7"]);
         Assert.Equal(2, r.N.Owners["bandit_8"]);
-        Assert.Contains(r.ToGame, l => l.StartsWith("NPCOWN|w1|") && l.Contains("bandit_7:1") && l.Contains("bandit_8:2"));
-        Assert.Contains(r.ToGuests, l => l.StartsWith("npcown|w1|"));
+        Assert.Contains(r.ToGame, l => l.StartsWith("NPCOWN2|w1|") && l.Contains("bandit_7:1:") && l.Contains("bandit_8:2:"));
+        Assert.Contains(r.ToGuests, l => l.StartsWith("npcown2|w1|"));
     }
 
     [Fact]
@@ -88,8 +88,10 @@ public class NpcCoordinatorTests
         r.Step(100, host: false, me: 2);
         r.N.GameNear(new[] { "NPCNEAR", "bandit_7:3.0" }, isHost: false);
         Assert.Equal("npcnear|w1|bandit_7:3.0", r.ToPeers.Last());
+        const string epoch="0123456789abcdef0123456789abcdef";
+        r.N.HostOwnersV2(new[] { "npcown2", "w1", epoch, "1", "bandit_7:2:5" });
         r.N.GameStates(new[] { "NPCST", "bandit_7,1.00,2.00,3.00,0.500,0.00,0.00,1" });
-        Assert.Equal("npcst|w1|bandit_7,1.00,2.00,3.00,0.500,0.00,0.00,1", r.ToPeers.Last());
+        Assert.Equal("npcst2|w1|"+epoch+"|1|bandit_7,5,1.00,2.00,3.00,0.500,0.00,0.00,1", r.ToPeers.Last());
         r.N.HostOwners(new[] { "npcown", "w1", "bandit_7:2" });
         Assert.Equal("NPCOWN|w1|bandit_7:2", r.ToGame.Last());
         r.N.PeerStates(1, new[] { "npcst", "w1", "bandit_8,1.00,2.00,3.00,0.500,0.00,0.00,0" });
@@ -120,7 +122,7 @@ public class NpcCoordinatorTests
         r.N.HostOwners(new[] { "npcown", "w1", "bandit_7:999" });
         r.N.HostOwners(new[] { "npcown", "w1", "bandit 7:1" });
         Assert.Equal(before, r.ToGame.Count);
-        for (int i = 0; i < 40; i++) r.N.PeerStates(1, new[] { "npcst", "w1", "bandit_8,1.00,2.00,3.00,0.500,0.00,0.00,0" });
+        for (int i = 0; i < NpcCoordinator.MaxStatesPerSecond+20; i++) r.N.PeerStates(1, new[] { "npcst", "w1", "bandit_8,1.00,2.00,3.00,0.500,0.00,0.00,0" });
         Assert.Equal(before + NpcCoordinator.MaxStatesPerSecond, r.ToGame.Count);
     }
 

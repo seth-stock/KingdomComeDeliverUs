@@ -149,3 +149,12 @@ Record release tag/commit, installer and Lua/native hashes, engine build, DLC, s
 | T-65 | Disconnect/restart host or guest during take/put/reward; try capture while native rollback is deliberately blocked; disable sharing/quest/pause options, rejoin/load. | Unknown host decisions quarantined; stale asks cannot mutate new world; unresolved capture refuses; no leaked brain/menu holds. Record item loss and undurable reward replay. |
 
 T-53 is superseded on supported Windows installs by T-57: Pausing Off can now gate the player's own menu. Historical T-34/T-35 assumptions about KCD1 absence are likewise superseded; human evidence is still required.
+
+## Session 5 cases: all PENDING
+
+| ID | Test | Required evidence |
+|---|---|---|
+| T-66 | Delay/reorder NPC samples and ownership snapshots; switch owner away and back; restart host in the same world. | Old term/incarnation/sequence does not move a current actor; proper owner resumes and every puppet releases. Record the remaining missing attack/hit and acknowledged-handoff paths. |
+| T-67 | Complete a mirrored quest that natively pays money/items; deliver reward before quest application; force an inert add. | Pre-mutation baseline subtracts native payment, early reward waits, inventory delta proves a grant, uncertain creation is not retried. Repeat after restart to expose still-undurable receipts and attribution gaps. |
+| T-68 | Both enter one shared open world; `kcdus_weather on` on both. Try clear/storm presets outside, scene transitions, reload and off. | Native renderer agrees, repeated heartbeat does not restart blend, reload reapplies. No preservation/restoration of native scripted weather is claimed until proved. Candidate defaults off and setting is session-local. |
+| T-69 | Stream an NPC out/back so its native handle changes while an old puppet exists; release/save/disable sharing. | Old puppet never moves or enables the replacement handle; new authoritative sample can establish a fresh puppet. |
