@@ -1,5 +1,14 @@
 # Private KCD1 engine probes
 
+Session 8: read `docs/SESSION8-RESULTS.md` and `docs/SESSION8-HANDOFF.md`.
+`native_fight_probe.lua` uses the real combat scheduler, but has not proved
+damaging contact against independent participants. It checks native target
+clearing before removing test bodies; stop the owned process on uncertainty.
+`native_xp_apply_probe.lua` observes actual native stat XP, or skill XP with
+`KCDUS_XP_PROBE_SKILL=true`. `native_buff_restore_probe.lua` restores a known
+existing cooldown record and requires exact native readback. These remain
+private Candidate paths, not an online combat/quest/complete-character feature.
+
 Session 7: read `docs/SESSION7-RESULTS.md` and `docs/SESSION7-HANDOFF.md`.
 `native_factory_probe.lua` tests a private ordinary-NPC generic action factory,
 not real combat. `native_state_read.lua` and `native_buff_capture_probe.lua`

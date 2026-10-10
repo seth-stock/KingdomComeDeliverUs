@@ -164,3 +164,11 @@ T-53 is superseded on supported Windows installs by T-57: Pausing Off can now ga
 | ID | Test | Required evidence |
 |---|---|---|
 | T-70 | In two disposable copies of the same world, damage and kill a named NPC; inspect both health/death and CMBAPPLIED logs. Repeat after streaming/reload. | Only native readback-confirmed damage is labelled applied; partial/failed mutations are not echoed. Record absent independent targeting/attack/block/credit support as failures of full combat, not acceptance. |
+
+## Session 8 cases: all PENDING
+
+| ID | Test | Required evidence |
+|---|---|---|
+| T-71 | In an owned disposable profile, use the real native combat scheduler against independent participant bodies, in view and behind the camera; change ownership, stream and reload. | Native damaging contact, blocks/reactions/credit and persistent target/term attribution work for each participant. Installed actions/poses or cleanup alone fail full combat acceptance. Current normal profiles cannot enable this experiment. |
+| T-72 | Capture/restore supported timed effects on a disposable character, then save/reload and change worlds/clocks; include missing instances, injury/body parts, perks and reference-bearing effects. | Supported records have exact readback and effective behavior; unsupported records refuse before mutation. One existing cooldown roundtrip does not satisfy full character restoration. |
+| T-73 | Complete real quests while gaining unrelated XP/items, interrupt/restart effect delivery, and complete the same objective again. | Stable objective execution provenance and durable exactly-once item/XP/spawn/script effects. A generic script cause or timing-based reward guess fails acceptance. Native XP observers currently provide diagnostics only. |

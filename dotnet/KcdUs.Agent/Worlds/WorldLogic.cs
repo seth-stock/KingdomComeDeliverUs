@@ -84,6 +84,7 @@ public sealed class WorldRecord
 public sealed class WorldRegistry
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
+    private static readonly object StorageGate = new();
     public string Active { get; set; } = "";
     public List<WorldRecord> Worlds { get; set; } = new();
     /// <summary>This player's Henry as last read from the game (WorldCard text): what goes onto a world that replaces the one he is in.</summary>
@@ -98,12 +99,23 @@ public sealed class WorldRegistry
 
     public static WorldRegistry Load(string? path = null)
     {
+        lock (StorageGate) return LoadFile(path);
+    }
+
+    private static WorldRegistry LoadFile(string? path)
+    {
         try
         {
             path ??= DefaultPath;
             if (File.Exists(path))
             {
-                var registry = JsonSerializer.Deserialize<WorldRegistry>(File.ReadAllText(path), Json);
+                // Save publishes a flushed temporary file by replacement. An
+                // open reader must allow deletion/rename so Windows can publish
+                // the next complete registry while this handle reads the old one.
+                // The handle observes one file incarnation, never a partial write.
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                var registry = JsonSerializer.Deserialize<WorldRegistry>(stream, Json);
                 if (registry?.Worlds is null || registry.MyCharacterSha256 is null || registry.HomeLeaseId is null || registry.Worlds.Any(w => w is null || w.Id is null || w.ArchivedLeaseId is null || w.HomeLeaseId is null))
                     throw new InvalidDataException("The shared-world registry is incomplete; restore a verified copy before changing saves.");
                 if (registry.PendingLoad is { } pending)
@@ -124,6 +136,14 @@ public sealed class WorldRegistry
     }
 
     public void Save(string? path = null)
+    {
+        // MoveFileEx replacement can transiently deny access while another
+        // in-process reader still owns the replaced file. Keep publication
+        // and reads serialized, including independently constructed registries.
+        lock (StorageGate) SaveFile(path);
+    }
+
+    private void SaveFile(string? path)
     {
         path ??= DefaultPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

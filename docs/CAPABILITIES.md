@@ -1,5 +1,9 @@
 # Capabilities and what a room really is
 
+## Session 8 status (2026-10-10)
+
+The private native combat scheduler creates real attack actions, but independent damaging combat is not proved. Native stat/skill XP observation and restoration of one existing timed-buff schema passed disposable-engine readback. These do not implement causal shared quest XP or full personal characters. The registry read/publication race found by testing is fixed. Experimental native paths remain Candidate/private; no full multiplayer or human acceptance is claimed. See [SESSION8-RESULTS.md](SESSION8-RESULTS.md).
+
 ## Session 7 status (2026-10-09)
 
 Full multiplayer remains unfinished. A private ordinary-NPC animation factory reached an installed MotionIdle action; spawned presence bodies still have a scope conflict. Exact whole-item native transfers and injury/timed-buff serialization were observed, and a guarded host-local transfer helper is implemented. The helper is not integrated into room durability/UI interception; buff restoration and causal quest/XP authority remain missing. No new gameplay capability or human acceptance is promoted. See [SESSION7-RESULTS.md](SESSION7-RESULTS.md) and [SESSION7-HANDOFF.md](SESSION7-HANDOFF.md).

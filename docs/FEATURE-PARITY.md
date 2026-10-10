@@ -1,5 +1,9 @@
 # Multiplayer feature parity and acceptance contract
 
+## Session 8 status (2026-10-10)
+
+Full multiplayer and parity remain unfinished. KCD1 now has a private real combat-action scheduler, native stat/skill XP observation and a validated existing timed-buff loader with actual readback. Independent damaging combat, durable economy, causal quest authority and arbitrary character restoration are not complete. KCD2 loose-item recipient delivery now needs native same-instance readback and retains uncertainty during duplicate replies/timeouts/checkpoint preparation; load/restart recovery and merges remain incomplete. See [SESSION8-RESULTS.md](SESSION8-RESULTS.md) and [SESSION8-HANDOFF.md](SESSION8-HANDOFF.md). No experimental path or human acceptance is promoted.
+
 ## Session 7 status (2026-10-09)
 
 KCD1 targeted native work proves an installed ordinary-NPC MotionIdle action, exclusive whole-instance inventory transfer, native progression readback and injury/timed-buff serialization. The new transfer helper is not wired into online durability/stock UI, and the action/capture paths require private harness gates. Full combat, quest/XP effect authority and character restoration are still unfinished; KCD2 gameplay source is unchanged. No shared simulation, full parity or human acceptance is claimed. See [SESSION7-RESULTS.md](SESSION7-RESULTS.md).

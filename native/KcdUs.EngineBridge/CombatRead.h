@@ -40,9 +40,24 @@ static bool combat_read(void* binding,void* handler,CombatRead* out) {
 }
 
 #include "NativeActions.h"
+#include "BuffRestore.h"
+#include "XpRead.h"
+#include "NativeFight.h"
 using PlayAnimBindingFn=int(*)(void*,void*,const char*,const char*);
 static PlayAnimBindingFn play_anim_original;
 static int play_anim_binding(void* binding,void* handler,const char* fragment,const char* tags) {
+    if(fragment && !strncmp(fragment,"@kcdus/fight/",13))return private_fight_binding(binding,handler,fragment+13,tags);
+    if(fragment && !strcmp(fragment,"@kcdus/xp-last"))return xp_read_binding(binding,handler);
+    if(fragment && !strncmp(fragment,"@kcdus/buff-restore/",20)) {
+        int applied=private_restore_timed_buff(fragment+20,tags);
+        auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
+        auto table=virtual_function<void*(*)(void*,bool)>(script,0x68)(script,false);
+        if(!table)return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+        virtual_function<void(*)(void*)>(table,0x18)(table);
+        function<void(*)(void*,const char*,const void*)>(0x2b6a0c)(table,"applied",&applied);
+        int count=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
+        virtual_function<void(*)(void*)>(table,0x20)(table);return count;
+    }
     if(fragment && !strcmp(fragment,"@kcdus/state-capture")) {
         private_soul_state_requested=true;
         return virtual_function<int(*)(void*)>(handler,0x58)(handler);
@@ -72,6 +87,7 @@ static int play_anim_binding(void* binding,void* handler,const char* fragment,co
 
 static void install_combat_read() {
     configure_action_probe();
+    install_xp_read();
     // C_ScriptBindHuman primary vtable, PlayAnim at +0x128, verified from
     // registration -> virtual thunk -> real binding. Exact file hash was
     // checked by initialize before this runs. Compare the original slot too.
