@@ -13,7 +13,13 @@ internal static class CharacterFixture
     { var b = Join(pieces); return Join(BitConverter.GetBytes(tag), BitConverter.GetBytes(b.Length), b); }
     private static byte[] R(byte kind, Guid id) => Join(new byte[] { 1, kind }, id.ToByteArray());
     private static byte[] X(uint id, uint value) => Join(BitConverter.GetBytes(id), BitConverter.GetBytes(value), BitConverter.GetBytes(-1));
-    public static byte[] Save(long unix, double hours, uint xp = 7, int amount = 1)
+    /// <summary>One buff instance as the engine writes it in 0x0931: instance id, definition, override, the 0x0003 block and an elapsed timer.</summary>
+    public static byte[] Buff(Guid instance, Guid definition, double elapsed) =>
+        T(0x0807, instance.ToByteArray(), definition.ToByteArray(), T(0x94E7, new byte[16]), T(0x0003, new byte[] { 0x8b, 0xaa, 0, 0, 0, 0 }), T(0x0002, BitConverter.GetBytes(elapsed)));
+    public static byte[] Buffs(params byte[][] records) => Join(new[] { BitConverter.GetBytes(records.Length) }.Concat(records).ToArray());
+    public static byte[] Accumulators(params double[] values) => Join(values.Select((v, i) => T((ushort)(0x1896 + i), BitConverter.GetBytes(v))).ToArray());
+
+    public static byte[] Save(long unix, double hours, uint xp = 7, int amount = 1, byte[]? buffs = null, byte[]? accumulators = null)
     {
         var hero = ExactTraitsSave.Henry;
         var identity = Join(hero.ToByteArray(), "Dude\0"u8.ToArray(), BitConverter.GetBytes(0x7777UL));
@@ -21,7 +27,8 @@ internal static class CharacterFixture
         var resources = Join(new float[] { 73, 115, 64, 82, 0, 0 }.SelectMany(BitConverter.GetBytes).ToArray());
         var core = T(0x092A, T(0x1385, X(0, xp)), T(0x138D, X(26, xp)), perk,
             T(0x138B, resources), T(0x137D, T(0x04B0, new byte[31])), T(0x137F, new byte[4]), T(0x138F, new byte[4]));
-        var soul = T(0x115E, hero.ToByteArray(), T(0x1302, identity), T(0x12FC, core, T(0x0934, "WORLD-KNOWLEDGE"u8.ToArray())));
+        var live = buffs == null ? Array.Empty<byte>() : Join(T(0x0926, accumulators ?? Accumulators(1, 2)), T(0x0937), T(0x0931, buffs));
+        var soul = T(0x115E, hero.ToByteArray(), T(0x1302, identity), T(0x12FC, core, live, T(0x0934, "WORLD-KNOWLEDGE"u8.ToArray()), buffs == null ? Array.Empty<byte>() : T(0x0936, "WORLD-SLOTS"u8.ToArray())));
         var item = new byte[74]; new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").ToByteArray().CopyTo(item, 0);
         BitConverter.GetBytes(amount).CopyTo(item, 16); BitConverter.GetBytes(0.75f).CopyTo(item, 20);
         BitConverter.GetBytes(1).CopyTo(item, 24); R(3, hero).CopyTo(item, 56);

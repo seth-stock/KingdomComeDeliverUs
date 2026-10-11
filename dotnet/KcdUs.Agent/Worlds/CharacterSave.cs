@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+using System.Buffers.Binary;
 namespace KcdUs.Agent.Worlds;
 
 public static partial class ExactTraitsSave
@@ -8,7 +9,17 @@ public static partial class ExactTraitsSave
     private static readonly Dictionary<ushort, int> CoreSizes = new()
     { [0x138B] = 24, [0x137D] = 37, [0x137F] = 4, [0x138F] = 4 };
     public sealed record CharacterState(Traits Traits, InventoryState Inventory,
-        Dictionary<ushort, byte[]> Core);
+        Dictionary<ushort, byte[]> Core, Dictionary<ushort, byte[]>? Live = null);
+
+    // The soul's live state (Henry's 0x12FC, beside the core) that is the CHARACTER's, not the world's:
+    //   0x0931  every buff instance: injuries, bleeding, poison, drunkenness, hangover, alcoholism, overeating, starvation, exhaustion, sleep and perk
+    //           effects. Each record is the engine's own serialization (instance id, definition, optional override, elapsed timer in seconds), which the
+    //           engine's own loader reads back (case 0x931 of the soul-state reader, FUN_1811f8d04). Timers are ELAPSED time, so a different world clock
+    //           does not shorten or lengthen them. Proved: added, saved and parsed in the private engine (2026-10-11).
+    //   0x0926  eight personal accumulators (0x1896..0x189D, doubles, default 0); not world-clock timestamps (all far below the world's clock).
+    // World-owned live state stays from the destination: 0x0934 (memory of the world), 0x0935, 0x0936, 0x0937.
+    public const ushort LiveBuffs = 0x0931, LiveAccumulators = 0x0926;
+    public const int MaxBuffs = 256, MaxBuffRecordBytes = 4096;
 
     public static CharacterState CaptureCharacter(byte[] file)
     {
@@ -16,7 +27,70 @@ public static partial class ExactTraitsSave
         var fields = Children(a.Raw, core.Begin, core.End);
         var extra = CoreSizes.ToDictionary(p => p.Key, p => Bytes(a.Raw, One(fields, p.Key)));
         ValidateCore(extra);
-        return new(Capture(file), CaptureInventory(file), extra);
+        var chain = Chain(a.Raw); var state = chain[^2];
+        var stateFields = Children(a.Raw, state.Begin, state.End);
+        // Older or synthetic streams without the live fields carry no live state (the destination's stays).
+        Dictionary<ushort, byte[]>? live = null;
+        if (stateFields.Any(f => f.Tag == LiveBuffs) && stateFields.Any(f => f.Tag == LiveAccumulators))
+        {
+            live = new() { [LiveBuffs] = Bytes(a.Raw, One(stateFields, LiveBuffs)), [LiveAccumulators] = Bytes(a.Raw, One(stateFields, LiveAccumulators)) };
+            ValidateLive(live);
+        }
+        return new(Capture(file), CaptureInventory(file), extra, live);
+    }
+
+    /// <summary>The buff list and the personal accumulators, checked field by field before they can enter another world's save.</summary>
+    public static void ValidateLive(Dictionary<ushort, byte[]> live)
+    {
+        if (!live.TryGetValue(LiveBuffs, out var buffs) || !live.TryGetValue(LiveAccumulators, out var acc) || live.Count != 2)
+            throw new InvalidDataException("Live character state framing differs.");
+        if (buffs.Length < 4 || buffs.Length > MaxBuffs * (MaxBuffRecordBytes + 6) + 4) throw new InvalidDataException("Buff list exceeds bounds.");
+        var records = Children(buffs, 4, buffs.Length);
+        if (Int(buffs, 0) != records.Count || records.Count > MaxBuffs) throw new InvalidDataException("Buff count differs from its records.");
+        var seen = new HashSet<Guid>();
+        foreach (var r in records)
+        {
+            if (r.Tag != 0x0807 || r.Length < 32 || r.Length > MaxBuffRecordBytes) throw new InvalidDataException("Unknown buff record framing.");
+            var instance = new Guid(buffs.AsSpan(r.Begin, 16));
+            if (instance == Guid.Empty || !seen.Add(instance)) throw new InvalidDataException("Buff instance identity missing or duplicated.");
+            if (new Guid(buffs.AsSpan(r.Begin + 16, 16)) == Guid.Empty) throw new InvalidDataException("Buff definition missing.");
+            var fields = Children(buffs, r.Begin + 32, r.End);
+            if (fields.Count(f => f.Tag == 0x94E7) != 1 || One(fields, 0x94E7).Length != 16) throw new InvalidDataException("Buff override framing differs.");
+            foreach (var f in fields.Where(f => f.Tag == 0x0002))
+                if (f.Length != 8 || !double.IsFinite(BitConverter.ToDouble(buffs, f.Begin)) || BitConverter.ToDouble(buffs, f.Begin) < 0)
+                    throw new InvalidDataException("Buff timer is not a finite elapsed time.");
+        }
+        var counters = Children(acc, 0, acc.Length);
+        if (counters.Count > 8 || counters.Any(c => c.Tag is < 0x1896 or > 0x189D || c.Length != 8 || !double.IsFinite(BitConverter.ToDouble(acc, c.Begin)))
+            || counters.Select(c => c.Tag).Distinct().Count() != counters.Count) throw new InvalidDataException("Personal accumulator framing differs.");
+    }
+
+    /// <summary>The definition of each buff instance (readback: the engine may drop expired ones and add place-dependent ones on load).</summary>
+    public static IReadOnlyList<Guid> BuffDefinitions(byte[] buffs) =>
+        Children(buffs, 4, buffs.Length).Where(r => r.Tag == 0x0807 && r.Length >= 32).Select(r => new Guid(buffs.AsSpan(r.Begin + 16, 16))).ToList();
+
+    // Replaces fields of Henry's soul state (0x12FC) and fixes every enclosing length.
+    private static byte[] ReplaceStateFields(byte[] file, Dictionary<ushort, byte[]> replacements)
+    {
+        var a = Inflate(file); var chain = Chain(a.Raw); var state = chain[^2];
+        var fields = Children(a.Raw, state.Begin, state.End);
+        foreach (ushort tag in replacements.Keys) _ = One(fields, tag);
+        using var payload = new MemoryStream();
+        foreach (var f in fields)
+        {
+            if (!replacements.TryGetValue(f.Tag, out var value)) payload.Write(a.Raw, f.Off, f.Length + 6);
+            else
+            {
+                var h = new byte[6]; BinaryPrimitives.WriteUInt16LittleEndian(h, f.Tag); Put(h, 2, value.Length);
+                payload.Write(h); payload.Write(value);
+            }
+        }
+        var bytes = payload.ToArray(); int delta = bytes.Length - state.Length, length = checked(a.Raw.Length + delta);
+        if (length > MaxRawBytes) throw new InvalidDataException("Prepared stream exceeds bounds.");
+        var raw = new byte[length]; a.Raw.AsSpan(0, state.Begin).CopyTo(raw); bytes.CopyTo(raw.AsSpan(state.Begin));
+        a.Raw.AsSpan(state.End).CopyTo(raw.AsSpan(state.Begin + bytes.Length));
+        foreach (var n in chain.Take(chain.Count - 1)) Put(raw, n.Off + 2, checked(n.Length + delta));   // the core (chain[^1]) lies inside the state
+        return Encode(new(raw, a.Footer));
     }
 
     private static void ValidateCore(Dictionary<ushort, byte[]> core)
@@ -48,7 +122,16 @@ public static partial class ExactTraitsSave
             if (field.Length != value.Length) throw new InvalidDataException("Destination character core framing differs.");
             value.CopyTo(raw, field.Begin);
         }
-        return Encode(new(raw, a.Footer));
+        var result = Encode(new(raw, a.Footer));
+        if (character.Live is { } live)
+        {
+            ValidateLive(live);
+            result = ReplaceStateFields(result, live);
+            var readback = CaptureCharacter(result);
+            if (readback.Live is null || !readback.Live[LiveBuffs].SequenceEqual(live[LiveBuffs]) || !readback.Live[LiveAccumulators].SequenceEqual(live[LiveAccumulators])
+                || !readback.Traits.Perks.SequenceEqual(character.Traits.Perks)) throw new InvalidDataException("Prepared live state readback differs.");
+        }
+        return result;
     }
 
     public static bool SameProgressionAndInventory(CharacterState expected, CharacterState actual)
