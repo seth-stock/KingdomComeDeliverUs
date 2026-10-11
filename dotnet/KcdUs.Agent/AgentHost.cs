@@ -142,9 +142,26 @@ public sealed class AgentHost : IAsyncDisposable
         SharedPause = Config.SharedPause,
         SharedOutcomes = Config.SharedOutcomes,
         LootJournalPath = role == GuestMode ? "" : UserFile("loot-journal.jsonl"),
+        QuestJournalPath = transient ? "" : UserFile("quest-effects.jsonl"),
+        ParticipantId = transient ? "" : NativeParticipantId(),
         Custody = CustodyFor(transient),
         PauseGate = _pauseGate,
     }, _game, relay, () => Environment.TickCount64, _log);
+
+    private string? _nativeParticipantId;
+    private string NativeParticipantId()
+    {
+        if(_nativeParticipantId is not null)return _nativeParticipantId;
+        string path=UserFile("participant-id.txt");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if(!File.Exists(path))
+        {
+            using var file=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.Read);
+            var bytes=System.Text.Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("N"));file.Write(bytes);file.Flush(true);
+        }
+        string id=File.ReadAllText(path).Trim();
+        if(!QuestXpAward.Identity(id))throw new InvalidDataException("Participant identity file is invalid; preserve it before reconnecting.");
+        return _nativeParticipantId=id;
+    }
 
     // the engine adapter's pause gate (Windows: the launcher starts the game with the adapter); one per agent, the game outlives sessions
     private readonly IPauseGate? _pauseGate = OperatingSystem.IsWindows() ? new BridgePauseGate() : null;

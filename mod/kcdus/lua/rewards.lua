@@ -165,7 +165,33 @@ end
 
 -- (host) the adapter's native XP observations since the last look: forward the quest-completion ones
 function R.xpDrain()
-    if not K.Loot or not K.Loot.enabled or not K.Loot.host or not K.inWorldRaw() then return end
+    local identity=K.inWorldRaw() and R.myIdentity() or nil
+    if identity then K.out('QXPREADY',identity) end
+    if not K.Loot or not K.Loot.enabled or not K.inWorldRaw() then
+        pcall(function() player.human:PlayAnim('@kcdus/xp-context/','off') end)
+        return
+    end
+    local scope=K.Loot.scope or ''
+    pcall(function() player.human:PlayAnim('@kcdus/xp-context/'..scope,K.Loot.host and 'host' or 'guest') end)
+    if not K.Loot.host then return end
+    local queuedOk,queued=pcall(function() return player.human:PlayAnim('@kcdus/xp-queued/'..tostring(R.nativeCursor or 0),'') end)
+    if queuedOk and type(queued)=='table' and queued.available==1 then
+        if queued.healthy~=1 then K.out('QXPGAP','native-journal',queued.cursor or 0);return end
+        if R.nativeBoot~=queued.boot then
+            R.nativeBoot=queued.boot;R.nativeCursor=0
+            if (tonumber(queued.cursor) or 0)>0 then return end
+        end
+        for i=1,tonumber(queued.n) or 0 do
+            local row=queued['e'..i] or ''
+            local event,kind,index,raw,actual,applied,verified,cause,soul,data,world,flags=
+                string.match(row,'^(%d+),(%d),(%d+),(%d+),(%d+),(%d),(%d),(%x+),(%x+),(%x+),([%w_%.%-]*),(%d)$')
+            if event and world==scope and flags=='3' and identity==soul and applied=='1' and verified=='1' and cause==R.QUEST_STATE_CAUSE then
+                K.out('QXPNATIVE','n'..queued.boot..'.'..event,kind,index,raw,cause,data,world)
+            end
+        end
+        R.nativeCursor=tonumber(queued.cursor) or R.nativeCursor or 0
+        return
+    end
     local ok, r = pcall(function() return player.human:PlayAnim('@kcdus/xp-since/' .. tostring(R.xpSeq or 0), '') end)
     if not ok or type(r) ~= 'table' or type(r.last) ~= 'number' then return end      -- no adapter: XP is not shared
     if R.xpSeq == nil then R.xpSeq = r.last; return end                            -- start from now: earlier XP is not this session's
@@ -184,6 +210,25 @@ function R.xpDrain()
     end
     -- The adapter returns at most 16 of its 64 retained observations. 'last' is
     -- the ring head, not the last row returned: advancing to it silently loses pages.
+end
+
+K.handlers.QXPNATIVEGIVE=function(f)
+    local key,kind,index,raw,cause,data,scope,soul=f[2],f[3],tonumber(f[4]),tonumber(f[5]),f[6],f[7],f[8],f[9]
+    if not K.inWorldRaw() or not K.Loot or not K.Loot.enabled or K.Loot.host or scope~=K.Loot.scope or soul~=R.myIdentity() then return end
+    if type(key)~='string' or #key<35 or #key>41 or not string.match(key,'^n%x+%.%d+$') or
+        (kind~='0' and kind~='1') or not index or index~=math.floor(index) or index<0 or index>(kind=='0' and 9 or 32) or
+        not raw or raw~=math.floor(raw) or raw<1 or raw>128*100000 or type(data)~='string' or string.find(data,'[^0-9a-f]') or
+        not(cause=='2306d30' and #data==32 or cause=='21c8fd0' and #data==48 and string.sub(data,41)=='00000000') then return end
+    if R.xpGiven[key] then return end
+    R.xpGiven[key]='intent' -- the agent also persists this before sending the command
+    local uid=string.match(tostring(player.soul:GetId()),'([%x]+)$')
+    if not uid or #uid~=16 then return end
+    local ok,result=pcall(function()
+        player.human:PlayAnim('@kcdus/xp-context/'..scope,'guest')
+        return player.human:PlayAnim('@kcdus/quest-xp/'..uid,kind..','..index..','..raw..','..cause..','..data..','..key..','..scope)
+    end)
+    if not ok or type(result)~='table' then result={reason=9,applied=0,verified=0,actual=0,before='',after=''} end
+    K.out('QXPNATIVEGIVEN',key,result.reason or 9,result.applied or 0,result.verified or 0,result.actual or 0,result.before or '',result.after or '',R.myIdentity() or '')
 end
 
 function R.myIdentity()
@@ -213,4 +258,4 @@ end
 K.every(0.5, 'quest-rewards', function() K.try('quest-rewards', R.step) end)
 K.every(0.25, 'quest-xp', function() K.try('quest-xp', R.xpDrain) end)
 
-function R.onWorldReset() R.windows = {}; R.applied = {}; R.given = {}; R.pending = {}; R.xpSeq = nil; R.xpGiven = {} end
+function R.onWorldReset() R.windows = {}; R.applied = {}; R.given = {}; R.pending = {}; R.xpSeq = nil; R.xpGiven = {}; R.nativeCursor=0 end

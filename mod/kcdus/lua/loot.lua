@@ -40,7 +40,7 @@
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|loot")
 local L = { enabled = false, scope = '', host = false, snap = {}, pending = {}, tok = 0, reach = 9, shopReach = 40, dropReach = 3, settleS = 20, taken = 0,
-    applied = 0, put = 0, dropped = 0, nonce = '', gid = {}, pc = nil, money = nil, spawned = {}, loadWt = nil, recovered = {} }
+    applied = 0, put = 0, dropped = 0, nonce = '', gid = {}, pc = nil, money = nil, spawned = {}, loadWt = nil, recovered = {}, restores = {} }
 K.Loot = L
 L.MONEY = '5ef63059-322e-4e1b-abe8-926e100c770e'
 
@@ -400,6 +400,53 @@ K.handlers['LOOTPUT'] = function(f)
     K.out('LOOTAPPLIED', id, class, ok and n or 0, ok and 'put' or 'put-failed')
 end
 
+-- Host compensation has its own operation and acknowledgement. The agent
+-- persists intent before this command and commits only the same-instance receipt.
+K.handlers.LOOTRESTORE = function(f)
+    local scope,op,id,class,n,hp,nonce=f[2],f[3],f[4],f[5],tonumber(f[6]),tonumber(f[7]),f[8]
+    if not L.enabled or not L.host or scope~=L.scope or nonce~=L.nonce or type(op)~='string' or #op~=32 or
+        string.find(op,'[^0-9a-f]') or not validId(id) or not validClass(class) or not n or n~=math.floor(n) or
+        n<1 or n>100000 or not hp or hp<0 or hp>1 then return end
+    local payload=id..'|'..class..'|'..n..'|'..f[7]
+    local existing=L.restores[op]
+    if existing then
+        if existing.payload==payload and existing.instance then
+            K.out('LOOT','restored',op,scope,id,class,n,f[7],existing.instance,'verified',nonce)
+        end
+        return
+    end
+    local entry={payload=payload};L.restores[op]=entry -- no retry after an uncertain native outcome
+    local e=find(id,nil)
+    local instance=nil
+    local ok=pcall(function()
+        assert(e and e.inventory and kindOf(e)~='ground' and K.NativeIdentity,'Native holder unavailable')
+        local before={}
+        for _,handle in pairs(e.inventory:GetInventoryTable()) do
+            local identity=K.NativeIdentity.item(handle)
+            assert(identity and not before[identity],'Incomplete native inventory identity')
+            before[identity]=true
+        end
+        local created=ItemManager.CreateItem(class,hp,n)
+        local identity,record=K.NativeIdentity.item(created)
+        assert(identity and not before[identity] and record.class==class and record.amount==n,'Native creation unverified')
+        e.inventory:AddItem(created)
+        local found=0
+        for _,handle in pairs(e.inventory:GetInventoryTable()) do
+            local current,item=K.NativeIdentity.item(handle)
+            assert(current,'Native inventory readback unavailable')
+            if current==identity then
+                assert(item.class==class and item.amount==n and math.abs(item.health-hp)<0.0001,'Native item state mismatch')
+                found=found+1
+            end
+        end
+        assert(found==1,'Created native instance not in the destination inventory')
+        instance=identity
+    end)
+    if e and e.inventory then rebaseline(e) end
+    if ok and instance then entry.instance=instance end
+    K.out('LOOT','restored',op,scope,id,class,n,f[7],instance or '',ok and instance and 'verified' or 'uncertain',nonce)
+end
+
 -- a friend's drop: it lies on my ground too
 K.handlers['LOOTDROP'] = function(f)
     local scope, id, class, n, hp = f[2], f[3], f[4], tonumber(f[5]), tonumber(f[6]) or 1
@@ -443,7 +490,7 @@ K.every(0.5, 'loot-shared', function() K.try('loot', L.scan) end)
 K.every(1.0, 'loot-settle', function() K.try('loot-settle', function() L.settle(L.settleS) end) end)
 
 function L.onWorldReset()
-    L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil; L.recovered = {}
+    L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil; L.recovered = {}; L.restores = {}
     L.loadWt = L.worldTime()                                                    -- what a reloaded save can contain (Recovery)
     -- a new load is a new nonce: the agent tells this load's takes from the forgotten ones by it
     local hex, s = '0123456789abcdef', ''

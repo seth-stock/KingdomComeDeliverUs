@@ -58,6 +58,7 @@ public sealed class OutcomesCoordinator : IDisposable
     public bool Enabled { get; private set; } = true;
     public bool Active { get { lock (_gate) return _on; } }
     public string Scope { get { lock (_gate) return _on ? _scope : ""; } }
+    public bool SharesWorld(int peer) { lock(_gate)return _on && _peerScopes.TryGetValue(peer,out var scope) && scope==_scope; }
 
     public void SetEnabled(bool on) { lock (_gate) { Enabled = on; } }
 
@@ -172,6 +173,9 @@ public sealed class OutcomesCoordinator : IDisposable
                 case "res" when _on && isHost && f.Length >= 10 && int.TryParse(f[2], NumberStyles.None, CultureInfo.InvariantCulture, out int to) && OutcomesRules.ValidOp(f[9]):
                     FinishAsk(to, f[9], f[4], f[5], f[6], f[7], f[8]);
                     break;
+                case "restored" when _on && isHost:
+                    FinishRestore(f);
+                    break;
                 case "put" or "drop" when _on && f.Length >= 6 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _)
                                            && OutcomesRules.Number(f[5], 0, 1, out _) && (f[1] == "put" || f[2].StartsWith("g@", StringComparison.Ordinal)):
                     _toPeers($"loot|{f[1]}|{f[2]}|{f[3]}|{f[4]}|{f[5]}");      // a put or a drop cannot duplicate anything: every friend's copy just gains it
@@ -232,7 +236,7 @@ public sealed class OutcomesCoordinator : IDisposable
         var j = _journal();
         if (j is not null && j.Get(OpId(op)) is { } open && open.State == OpState.EngineApplying)
         {
-            string detail = $"{id}|{cls}|{n}|{hp}|guest {to}";
+            string detail = $"{id}|{cls}|{n}|{hp}|guest {to}|scope={_scope}";
             j.Advance(OpId(op), OpState.EngineVerified, detail);
             j.Advance(OpId(op), OpState.LedgerCommitted, detail, verdict);
             j.Advance(OpId(op), OpState.Delivered, detail);                       // RecipientVerified only with the guest's receipt (PeerReceipt)
@@ -252,6 +256,8 @@ public sealed class OutcomesCoordinator : IDisposable
             if (!_on || f.Length != 4 || !OutcomesRules.ValidOp(f[2]) || f[3] is not ("kept" or "returned" or "reverted" or "partial")) return;
             var j = _journal();
             if (j is null || j.Get(OpId(f[2])) is not { } rec) return;
+            var d = rec.Evidence.Split('|');
+            if (d.Length<6 || d[4]!=$"guest {from}" || d[5]!="scope="+_scope) return;
             if (f[3] == "kept" && rec.Outcome != "ok") return;
             if (f[3] == "partial")
             {
@@ -259,7 +265,6 @@ public sealed class OutcomesCoordinator : IDisposable
                 return;
             }
             bool compensate = rec.Outcome == "ok" && f[3] is "returned" or "reverted";
-            var d = rec.Evidence.Split('|');
             bool pending = rec.State == OpState.Delivered || rec.State == OpState.RecoveryRequired && rec.Outcome.Length > 0;
             if (compensate && pending)
             {
@@ -270,9 +275,10 @@ public sealed class OutcomesCoordinator : IDisposable
                 var restore = j.Begin(restoreId, "loot.restore", Digest(_scope + "|" + rec.Evidence));
                 if (restore.Kind == BeginKind.New)
                 {
-                    j.Advance(restoreId, OpState.Reserved, rec.Evidence);
-                    j.Advance(restoreId, OpState.IntentRecorded, rec.Evidence);
-                    j.Advance(restoreId, OpState.EngineApplying, rec.Evidence);
+                    string evidence=rec.Evidence+"|restore-scope="+_scope+"|restore-load="+_luaNonce;
+                    j.Advance(restoreId, OpState.Reserved, evidence);
+                    j.Advance(restoreId, OpState.IntentRecorded, evidence);
+                    j.Advance(restoreId, OpState.EngineApplying, evidence);
                 }
                 else compensate = false; // An unknown native outcome is never retried.
             }
@@ -287,10 +293,35 @@ public sealed class OutcomesCoordinator : IDisposable
             if (!compensate || !_on) return;
             if (d.Length < 4 || !OutcomesRules.ValidName(d[0]) || !OutcomesRules.ValidClass(d[1]) || !OutcomesRules.Count(d[2], out _)) return;
             string hp = OutcomesRules.Number(d[3], 0, 1, out _) ? d[3] : "1.0000";
-            _toGame($"LOOTPUT|{_scope}|{d[0]}|{d[1]}|{d[2]}|{hp}");
-            _toGuests($"loot|put|{d[0]}|{d[1]}|{d[2]}|{hp}");
-            _log($"loot: {f[2]} was granted but guest {from} did not keep it ({f[3]}): put back into {d[0]}");
+            _toGame($"LOOTRESTORE|{_scope}|{f[2]}|{d[0]}|{d[1]}|{d[2]}|{hp}|{_luaNonce}");
+            _log($"loot: {f[2]} needs native compensation in {d[0]} after guest {from}'s {f[3]} receipt");
         }
+    }
+
+    private void FinishRestore(string[] f)
+    {
+        // A same-load receipt identifies the created native instance. A class
+        // count increase alone never completes the host's compensation.
+        if(f.Length!=11 || !OutcomesRules.ValidOp(f[2]) || f[3]!=_scope || f[10]!=_luaNonce) return;
+        var j=_journal(); var rec=j?.Get("rs:"+f[2]);
+        if(j is null || rec is null || rec.State!=OpState.EngineApplying) return;
+        var d=rec.Evidence.Split('|');
+        if(d.Length!=8 || d[0]!=f[4] || d[1]!=f[5] || d[2]!=f[6] || d[3]!=f[7] ||
+            d[5]!="scope="+_scope || d[6]!="restore-scope="+_scope || d[7]!="restore-load="+_luaNonce) return;
+        bool identity=f[8].Length==32 && f[8].All(char.IsAsciiHexDigitLower) && f[8]!=new string('0',32);
+        if(f[9]!="verified" || !identity)
+        {
+            j.Advance(rec.OperationId,OpState.RecoveryRequired,rec.Evidence+"|native compensation unverified");
+            _log("loot: compensation "+f[2]+" needs recovery; native item custody was not verified"); return;
+        }
+        string evidence=rec.Evidence+"|native-instance="+f[8];
+        j.Advance(rec.OperationId,OpState.EngineVerified,evidence,"restored");
+        j.Advance(rec.OperationId,OpState.LedgerCommitted,evidence);
+        j.Advance(rec.OperationId,OpState.Delivered,evidence);
+        j.Advance(rec.OperationId,OpState.RecipientVerified,evidence);
+        j.Advance(rec.OperationId,OpState.Complete,evidence);
+        _toGuests($"loot|put|{d[0]}|{d[1]}|{d[2]}|{d[3]}");
+        _log("loot: native compensation "+f[2]+" verified as item "+f[8]);
     }
 
     /// <summary>The host's event at a guest: loot|res|to|tok|verdict|id|class|n, or loot|took|id|class|n.</summary>
@@ -328,8 +359,9 @@ public sealed class OutcomesCoordinator : IDisposable
     {
         lock (_gate)
         {
-            if (f.Length < 6 || f[1] != "on" || isHost || !OutcomesRules.ValidNonce(f[4])) return;
+            if (f.Length < 6 || f[1] != "on" || !OutcomesRules.ValidNonce(f[4])) return;
             _luaNonce = f[4];
+            if(isHost)return;
             RecoverOpenLocked(force: true);
         }
     }

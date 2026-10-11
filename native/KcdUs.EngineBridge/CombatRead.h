@@ -42,6 +42,7 @@ static bool combat_read(void* binding,void* handler,CombatRead* out) {
 #include "NativeActions.h"
 #include "BuffRestore.h"
 #include "XpRead.h"
+#include "NativeQuestXp.h"
 #include "NativeFight.h"
 using PlayAnimBindingFn=int(*)(void*,void*,const char*,const char*);
 static PlayAnimBindingFn play_anim_original;
@@ -50,7 +51,11 @@ static int play_anim_binding(void* binding,void* handler,const char* fragment,co
     if(fragment && !strncmp(fragment,"@kcdus/mirror/",14))return private_fight_binding(binding,handler,fragment+14,tags,true);
     if(fragment && !strcmp(fragment,"@kcdus/combat-state"))return combat_state_binding(binding,handler);
     if(fragment && !strcmp(fragment,"@kcdus/xp-last"))return xp_read_binding(binding,handler);
+    if(fragment && !strcmp(fragment,"@kcdus/xp-journal"))return native_xp_journal_binding(binding,handler);
+    if(fragment && !strncmp(fragment,"@kcdus/xp-queued/",17))return native_xp_queue_binding(binding,handler,fragment+17);
+    if(fragment && !strncmp(fragment,"@kcdus/xp-context/",18))return native_xp_context_binding(handler,fragment+18,tags);
     if(fragment && !strncmp(fragment,"@kcdus/xp-since/",16))return xp_since_binding(binding,handler,fragment+16);
+    if(fragment && !strncmp(fragment,"@kcdus/quest-xp/",16))return quest_xp_binding(binding,handler,fragment+16,tags);
     if(fragment && !strncmp(fragment,"@kcdus/buff-restore/",20)) {
         int applied=private_restore_timed_buff(fragment+20,tags);
         auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);

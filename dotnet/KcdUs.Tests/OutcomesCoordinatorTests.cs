@@ -168,11 +168,18 @@ public class OutcomesCoordinatorTests
         r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
         r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "0.5000", Op }, true);
         r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, how });
-        Assert.Contains("LOOTPUT|w1|bandit_7|" + Coin + "|50|0.5000", r.ToGame);
+        Assert.Contains("LOOTRESTORE|w1|"+Op+"|bandit_7|"+Coin+"|50|0.5000|",r.ToGame);
+        Assert.DoesNotContain(r.ToGuests,l=>l.StartsWith("loot|put|"));
+        var ack=new[]{"LOOT","restored",Op,"w1","bandit_7",Coin,"50","0.5000",new string('a',32),"verified",""};
+        r.O.GameLoot(ack,true);
         Assert.Contains("loot|put|bandit_7|" + Coin + "|50|0.5000", r.ToGuests);
-        int puts = r.ToGame.Count(l => l.StartsWith("LOOTPUT"));
+        Assert.Equal(OpState.Complete,r.Journal!.Get("rs:"+Op)!.State);
+        Assert.Contains("native-instance="+new string('a',32),r.Journal.Get("rs:"+Op)!.Evidence);
+        int puts = r.ToGame.Count(l => l.StartsWith("LOOTRESTORE"));
         r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, how });                                        // a repeated receipt puts nothing back twice
-        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTPUT")));
+        r.O.GameLoot(ack,true);
+        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTRESTORE")));
+        Assert.Single(r.ToGuests.Where(l=>l.StartsWith("loot|put|")));
     }
 
     [Fact]
@@ -234,9 +241,48 @@ public class OutcomesCoordinatorTests
         Assert.StartsWith("bandit_7|" + Coin + "|50|0.5000", intent.Evidence);
         r.Journal.Recover();
         Assert.Equal(OpState.RecoveryRequired, r.Journal.Get(intent.OperationId)!.State);
-        int puts = r.ToGame.Count(l => l.StartsWith("LOOTPUT|"));
+        int puts = r.ToGame.Count(l => l.StartsWith("LOOTRESTORE|"));
         r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, "returned" });
-        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTPUT|")));
+        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTRESTORE|")));
+    }
+
+    [Theory]
+    [InlineData("w2","abcd1234","bandit_7")]
+    [InlineData("w1","deadbeef","bandit_7")]
+    [InlineData("w1","abcd1234","bandit_8")]
+    public void A_restore_ack_from_another_world_load_or_holder_cannot_complete_compensation(string scope,string nonce,string holder)
+    {
+        using var r=new Rig(journal:true);r.O.PeerScope(2,"w1");r.Step(host:true);
+        r.O.GameLootMode(new[]{"LOOTMODE","on","w1","host","abcd1234","5000"},true);
+        r.O.PeerAsk(2,new[]{"loot","ask",Op,"bandit_7",Coin,"50"});
+        r.O.GameLoot(new[]{"LOOT","res","2","1","ok","bandit_7",Coin,"50","0.5000",Op},true);
+        r.O.PeerReceipt(2,new[]{"loot","receipt",Op,"returned"});
+        r.O.GameLoot(new[]{"LOOT","restored",Op,scope,holder,Coin,"50","0.5000",new string('a',32),"verified",nonce},true);
+        Assert.Equal(OpState.EngineApplying,r.Journal!.Get("rs:"+Op)!.State);
+        Assert.DoesNotContain(r.ToGuests,l=>l.StartsWith("loot|put|"));
+    }
+
+    [Fact]
+    public void An_uncertain_native_restore_keeps_the_compensation_in_recovery_and_is_not_announced()
+    {
+        using var r=new Rig(journal:true);r.O.PeerScope(2,"w1");r.Step(host:true);
+        r.O.PeerAsk(2,new[]{"loot","ask",Op,"bandit_7",Coin,"50"});
+        r.O.GameLoot(new[]{"LOOT","res","2","1","ok","bandit_7",Coin,"50","0.5000",Op},true);
+        r.O.PeerReceipt(2,new[]{"loot","receipt",Op,"returned"});
+        r.O.GameLoot(new[]{"LOOT","restored",Op,"w1","bandit_7",Coin,"50","0.5000","","uncertain",""},true);
+        Assert.Equal(OpState.RecoveryRequired,r.Journal!.Get("rs:"+Op)!.State);
+        Assert.DoesNotContain(r.ToGuests,l=>l.StartsWith("loot|put|"));
+    }
+
+    [Fact]
+    public void Another_guests_receipt_cannot_compensate_or_complete_the_original_guests_take()
+    {
+        using var r=new Rig(journal:true);r.O.PeerScope(2,"w1");r.Step(host:true);
+        r.O.PeerAsk(2,new[]{"loot","ask",Op,"bandit_7",Coin,"50"});
+        r.O.GameLoot(new[]{"LOOT","res","2","1","ok","bandit_7",Coin,"50","0.5000",Op},true);
+        r.O.PeerReceipt(3,new[]{"loot","receipt",Op,"returned"});
+        Assert.Null(r.Journal!.Get("rs:"+Op));Assert.Equal(OpState.Delivered,r.Journal.Get("lt:"+Op)!.State);
+        Assert.DoesNotContain(r.ToGame,l=>l.StartsWith("LOOTRESTORE"));
     }
 
     [Fact]

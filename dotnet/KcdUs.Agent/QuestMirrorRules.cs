@@ -4,6 +4,14 @@ using System.Globalization;
 namespace KcdUs.Agent;
 public static class QuestMirrorRules
 {
+    public static bool ValidNativeXp(string key,string kind,string index,string raw,string cause,string data)
+    {
+        if(key.Length is <35 or >41 || key[0]!='n' || key[33]!='.' || !key[1..33].All(char.IsAsciiHexDigitLower) ||
+            !int.TryParse(key[34..],NumberStyles.None,CultureInfo.InvariantCulture,out int seq) || seq is <1 or >1000000)return false;
+        if(kind is not("0" or "1") || !int.TryParse(index,NumberStyles.None,CultureInfo.InvariantCulture,out int i) || i<0 || i>(kind=="0"?9:32) ||
+            !int.TryParse(raw,NumberStyles.None,CultureInfo.InvariantCulture,out int r) || r is <1 or >128*100000)return false;
+        return (cause=="2306d30" && data.Length==32 || cause=="21c8fd0" && data.Length==48 && data[40..]=="00000000") && data.All(char.IsAsciiHexDigitLower);
+    }
     public static bool Valid(string code, string started, string completed, string objectives)
     {
         var quest = QuestCatalog.All.FirstOrDefault(q => q.Code == code);

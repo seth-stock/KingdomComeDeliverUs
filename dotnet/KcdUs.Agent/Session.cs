@@ -22,6 +22,8 @@ public sealed class SessionOptions
     public bool SharedOutcomes { get; init; } = true;
     /// <summary>Where the host's loot decisions are journalled (empty: not durable, tests only).</summary>
     public string LootJournalPath { get; init; } = "";
+    public string QuestJournalPath { get; init; } = "";
+    public string ParticipantId { get; init; } = "";
     /// <summary>This player's takes on probation as a guest (GuestCustody.cs; null: a fresh in-memory one, tests only). Owned by the agent, shared by its sessions.</summary>
     public GuestCustody? Custody { get; init; }
     /// <summary>The engine adapter's pause gate (pause option off: this player's own ESC menu does not pause their game). Null: not available.</summary>
@@ -38,6 +40,8 @@ public sealed class PeerInfo
     public long StateAtMs { get; set; }
     public bool InWorld { get; set; }
     public RailsChoice Choice { get; set; } = RailsChoice.Pending;
+    public string ParticipantId { get; set; } = "";
+    public string NativeSoul { get; set; } = "";
 }
 
 /// <summary>
@@ -109,6 +113,20 @@ public sealed class Session : IDisposable
     public NpcCoordinator Npcs => _npcs;
     private readonly OutcomesCoordinator _outcomes;
     private OperationJournal? _lootJournal;
+    private QuestXpDelivery? _questDelivery;
+    private bool _nativeQuestDisabled;
+    private string _nativeSoul="";
+    private long _lastNativeXpSendMs;
+    private int _nativeXpRetryCursor;
+    private QuestXpDelivery? QuestDelivery()
+    {
+        if(_questDelivery is not null || _nativeQuestDisabled || _o.QuestJournalPath.Length==0)return _questDelivery;
+        try{_questDelivery=new QuestXpDelivery(_o.QuestJournalPath);}
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException or InvalidDataException)
+        { _nativeQuestDisabled=true;_log("native quest delivery journal unavailable: "+e.Message); }
+        return _questDelivery;
+    }
+    private void SendXpReceipt(QuestXpReceipt r)=>_relay.Send(MessageType.Event,$"qxp-native-ack|{r.Key}|{r.World}|{r.Participant}|{r.Soul}");
 
     /// <summary>The shared fights and loot with the friends who are in the same shared world.</summary>
     public OutcomesCoordinator Outcomes => _outcomes;
@@ -164,6 +182,7 @@ public sealed class Session : IDisposable
         _relay.Frame -= OnRelayFrame;
         _relay.ConnectionChanged -= OnRelayConnection;
         _lootJournal?.Dispose();
+        _questDelivery?.Dispose();
     }
 
     public bool IsHost => _o.Role == "host";
@@ -322,6 +341,22 @@ public sealed class Session : IDisposable
                     break;
                 case "QXPGIVEN":
                     _log("quest xp: " + string.Join(' ', f.Skip(1)));
+                    break;
+                case "QXPREADY" when f.Length==2 && QuestXpAward.Identity(f[1]):
+                    _nativeSoul=f[1];
+                    if(_myId!=0 && QuestXpAward.Identity(_o.ParticipantId))
+                        _relay.Send(MessageType.Event,$"quest-native-identity|{_o.ParticipantId}|{_nativeSoul}");
+                    break;
+                case "QXPNATIVE" when f.Length==8:
+                    if(_candidateQuests && IsHost && _inWorld && _myId!=0 && f[7]==_outcomes.Scope && f[5]=="2306d30" &&
+                        QuestMirrorRules.ValidNativeXp(f[1],f[2],f[3],f[4],f[5],f[6]))
+                        foreach(var peer in _peers.Values.Where(p=>p.Id!=_myId && p.InWorld && _outcomes.SharesWorld(p.Id) &&
+                            QuestXpAward.Identity(p.ParticipantId) && QuestXpAward.Identity(p.NativeSoul)))
+                            QuestDelivery()?.Offer(new(f[1],f[7],peer.ParticipantId,peer.NativeSoul,f[2],f[3],f[4],f[5],f[6]));
+                    break;
+                case "QXPNATIVEGIVEN" when f.Length==9:
+                    if(!IsHost && _candidateQuests && _outcomes.Active && QuestDelivery()?.Complete(f[1],f[8],f[5],f[6],f[7],f[3]=="1",f[4]=="1") is {} receipt)
+                        SendXpReceipt(receipt);
                     break;
                 case "QRGIVEN":
                     _log("quest reward: " + string.Join(' ', f.Skip(1)));
@@ -556,6 +591,13 @@ public sealed class Session : IDisposable
         if (IsWorldKind(f[0])) { WorldEvent?.Invoke(from, f); return; }
         switch (f[0])
         {
+            case "quest-native-identity" when f.Length==3 && QuestXpAward.Identity(f[1]) && QuestXpAward.Identity(f[2]):
+                if(f[1]!=_o.ParticipantId && (p.ParticipantId.Length==0 || p.ParticipantId==f[1]) && !_peers.Values.Any(other=>other.Id!=from && other.ParticipantId==f[1]))
+                {p.ParticipantId=f[1];p.NativeSoul=f[2];}
+                break;
+            case "qxp-native-ack" when IsHost && f.Length==5 && p.ParticipantId==f[3] && _outcomes.SharesWorld(from):
+                QuestDelivery()?.Acknowledge(f[1],f[2],f[3],f[4]);
+                break;
             case "pause" when f.Length == 2 && f[1] is "0" or "1":
                 _pause.PeerMenu(from, f[1] == "1");
                 break;
@@ -614,6 +656,18 @@ public sealed class Session : IDisposable
         if (from != _hostId || IsHost) return;
         switch (f[0])
         {
+            case "qxp-native" when f.Length==11:
+                if(_candidateQuests && _inWorld && !_contentDiffers && _outcomes.Active && f[1]==_questHostEpoch &&
+                    f[2]==_o.ParticipantId && f[3]==_outcomes.Scope && f[10]==_nativeSoul)
+                {
+                    var award=new QuestXpAward(f[4],f[3],f[2],f[10],f[5],f[6],f[7],f[8],f[9]);
+                    if(!award.Valid)break;
+                    var begin=QuestDelivery()?.Prepare(award);
+                    if(begin?.Kind==Coop.Contract.BeginKind.New)
+                        _game.Send($"QXPNATIVEGIVE|{award.Key}|{award.Kind}|{award.Index}|{award.Raw}|{award.Cause}|{award.Data}|{award.World}|{award.Soul}");
+                    else if(begin?.Kind==Coop.Contract.BeginKind.Replay && QuestDelivery()?.Receipt(award.Key) is {} replay)SendXpReceipt(replay);
+                }
+                break;
             case "quest-epoch" when f.Length == 2 && Guid.TryParseExact(f[1], "N", out _):
                 if (_candidateQuests) { _questHostEpoch = f[1]; _game.Send("QMRESET|" + f[1]); }
                 break;
@@ -786,6 +840,18 @@ public sealed class Session : IDisposable
             _npcs.Tick(_outcomes.Active && _inWorld ? _outcomes.Scope : "", IsHost, _myId);
             _weather.Tick(_outcomes.Active && _inWorld ? _outcomes.Scope : "",IsHost,
                 IsHost ? _story.Active is null : _hostTier==StoryTier.Open);
+            if(IsHost && _candidateQuests && _outcomes.Active && _myId!=0 && now-_lastNativeXpSendMs>=2000)
+            {
+                _lastNativeXpSendMs=now;
+                var pending=QuestDelivery()?.Pending(_outcomes.Scope) ?? Array.Empty<QuestXpAward>();
+                for(int i=0;i<Math.Min(32,pending.Count);i++)
+                {
+                    var award=pending[(_nativeXpRetryCursor+i)%pending.Count];
+                    if(_peers.Values.Any(p=>p.ParticipantId==award.Participant && p.NativeSoul==award.Soul && _outcomes.SharesWorld(p.Id)))
+                        _relay.Send(MessageType.HostEvent,$"qxp-native|{_questEpoch}|{award.Participant}|{award.World}|{award.Key}|{award.Kind}|{award.Index}|{award.Raw}|{award.Cause}|{award.Data}|{award.Soul}");
+                }
+                _nativeXpRetryCursor=pending.Count==0?0:(_nativeXpRetryCursor+Math.Min(32,pending.Count))%pending.Count;
+            }
             if (_outcomes.Active != _questAuto)
             {
                 // the host's quest progress follows into the guests' copies of the same shared world (one way, vetoes in QuestMirrorRules / quest_mirror.lua)

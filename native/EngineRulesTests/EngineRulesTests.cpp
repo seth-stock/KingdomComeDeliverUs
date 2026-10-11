@@ -3,6 +3,7 @@
 #include <limits>
 #include "../KcdUs.EngineBridge/BoundedBuffStream.h"
 #include "../KcdUs.EngineBridge/TimedBuffRecord.h"
+#include "../KcdUs.EngineBridge/NativeXpRecord.h"
 int main() {
     int n=0;
     auto check=[&n](bool value){if(!value){std::printf("FAIL %d\n",n+1);return false;}++n;return true;};
@@ -47,5 +48,17 @@ int main() {
     r={buff_reader_slots,frame,54,0,false};
     if(!check(!buff_reader_read(&r,copy,55) && r.position==0))return 1;
     r={buff_reader_slots,frame,54,55,false};if(!check(!buff_reader_skip(&r,0)))return 1;
-    std::printf("PASS %d native bounded-stream checks\n",n);return 0;
+    NativeXpRecord xp{};xp.magic=native_xp_magic;xp.version=1;xp.size=sizeof(xp);xp.phase=1;
+    xp.sequence=1;xp.event=1;xp.kind=1;xp.index=32;xp.requested=128;xp.causeRva=0x21c8fd0;xp.causeLength=24;
+    if(!check(native_xp_record_shape(xp)))return 1;
+    xp.cause[20]=1;if(!check(!native_xp_record_shape(xp)))return 1;xp.cause[20]=0;
+    xp.index=33;if(!check(!native_xp_record_shape(xp)))return 1;xp.index=32;
+    xp.flags=3;if(!check(!native_xp_record_shape(xp)))return 1;xp.world[0]='w';
+    if(!check(native_xp_record_shape(xp)))return 1;
+    xp.flags=7;if(!check(native_xp_record_shape(xp)))return 1;
+    xp.actual=1;if(!check(!native_xp_record_shape(xp)))return 1;xp.actual=0;
+    xp.phase=2;xp.sequence=2;xp.actual=128;xp.applied=1;xp.verified=1;
+    if(!check(native_xp_record_shape(xp)))return 1;
+    xp.event=3;if(!check(!native_xp_record_shape(xp)))return 1;
+    std::printf("PASS %d native bounded-stream and effect-record checks\n",n);return 0;
 }

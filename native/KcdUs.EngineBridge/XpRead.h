@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Observation of native applied stat/skill XP (docs/CAPABILITIES.md, "Quest rewards"). No grants, no altered results.
-// Every application keeps its cause: C_QuestObjectiveChangedCause (0x21c8fd0, 24-byte data) or C_QuestStateChangedCause (0x2306d30, 16-byte data) for quest
+// Every application keeps its cause: C_QuestObjectiveFinishedCause (0x21c8fd0, 24-byte data) or C_QuestStateChangedCause (0x2306d30, 16-byte data) for quest
 // rewards, C_UknownScriptCause (0x2201b10) for script/Lua awards, others for combat, reading, crafting... The mod forwards only quest-state-caused XP (a
 // quest's completion rewards, which a guest's mirror cannot trigger); objective rewards are paid natively on the guest by its quest mirror (proved live).
 // Installed with the adapter in normal play: the two vtable slots are checked against the exact engine (hash-gated by initialize) and pass every call through.
@@ -12,7 +12,10 @@ struct AppliedXp {
     BYTE soulIdentity[16];
     BYTE causeData[24];
     int causeDataLength;
+    char world[64];
+    unsigned contextFlags;
 };
+#include "NativeXpJournal.h"
 static SRWLOCK xp_read_lock=SRWLOCK_INIT;
 static AppliedXp xp_read_last{};
 static AppliedXp xp_ring[64];
@@ -43,7 +46,7 @@ static bool xp_before(BYTE* effect,AppliedXp* read,unsigned long long* uid) {
             auto nt=reinterpret_cast<IMAGE_NT_HEADERS*>(engine+reinterpret_cast<IMAGE_DOS_HEADER*>(engine)->e_lfanew);
             size_t offset=reinterpret_cast<size_t>(vt)-reinterpret_cast<size_t>(engine);
             if(offset<nt->OptionalHeader.SizeOfImage)read->sourceVtableRva=static_cast<unsigned>(offset);
-            // effect+8 is C_EffectSource, not the cause. Its verified native
+            // effect+8 is C_Event, not the cause. Its verified native
             // constructor owns I_Cause at +8 and its effects vector at +0x10.
             if(vt==engine+0x21beb08) {
                 auto cause=*reinterpret_cast<BYTE**>(source+8);
@@ -52,7 +55,12 @@ static bool xp_before(BYTE* effect,AppliedXp* read,unsigned long long* uid) {
                     offset=reinterpret_cast<size_t>(causeVt)-reinterpret_cast<size_t>(engine);
                     if(offset<nt->OptionalHeader.SizeOfImage)read->causeVtableRva=static_cast<unsigned>(offset);
                     // The quest causes copy their data right after the vtable: objective 24 bytes (ctor 0x5d5f38), quest state 16 bytes (ctor 0x11b6e14).
-                    if(causeVt==engine+0x21c8fd0) { memcpy(read->causeData,cause+8,24);read->causeDataLength=24; }
+                    if(causeVt==engine+0x21c8fd0) {
+                        // Native S_QuestObjectiveFinishedData: soul WUID (8),
+                        // quest id (4), objective id (4), repeat counter (4),
+                        // padding (4). Padding must never enter receipt identity.
+                        memcpy(read->causeData,cause+8,20);read->causeDataLength=24;
+                    }
                     else if(causeVt==engine+0x2306d30) { memcpy(read->causeData,cause+8,16);read->causeDataLength=16; }
                 }
             }
@@ -73,12 +81,24 @@ static void xp_after(BYTE* effect,AppliedXp* read,unsigned long long uid) {
 static unsigned long long observe_xp(BYTE* effect,int kind,StatXpApply original) {
     AppliedXp read{};read.kind=kind;unsigned long long uid=0;
     bool captured=xp_before(effect,&read,&uid);
+    if(captured) {
+        AcquireSRWLockShared(&native_xp_journal_lock);
+        memcpy(read.world,native_xp_world,64);read.contextFlags=native_xp_flags;
+        if(native_xp_replay_depth)read.contextFlags|=4;
+        ReleaseSRWLockShared(&native_xp_journal_lock);
+    }
+    auto event=captured?native_xp_append(read,1,0):0;
+    // Received awards are our own injected calls: refuse them before native
+    // application if their intent cannot be persisted. Ordinary game XP keeps
+    // the original engine semantics even when observation storage fails.
+    if(native_xp_replay_depth && !event)return 0;
     // Never hold a lock or alter the engine's call count/result. Exceptions
     // in the original application retain their original engine semantics.
     auto result=original(effect);
     if(captured) {
         read.applied=(result&255)?1:0;
         xp_after(effect,&read,uid);
+        if(event)native_xp_append(read,2,event);
         AcquireSRWLockExclusive(&xp_read_lock);
         // Assignment under the publication lock also preserves completion order
         // when native application is reentrant or concurrent.
