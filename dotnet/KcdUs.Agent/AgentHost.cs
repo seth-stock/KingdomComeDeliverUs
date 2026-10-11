@@ -65,6 +65,20 @@ public sealed class AgentHost : IAsyncDisposable
     public string? IdentityFile { get; set; }
     /// <summary>Where a hosted room remembers participant keys; null: in the player's own folder.</summary>
     public string? BindingsFile { get; set; }
+    /// <summary>The guest's durable loot custody (GuestCustody.cs). Tests point it at a private folder.</summary>
+    public string? CustodyFile { get; set; }
+    private GuestCustody? _custody, _memoryCustody;
+    // one per agent, opened on first use: sessions come and go, the file must not be opened twice
+    private GuestCustody CustodyFor(string role)
+    {
+        if (role == GuestMode) return _memoryCustody ??= new GuestCustody();
+        try { return _custody ??= new GuestCustody(CustodyFile ?? UserFile("loot-custody.jsonl")); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _log("loot custody journal unavailable (" + e.Message + "): takes on probation are kept in memory only");
+            return _memoryCustody ??= new GuestCustody();
+        }
+    }
     /// <summary>The game said its startup engine adapter is in its process (the Lua mod's ADAPTER line).</summary>
     public bool AdapterLoaded { get; private set; }
     private ParticipantBindings.Identity? _identity;
@@ -126,6 +140,7 @@ public sealed class AgentHost : IAsyncDisposable
         SharedPause = Config.SharedPause,
         SharedOutcomes = Config.SharedOutcomes,
         LootJournalPath = role == GuestMode ? "" : UserFile("loot-journal.jsonl"),
+        Custody = CustodyFor(role),
         PauseGate = _pauseGate,
     }, _game, relay, () => Environment.TickCount64, _log);
 

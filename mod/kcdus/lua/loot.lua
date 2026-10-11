@@ -23,15 +23,24 @@
 --                 LOOTPUT|<scope>|<id>|<class>|<n>|<health>                  a friend put it there: this copy gains it
 --                 LOOTDROP|<scope>|<id>|<class>|<n>|<health>                 a friend dropped it on the ground there: it lies here too
 --                 LOOTSETTLE                                                  take back every take the host has not confirmed
+--                 LOOTRECOVER|<scope>|<op>|<class>|<n>|<price>|<takeWt>|<verdict>   (guest) a take from an EARLIER load or process, settled from the
+--                                                                agent's durable custody journal (GuestCustody.cs): see "Recovery" below
 -- game -> agent:  KCDUS|LOOT|took|<id>|<class>|<n>|<health>          (host) the host took it
 --                 KCDUS|LOOT|ask|<nonce>|<tok>|<id>|<class>|<n>|<health>   (guest) this player took it, host please decide
 --                 KCDUS|LOOT|res|<from>|<tok>|<verdict>|<id>|<class>|<n>|<health>   (host) the verdict on a guest's ask
 --                 KCDUS|LOOT|put|<id>|<class>|<n>|<health>  /  KCDUS|LOOT|drop|<id>|<class>|<n>|<health>
 --                 KCDUS|LOOT|unconfirmed|<id>|<class>|<n>             an item was taken back (no answer, or the host said gone)
+--                 KCDUS|LOOT|kept|<nonce>|<tok>  /  KCDUS|LOOT|returned|<nonce>|<tok>|<ok 0/1>   (guest) the receipt for the agent's journal and the host
+--                 KCDUS|LOOT|recovered|<op>|<removed>|<refunded>|<why>  (guest) a recovered take's readback
+--
+-- Recovery (durable custody): the guest's agent journals every ask on disk with this load's nonce and the WORLD TIME of the take. After a reload or a
+-- crash this file has forgotten its asks; the agent then sends LOOTRECOVER for each one still open. The world time the save was loaded at decides whether the
+-- take can be in this save at all: a take made after it is not (the world went back), so nothing is removed. A take the save may contain is kept when the
+-- host said ok, and taken back (with a shop's price refunded) when the host said gone. An unanswered one waits for the host; it is never guessed.
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|loot")
 local L = { enabled = false, scope = '', host = false, snap = {}, pending = {}, tok = 0, reach = 9, shopReach = 40, dropReach = 3, settleS = 20, taken = 0,
-    applied = 0, put = 0, dropped = 0, nonce = '', gid = {}, pc = nil, money = nil, spawned = {} }
+    applied = 0, put = 0, dropped = 0, nonce = '', gid = {}, pc = nil, money = nil, spawned = {}, loadWt = nil, recovered = {} }
 K.Loot = L
 L.MONEY = '5ef63059-322e-4e1b-abe8-926e100c770e'
 
@@ -204,9 +213,15 @@ local function took(id, class, n, hp, price)
         K.out('LOOT', 'took', id, class, n, fmt(hp))
     else
         L.tok = L.tok + 1
-        L.pending[L.tok] = { id = id, class = class, n = n, hp = hp, at = K.now(), price = price or 0 }
-        K.out('LOOT', 'ask', L.nonce, L.tok, id, class, n, fmt(hp))
+        local wt = L.worldTime()
+        L.pending[L.tok] = { id = id, class = class, n = n, hp = hp, at = K.now(), price = price or 0, wt = wt }
+        K.out('LOOT', 'ask', L.nonce, L.tok, id, class, n, fmt(hp), price or 0, string.format('%.0f', wt))
     end
+end
+
+function L.worldTime()
+    local ok, t = pcall(Calendar.GetWorldTime)
+    return (ok and type(t) == 'number') and t or 0
 end
 
 local function pendingClass(class)
@@ -303,6 +318,7 @@ function L.settle(maxAgeS)
             local ok = takeBack(t)
             n = n + 1
             K.out('LOOT', 'unconfirmed', t.id, t.class, t.n, ok and 1 or 0)
+            K.out('LOOT', 'returned', L.nonce, tok, ok and 1 or 0)
         end
     end
     return n
@@ -315,7 +331,7 @@ K.handlers['LOOTMODE'] = function(f)
     L.snap = {}
     L.pc = nil
     if not L.enabled then L.settle(0) end
-    K.out('LOOTMODE', L.enabled and 'on' or 'off', L.scope, L.host and 'host' or 'guest')
+    K.out('LOOTMODE', L.enabled and 'on' or 'off', L.scope, L.host and 'host' or 'guest', L.nonce, string.format('%.0f', L.loadWt or L.worldTime()))
 end
 
 K.handlers['LOOTSETTLE'] = function(f) L.settle(0) end
@@ -338,7 +354,7 @@ K.handlers['LOOTASK'] = function(f)
             verdict = 'gone'
         end
     end
-    K.out('LOOT', 'res', from, tok, verdict, id, class, n, fmt(hp))
+    K.out('LOOT', 'res', from, tok, verdict, id, class, n, fmt(hp), nonce)   -- nonce: the guest's durable operation id (GuestCustody.cs)
     if verdict == 'ok' then K.out('LOOT', 'took', id, class, n, fmt(hp)) end    -- the other guests lose it too
 end
 
@@ -351,9 +367,11 @@ K.handlers['LOOTRES'] = function(f)
     L.pending[tok] = nil
     if verdict == 'ok' then
         K.out('LOOT', 'confirmed', t.id, t.class, t.n)
+        K.out('LOOT', 'kept', L.nonce, tok)
     else
         local ok = takeBack(t)
         K.out('LOOT', 'unconfirmed', t.id, t.class, t.n, ok and 1 or 0)    -- somebody else was first (or it was never there): taken back
+        K.out('LOOT', 'returned', L.nonce, tok, ok and 1 or 0)
     end
 end
 
@@ -398,7 +416,35 @@ K.handlers['LOOTDROP'] = function(f)
     K.out('LOOTAPPLIED', id, class, ok and ent and n or 0, ok and ent and 'dropped' or 'drop-failed')
 end
 
+-- (guest) a take of an earlier load or process (the agent's journal): see "Recovery" at the top
+K.handlers['LOOTRECOVER'] = function(f)
+    local scope, op, class, n, price, takeWt, verdict = f[2], f[3], f[4], tonumber(f[5]), tonumber(f[6]) or 0, tonumber(f[7]), f[8]
+    if not L.enabled or L.host or scope ~= L.scope or type(op) ~= 'string' or not string.find(op, '^%x+$') or #op ~= 32 then return end
+    if not validClass(class) or not n or n < 1 or n > 100000 or not takeWt or price < 0 or price > 10000000 then return end
+    if L.recovered[op] then K.out('LOOT', 'recovered', op, 0, 0, 'repeat'); return end
+    if not K.inWorldRaw() then return end
+    local loaded = L.loadWt or L.worldTime()
+    if takeWt > loaded then L.recovered[op] = true; K.out('LOOT', 'recovered', op, 0, 0, 'reverted'); return end   -- not in this save: the world went back
+    if verdict == 'ok' then L.recovered[op] = true; K.out('LOOT', 'recovered', op, 0, 0, 'kept'); return end
+    if verdict ~= 'gone' and verdict ~= 'none' then return end                                -- unanswered: wait for the host, never guess
+    local have = player.inventory:GetCountOfClass(class)
+    local k = math.min(n, have)
+    local ok = k <= 0 or pcall(function() player.inventory:DeleteItemOfClass(class, k) end)
+    local refunded = 0
+    if ok and price > 0 then if giveTo(player.inventory, L.MONEY, price, 1) then refunded = price end end
+    L.pc = nil
+    L.recovered[op] = true
+    K.out('LOOT', 'recovered', op, ok and k or 0, refunded, k < n and 'partial' or 'returned')
+end
+
 K.every(0.5, 'loot-shared', function() K.try('loot', L.scan) end)
 K.every(1.0, 'loot-settle', function() K.try('loot-settle', function() L.settle(L.settleS) end) end)
 
-function L.onWorldReset() L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil end
+function L.onWorldReset()
+    L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil; L.recovered = {}
+    L.loadWt = L.worldTime()                                                    -- what a reloaded save can contain (Recovery)
+    -- a new load is a new nonce: the agent tells this load's takes from the forgotten ones by it
+    local hex, s = '0123456789abcdef', ''
+    for _ = 1, 8 do local i = math.random(1, 16); s = s .. string.sub(hex, i, i) end
+    L.nonce = s
+end

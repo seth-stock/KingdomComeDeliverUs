@@ -22,6 +22,8 @@ public static class OutcomesRules
     public static bool ValidName(string s) => Name.IsMatch(s) && !s.Contains("kcdus_", StringComparison.Ordinal);
     public static bool ValidClass(string s) => Class.IsMatch(s);
     public static bool ValidNonce(string s) => Nonce.IsMatch(s);
+    /// <summary>A durable loot operation id (GuestCustody.cs): 128 random bits, lower-case hex.</summary>
+    public static bool ValidOp(string s) => s.Length == 32 && s.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
     public static bool ValidScope(string s) => s.Length is >= 1 and <= 64 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.');
     public static bool Number(string s, double min, double max, out double v) =>
         double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v >= min && v <= max;
@@ -44,10 +46,13 @@ public sealed class OutcomesCoordinator : IDisposable
     private int _windowCount;
 
     public OutcomesCoordinator(Func<long> now, Action<string> toGame, Action<string> toPeers, Action<string> toGuests, Action<string> notify, Action<string> log,
-        Func<int, string> nameOf, Func<OperationJournal?> journal)
+        Func<int, string> nameOf, Func<OperationJournal?> journal, GuestCustody? custody = null)
     {
         _now = now; _toGame = toGame; _toPeers = toPeers; _toGuests = toGuests; _notify = notify; _log = log; _nameOf = nameOf; _journal = journal;
+        _custody = custody ?? new GuestCustody();
     }
+
+    private readonly GuestCustody _custody;
 
     /// <summary>The player's option (default on).</summary>
     public bool Enabled { get; private set; } = true;
@@ -76,6 +81,7 @@ public sealed class OutcomesCoordinator : IDisposable
         lock (_gate)
         {
             long now = _now();
+            if (!isHost && _luaNonce.Length > 0) RecoverOpenLocked(force: false);
             string scope = inWorld && connected && OutcomesRules.ValidScope(myScope) ? myScope : "";
             if (connected && (scope != _announced || (scope.Length > 0 && now - _lastAnnounceMs >= 5000)))
             {
@@ -142,12 +148,28 @@ public sealed class OutcomesCoordinator : IDisposable
                 case "took" when _on && isHost && f.Length >= 6 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _):
                     _toGuests($"loot|took|{f[2]}|{f[3]}|{f[4]}");
                     break;
-                case "ask" when _on && !isHost && f.Length >= 8 && OutcomesRules.ValidNonce(f[2]) && OutcomesRules.Count(f[3], out _) && OutcomesRules.ValidName(f[4])
-                                && OutcomesRules.ValidClass(f[5]) && OutcomesRules.Count(f[6], out _):
-                    _toPeers($"loot|ask|{f[2]}|{f[3]}|{f[4]}|{f[5]}|{f[6]}");
+                case "ask" when _on && !isHost && f.Length >= 10 && OutcomesRules.ValidNonce(f[2]) && OutcomesRules.Count(f[3], out int tok) && OutcomesRules.ValidName(f[4])
+                                && OutcomesRules.ValidClass(f[5]) && OutcomesRules.Count(f[6], out int n) && OutcomesRules.Number(f[7], 0, 1, out double hp)
+                                && int.TryParse(f[8], NumberStyles.None, CultureInfo.InvariantCulture, out int price) && price <= 10_000_000
+                                && OutcomesRules.Number(f[9], 0, 1e12, out double wt):
+                {
+                    // journalled on disk BEFORE the host hears of it (GuestCustody.cs): a reload or a crash cannot lose the probation
+                    var t = _custody.Record(f[2], tok, f[4], f[5], n, hp, price, wt, _scope);
+                    _toPeers($"loot|ask|{t.Op}|{f[4]}|{f[5]}|{f[6]}");
                     break;
-                case "res" when _on && isHost && f.Length >= 9 && int.TryParse(f[2], NumberStyles.None, CultureInfo.InvariantCulture, out int to):
-                    FinishAsk(to, f[3], f[4], f[5], f[6], f[7], f[8]);
+                }
+                case "kept" or "returned" when !isHost && f.Length >= 4 && OutcomesRules.ValidNonce(f[2]) && OutcomesRules.Count(f[3], out int rtok):
+                {
+                    var t = _custody.Find(f[2], rtok);
+                    if (t != null && _custody.Settle(t.Op, f[1])) _toPeers($"loot|receipt|{t.Op}|{f[1]}");
+                    break;
+                }
+                case "recovered" when !isHost && f.Length >= 6 && OutcomesRules.ValidOp(f[2]) && f[5] is "kept" or "returned" or "reverted" or "partial":
+                    if (_custody.Settle(f[2], f[5])) _toPeers($"loot|receipt|{f[2]}|{f[5]}");
+                    _log($"loot recovery: {f[2]} {f[5]} (removed {f[3]}, refunded {f[4]})");
+                    break;
+                case "res" when _on && isHost && f.Length >= 10 && int.TryParse(f[2], NumberStyles.None, CultureInfo.InvariantCulture, out int to) && OutcomesRules.ValidOp(f[9]):
+                    FinishAsk(to, f[9], f[4], f[5], f[6], f[7], f[8]);
                     break;
                 case "put" or "drop" when _on && f.Length >= 6 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _)
                                            && OutcomesRules.Number(f[5], 0, 1, out _) && (f[1] == "put" || f[2].StartsWith("g@", StringComparison.Ordinal)):
@@ -171,31 +193,31 @@ public sealed class OutcomesCoordinator : IDisposable
         }
     }
 
-    private static string OpId(int from, string nonce, string tok) => $"lt:{from}:{nonce}:{tok}";
+    private static string OpId(string op) => "lt:" + op;
 
-    /// <summary>A guest's ask at the host: journal it, then let the game decide.</summary>
+    /// <summary>A guest's ask at the host (loot|ask|op|holder|class|n): journal it, then let the game decide. The op id is the guest's durable custody id.</summary>
     public void PeerAsk(int from, string[] f)
     {
         lock (_gate)
         {
-            // f = loot|ask|nonce|tok|id|class|n
-            if (!_on || f.Length != 7 || f[1] != "ask" || !OutcomesRules.ValidNonce(f[2]) || !OutcomesRules.Count(f[3], out _) || !OutcomesRules.ValidName(f[4]) || !OutcomesRules.ValidClass(f[5]) || !OutcomesRules.Count(f[6], out int n)) return;
+            if (!_on || f.Length != 6 || f[1] != "ask" || !OutcomesRules.ValidOp(f[2]) || !OutcomesRules.ValidName(f[3]) || !OutcomesRules.ValidClass(f[4]) || !OutcomesRules.Count(f[5], out int n)) return;
             var j = _journal();
-            string id = OpId(from, f[2], f[3]);
-            string digest = Digest($"ask|{f[4]}|{f[5]}|{n}");
-            if (j is null) { _toGame($"LOOTASK|{_scope}|{from}|{f[2]}|{f[3]}|{f[4]}|{f[5]}|{n}"); return; }   // no journal (tests): the game decides, nothing is remembered
+            string id = OpId(f[2]);
+            string digest = Digest($"ask|{f[3]}|{f[4]}|{n}");
+            if (j is null) { _toGame($"LOOTASK|{_scope}|{from}|{f[2]}|1|{f[3]}|{f[4]}|{n}"); return; }   // no journal (tests): the game decides, nothing is remembered
             var begin = j.Begin(id, "loot.ask", digest);
             switch (begin.Kind)
             {
                 case BeginKind.New:
-                    j.Advance(id, OpState.Reserved); j.Advance(id, OpState.IntentRecorded); j.Advance(id, OpState.EngineApplying);
-                    _toGame($"LOOTASK|{_scope}|{from}|{f[2]}|{f[3]}|{f[4]}|{f[5]}|{n}");
+                    j.Advance(id, OpState.Reserved); j.Advance(id, OpState.IntentRecorded, $"{f[3]}|{f[4]}|{n}"); j.Advance(id, OpState.EngineApplying, $"{f[3]}|{f[4]}|{n}");
+                    _toGame($"LOOTASK|{_scope}|{from}|{f[2]}|1|{f[3]}|{f[4]}|{n}");
                     break;
-                case BeginKind.Replay:                                // the same ask again: the same answer, nothing applied twice
-                    _toGuests($"loot|res|{from}|{f[3]}|{begin.Record.Outcome}|{f[4]}|{f[5]}|{n}");
+                case BeginKind.Replay or BeginKind.InProgress when begin.Record.Outcome.Length > 0:   // the same ask again (a guest restarted): the same answer, nothing applied twice
+                    _toGuests($"loot|res|{from}|{f[2]}|{begin.Record.Outcome}|{f[3]}|{f[4]}|{n}");
                     break;
-                case BeginKind.Quarantined:                           // interrupted after the game may have applied it: never granted a second time
-                    _toGuests($"loot|res|{from}|{f[3]}|gone|{f[4]}|{f[5]}|{n}");
+                case BeginKind.Quarantined:
+                    // interrupted on the host: a recorded decision stands; one interrupted before it was recorded may have touched the engine: never granted again
+                    _toGuests($"loot|res|{from}|{f[2]}|{(begin.Record.Outcome is "ok" or "gone" or "none" ? begin.Record.Outcome : "gone")}|{f[3]}|{f[4]}|{n}");
                     break;
                 case BeginKind.Conflict: _log($"loot: ask {id} repeated with other contents: ignored"); break;
                 case BeginKind.InProgress: break;
@@ -203,24 +225,49 @@ public sealed class OutcomesCoordinator : IDisposable
         }
     }
 
-    private void FinishAsk(int to, string tok, string verdict, string id, string cls, string n, string hp)
+    private void FinishAsk(int to, string op, string verdict, string id, string cls, string n, string hp)
     {
         if (verdict is not ("ok" or "gone" or "none") || !OutcomesRules.ValidName(id) || !OutcomesRules.ValidClass(cls) || !OutcomesRules.Count(n, out _)) return;
-        // the nonce is not in the game's answer: find the open operation for this guest and token
         var j = _journal();
-        if (j is not null)
+        if (j is not null && j.Get(OpId(op)) is { } open && open.State == OpState.EngineApplying)
         {
-            var open = j.All().LastOrDefault(r => !OperationJournal.IsTerminal(r.State) && r.State != OpState.RecoveryRequired && r.OperationId.StartsWith($"lt:{to}:", StringComparison.Ordinal) && r.OperationId.EndsWith(":" + tok, StringComparison.Ordinal));
-            if (open is not null)
-            {
-                j.Advance(open.OperationId, OpState.EngineVerified, "game said " + verdict);
-                j.Advance(open.OperationId, OpState.LedgerCommitted, "answer recorded", verdict);
-                j.Advance(open.OperationId, OpState.Delivered, "sent to the guest");
-                j.Advance(open.OperationId, OpState.RecipientVerified, "the guest reconciles by itself: an unconfirmed take is taken back (loot.lua)");
-                j.Advance(open.OperationId, OpState.Complete);
-            }
+            string detail = $"{id}|{cls}|{n}|{hp}|guest {to}";
+            j.Advance(OpId(op), OpState.EngineVerified, detail);
+            j.Advance(OpId(op), OpState.LedgerCommitted, detail, verdict);
+            j.Advance(OpId(op), OpState.Delivered, detail);                       // RecipientVerified only with the guest's receipt (PeerReceipt)
         }
-        _toGuests($"loot|res|{to}|{tok}|{verdict}|{id}|{cls}|{n}");
+        _toGuests($"loot|res|{to}|{op}|{verdict}|{id}|{cls}|{n}");
+    }
+
+    /// <summary>
+    /// A guest's receipt (loot|receipt|op|kept|returned|reverted|partial). Completes the host's operation. When the host had said ok but the guest's Henry did not
+    /// keep the item (it timed out and gave it back, or its world went back to before the take), the item exists nowhere: the host puts it back into its copy of
+    /// the holder and tells the guests to do the same. That is the only way an "ok" is ever undone.
+    /// </summary>
+    public void PeerReceipt(int from, string[] f)
+    {
+        lock (_gate)
+        {
+            if (f.Length != 4 || !OutcomesRules.ValidOp(f[2]) || f[3] is not ("kept" or "returned" or "reverted" or "partial")) return;
+            var j = _journal();
+            if (j is null || j.Get(OpId(f[2])) is not { } rec) return;
+            bool compensate = rec.Outcome == "ok" && f[3] is "returned" or "reverted";
+            if (rec.State == OpState.Delivered)
+            {
+                j.Advance(rec.OperationId, OpState.RecipientVerified, rec.Evidence + "|receipt " + f[3], rec.Outcome);
+                j.Advance(rec.OperationId, OpState.Complete, rec.Evidence + "|receipt " + f[3], rec.Outcome);
+            }
+            else if (rec.State == OpState.RecoveryRequired && rec.Outcome.Length > 0)
+                j.Resolve(rec.OperationId, Observed.Applied, "guest receipt " + f[3] + " after a host restart|" + rec.Evidence, rec.Outcome);
+            else compensate = false;                                             // already completed: a repeated receipt changes nothing
+            if (!compensate || !_on) return;
+            var d = rec.Evidence.Split('|');
+            if (d.Length < 4 || !OutcomesRules.ValidName(d[0]) || !OutcomesRules.ValidClass(d[1]) || !OutcomesRules.Count(d[2], out _)) return;
+            string hp = OutcomesRules.Number(d[3], 0, 1, out _) ? d[3] : "1.0000";
+            _toGame($"LOOTPUT|{_scope}|{d[0]}|{d[1]}|{d[2]}|{hp}");
+            _toGuests($"loot|put|{d[0]}|{d[1]}|{d[2]}|{hp}");
+            _log($"loot: {f[2]} was granted but guest {from} did not keep it ({f[3]}): put back into {d[0]}");
+        }
     }
 
     /// <summary>The host's event at a guest: loot|res|to|tok|verdict|id|class|n, or loot|took|id|class|n.</summary>
@@ -230,12 +277,55 @@ public sealed class OutcomesCoordinator : IDisposable
         {
             if (!_on || f.Length < 2) return;
             if (f[1] == "res" && f.Length == 8 && int.TryParse(f[2], NumberStyles.None, CultureInfo.InvariantCulture, out int to) && to == myId
-                && OutcomesRules.Count(f[3], out _) && f[4] is "ok" or "gone" or "none" && OutcomesRules.ValidName(f[5]) && OutcomesRules.ValidClass(f[6]) && OutcomesRules.Count(f[7], out _))
-                _toGame($"LOOTRES|{_scope}|{f[3]}|{f[4]}|{f[5]}|{f[6]}|{f[7]}");
+                && OutcomesRules.ValidOp(f[3]) && f[4] is "ok" or "gone" or "none" && OutcomesRules.ValidName(f[5]) && OutcomesRules.ValidClass(f[6]) && OutcomesRules.Count(f[7], out _))
+            {
+                var t = _custody.Find(f[3]);
+                if (t == null || !_custody.Answer(t.Op, f[4])) return;
+                if (t.Nonce == _luaNonce) _toGame($"LOOTRES|{_scope}|{t.Tok}|{f[4]}|{f[5]}|{f[6]}|{f[7]}");
+                else Recover(t, f[4]);                                           // a take of an earlier load or process
+            }
+            else if (f[1] == "put" && f.Length == 6 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _) && OutcomesRules.Number(f[5], 0, 1, out _))
+                _toGame($"LOOTPUT|{_scope}|{f[2]}|{f[3]}|{f[4]}|{f[5]}");      // the host put a granted-but-not-kept item back
             else if (f[1] == "took" && f.Length == 5 && OutcomesRules.ValidName(f[2]) && OutcomesRules.ValidClass(f[3]) && OutcomesRules.Count(f[4], out _))
                 _toGame($"LOOTTOOK|{_scope}|{f[2]}|{f[3]}|{f[4]}");
         }
     }
+
+    // ---------------------------------------------------------------- the guest's durable custody (GuestCustody.cs)
+
+    private string _luaNonce = "";
+    private long _lastRecoveryMs;
+
+    private void Recover(CustodyTake t, string verdict) =>
+        _toGame($"LOOTRECOVER|{_scope}|{t.Op}|{t.Class}|{t.N}|{t.Price}|{t.TakeWt.ToString("0", CultureInfo.InvariantCulture)}|{verdict}");
+
+    /// <summary>(guest) The game's loot mode readback: KCDUS|LOOTMODE|on|scope|guest|nonce|loadWt. A new nonce means a new load: settle what the old ones left open.</summary>
+    public void GameLootMode(string[] f, bool isHost)
+    {
+        lock (_gate)
+        {
+            if (f.Length < 6 || f[1] != "on" || isHost || !OutcomesRules.ValidNonce(f[4])) return;
+            _luaNonce = f[4];
+            RecoverOpenLocked(force: true);
+        }
+    }
+
+    private void RecoverOpenLocked(bool force)
+    {
+        long now = _now();
+        if (!_on || (!force && now - _lastRecoveryMs < 10_000)) return;
+        _lastRecoveryMs = now;
+        foreach (var (t, verdict, _) in _custody.Open())
+        {
+            if (t.Scope != _scope || t.Nonce == _luaNonce) continue;               // this load's own asks are the game's (20 s timeout, LOOTRES)
+            if (verdict is "ok" or "gone" or "none") Recover(t, verdict);
+            else if (verdict == "unanswered") Recover(t, "gone");                  // the game already gave it back before the answer came
+            else _toPeers($"loot|ask|{t.Op}|{t.Holder}|{t.Class}|{t.N}");         // never answered: ask again (the host replays a recorded answer)
+        }
+    }
+
+    /// <summary>Open custody (diagnostics, tests).</summary>
+    public IReadOnlyList<(CustodyTake Take, string Verdict, OpState State)> Custody => _custody.Open();
 
     private static string Digest(string s) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
 

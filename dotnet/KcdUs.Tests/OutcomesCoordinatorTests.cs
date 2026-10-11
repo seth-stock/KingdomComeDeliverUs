@@ -92,19 +92,24 @@ public class OutcomesCoordinatorTests
         Assert.DoesNotContain(r.ToGame, l => l.StartsWith("CMBAPPLY"));
     }
 
+    private const string Op = "0123456789abcdef0123456789abcdef";
+
     [Fact]
-    public void A_guest_ask_is_journalled_before_the_game_decides_and_the_answer_completes_it()
+    public void A_guest_ask_is_journalled_before_the_game_decides_and_the_guests_receipt_completes_it()
     {
         using var r = new Rig(journal: true);
         r.O.PeerScope(2, "w1"); r.Step(host: true);
-        r.O.PeerAsk(2, new[] { "loot", "ask", "abcd1234", "1", "bandit_7", Coin, "50" });
-        Assert.Contains("LOOTASK|w1|2|abcd1234|1|bandit_7|" + Coin + "|50", r.ToGame);
-        Assert.Equal(OpState.EngineApplying, r.Journal!.Get("lt:2:abcd1234:1")!.State);                  // durable intent first
-        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "1.0000" }, isHost: true);
-        Assert.Contains("loot|res|2|1|ok|bandit_7|" + Coin + "|50", r.ToGuests);
-        var rec = r.Journal.Get("lt:2:abcd1234:1")!;
+        r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
+        Assert.Contains("LOOTASK|w1|2|" + Op + "|1|bandit_7|" + Coin + "|50", r.ToGame);
+        Assert.Equal(OpState.EngineApplying, r.Journal!.Get("lt:" + Op)!.State);                         // durable intent first
+        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "1.0000", Op }, isHost: true);
+        Assert.Contains("loot|res|2|" + Op + "|ok|bandit_7|" + Coin + "|50", r.ToGuests);
+        Assert.Equal(OpState.Delivered, r.Journal.Get("lt:" + Op)!.State);                               // not complete until the guest says it kept it
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, "kept" });
+        var rec = r.Journal.Get("lt:" + Op)!;
         Assert.Equal(OpState.Complete, rec.State);
         Assert.Equal("ok", rec.Outcome);
+        Assert.DoesNotContain(r.ToGame, l => l.StartsWith("LOOTPUT"));
     }
 
     [Fact]
@@ -112,55 +117,163 @@ public class OutcomesCoordinatorTests
     {
         using var r = new Rig(journal: true);
         r.O.PeerScope(2, "w1"); r.Step(host: true);
-        var ask = new[] { "loot", "ask", "abcd1234", "7", "bandit_7", Coin, "50" };
+        var ask = new[] { "loot", "ask", Op, "bandit_7", Coin, "50" };
         r.O.PeerAsk(2, ask);
-        r.O.GameLoot(new[] { "LOOT", "res", "2", "7", "ok", "bandit_7", Coin, "50", "1.0000" }, true);
+        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "1.0000", Op }, true);
         int asks = r.ToGame.Count(l => l.StartsWith("LOOTASK"));
         r.ToGuests.Clear();
-        r.O.PeerAsk(2, ask);                                                                              // the guest's retry
+        r.O.PeerAsk(2, ask);                                                                              // the guest's retry (it restarted)
         Assert.Equal(asks, r.ToGame.Count(l => l.StartsWith("LOOTASK")));
-        Assert.Contains("loot|res|2|7|ok|bandit_7|" + Coin + "|50", r.ToGuests);
-        r.O.PeerAsk(2, new[] { "loot", "ask", "abcd1234", "7", "bandit_7", Coin, "999" });               // the same id with other contents: refused
+        Assert.Contains("loot|res|2|" + Op + "|ok|bandit_7|" + Coin + "|50", r.ToGuests);
+        r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "999" });                            // the same id with other contents: refused
         Assert.Equal(asks, r.ToGame.Count(l => l.StartsWith("LOOTASK")));
     }
 
     [Fact]
-    public void An_ask_interrupted_by_a_restart_is_never_granted_again()
+    public void An_ask_interrupted_by_a_restart_before_the_decision_is_never_granted_and_a_recorded_decision_stands()
     {
         string path;
+        const string Op2 = "fedcba9876543210fedcba9876543210";
         using (var first = new Rig(journal: true))
         {
             first.O.PeerScope(2, "w1"); first.Step(host: true);
-            first.O.PeerAsk(2, new[] { "loot", "ask", "abcd1234", "9", "bandit_7", Coin, "50" });        // the game was told; the agent died before the answer
+            first.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });                      // the game was told; the agent died before the answer
+            first.O.PeerAsk(2, new[] { "loot", "ask", Op2, "bandit_7", Coin, "5" });
+            first.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "5", "1.0000", Op2 }, true);   // decided, receipt never came
             path = first.Journal!.Path;
             first.Journal.Dispose(); first.Journal = null;
             var j2 = new OperationJournal(path);
-            Assert.Single(j2.Recover());                                                                  // quarantined
+            Assert.Equal(2, j2.Recover().Count);                                                          // both quarantined
             using var second = new Rig();
             second.Journal = j2;
             second.O.PeerScope(2, "w1"); second.Step(host: true);
-            second.O.PeerAsk(2, new[] { "loot", "ask", "abcd1234", "9", "bandit_7", Coin, "50" });
+            second.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
+            second.O.PeerAsk(2, new[] { "loot", "ask", Op2, "bandit_7", Coin, "5" });
             Assert.DoesNotContain(second.ToGame, l => l.StartsWith("LOOTASK"));
-            Assert.Contains("loot|res|2|9|gone|bandit_7|" + Coin + "|50", second.ToGuests);
+            Assert.Contains("loot|res|2|" + Op + "|gone|bandit_7|" + Coin + "|50", second.ToGuests);
+            Assert.Contains("loot|res|2|" + Op2 + "|ok|bandit_7|" + Coin + "|5", second.ToGuests);        // the durable decision is replayed
+            second.O.PeerReceipt(2, new[] { "loot", "receipt", Op2, "kept" });
+            Assert.Equal(OpState.Complete, j2.Get("lt:" + Op2)!.State);
             j2.Dispose(); second.Journal = null;
         }
     }
 
-    [Fact]
-    public void A_guest_forwards_its_ask_and_the_hosts_answer_and_broadcasts_reach_the_game_only_for_that_guest()
+    [Theory]
+    [InlineData("returned")]
+    [InlineData("reverted")]
+    public void A_granted_item_the_guest_did_not_keep_is_put_back_in_the_hosts_copy_and_the_guests(string how)
     {
-        using var r = new Rig();
-        r.O.PeerScope(1, "w1"); r.Step(host: false);
-        r.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000" }, isHost: false);
-        Assert.Contains("loot|ask|abcd1234|3|bandit_7|" + Coin + "|50", r.ToPeers);
-        r.O.HostLoot(new[] { "loot", "res", "5", "3", "ok", "bandit_7", Coin, "50" }, myId: 2);          // an answer for another guest
-        Assert.DoesNotContain(r.ToGame, l => l.StartsWith("LOOTRES"));
-        r.O.HostLoot(new[] { "loot", "res", "2", "3", "gone", "bandit_7", Coin, "50" }, myId: 2);
-        Assert.Contains("LOOTRES|w1|3|gone|bandit_7|" + Coin + "|50", r.ToGame);
-        r.O.HostLoot(new[] { "loot", "took", "bandit_7", Coin, "20" }, myId: 2);
-        Assert.Contains("LOOTTOOK|w1|bandit_7|" + Coin + "|20", r.ToGame);
-        r.O.GameLoot(new[] { "LOOT", "unconfirmed", "bandit_7", Coin, "50", "1" }, isHost: false);
-        Assert.Contains(r.Notes, n => n.Contains("Someone already took that"));
+        using var r = new Rig(journal: true);
+        r.O.PeerScope(2, "w1"); r.Step(host: true);
+        r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
+        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "0.5000", Op }, true);
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, how });
+        Assert.Contains("LOOTPUT|w1|bandit_7|" + Coin + "|50|0.5000", r.ToGame);
+        Assert.Contains("loot|put|bandit_7|" + Coin + "|50|0.5000", r.ToGuests);
+        int puts = r.ToGame.Count(l => l.StartsWith("LOOTPUT"));
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, how });                                        // a repeated receipt puts nothing back twice
+        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTPUT")));
+    }
+
+    [Fact]
+    public void A_gone_answer_returned_by_the_guest_needs_no_compensation()
+    {
+        using var r = new Rig(journal: true);
+        r.O.PeerScope(2, "w1"); r.Step(host: true);
+        r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
+        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "gone", "bandit_7", Coin, "50", "1.0000", Op }, true);
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, "returned" });
+        Assert.DoesNotContain(r.ToGame, l => l.StartsWith("LOOTPUT"));
+        Assert.Equal(OpState.Complete, r.Journal!.Get("lt:" + Op)!.State);
+    }
+
+    private sealed class GuestRig : IDisposable
+    {
+        public long Now = 1000;
+        public readonly List<string> ToGame = new(), ToPeers = new(), ToGuests = new(), Notes = new(), Log = new();
+        public readonly string Dir = Path.Combine(Path.GetTempPath(), "kcdus-cust-" + Guid.NewGuid().ToString("N")[..8]);
+        public GuestCustody Custody;
+        public OutcomesCoordinator O;
+        public GuestRig() { Directory.CreateDirectory(Dir); Custody = new GuestCustody(Path.Combine(Dir, "c.jsonl")); O = Make(); }
+        public OutcomesCoordinator Make() => new(() => Now, ToGame.Add, ToPeers.Add, ToGuests.Add, Notes.Add, Log.Add, id => "Hans", () => null, Custody);
+        /// <summary>The agent restarts: the same file, a new journal and coordinator.</summary>
+        public void Restart() { Custody.Dispose(); Custody = new GuestCustody(Path.Combine(Dir, "c.jsonl")); O = Make(); }
+        public void Step() { Now += 100; O.Tick(true, true, false, "w1"); }
+        public void Dispose() { Custody.Dispose(); try { Directory.Delete(Dir, true); } catch { } }
+    }
+
+    private static string AskOp(GuestRig g) => g.ToPeers.Last(l => l.StartsWith("loot|ask|")).Split('|')[2];
+
+    [Fact]
+    public void A_guests_take_is_journalled_on_disk_before_the_host_hears_of_it_and_the_hosts_answer_reaches_the_game()
+    {
+        using var g = new GuestRig();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "abcd1234", "5000" }, false);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000", "0", "6000" }, isHost: false);
+        string op = AskOp(g);
+        Assert.True(OutcomesRules.ValidOp(op));
+        Assert.Equal("loot|ask|" + op + "|bandit_7|" + Coin + "|50", g.ToPeers.Last());
+        Assert.Single(g.Custody.Open());
+        g.O.HostLoot(new[] { "loot", "res", "2", op, "ok", "bandit_7", Coin, "50" }, myId: 2);
+        Assert.Contains("LOOTRES|w1|3|ok|bandit_7|" + Coin + "|50", g.ToGame);
+        g.O.GameLoot(new[] { "LOOT", "kept", "abcd1234", "3" }, isHost: false);
+        Assert.Contains("loot|receipt|" + op + "|kept", g.ToPeers);
+        Assert.Empty(g.Custody.Open());
+    }
+
+    [Fact]
+    public void After_a_restart_and_a_reload_an_unanswered_take_is_asked_again_and_settled_by_recovery_not_guessed()
+    {
+        using var g = new GuestRig();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "abcd1234", "5000" }, false);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000", "0", "6000" }, isHost: false);
+        string op = AskOp(g);
+        g.Restart();                                                                                     // the agent and the game went down before any answer
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.ToPeers.Clear();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "99998888", "7000" }, false);         // a new load
+        Assert.Contains("loot|ask|" + op + "|bandit_7|" + Coin + "|50", g.ToPeers);                     // asked again with the SAME id
+        Assert.DoesNotContain(g.ToGame, l => l.StartsWith("LOOTRECOVER"));                               // no answer: nothing guessed
+        g.O.HostLoot(new[] { "loot", "res", "2", op, "gone", "bandit_7", Coin, "50" }, myId: 2);
+        Assert.Contains("LOOTRECOVER|w1|" + op + "|" + Coin + "|50|0|6000|gone", g.ToGame);             // the take of an earlier load: recovery decides
+        g.O.GameLoot(new[] { "LOOT", "recovered", op, "50", "0", "returned" }, isHost: false);
+        Assert.Contains("loot|receipt|" + op + "|returned", g.ToPeers);
+        Assert.Empty(g.Custody.Open());
+    }
+
+    [Fact]
+    public void An_answered_take_of_an_earlier_load_is_recovered_at_once_and_a_take_the_game_already_returned_completes_as_returned()
+    {
+        using var g = new GuestRig();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "abcd1234", "5000" }, false);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000", "120", "6000" }, isHost: false);
+        string op1 = AskOp(g);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "4", "chest", Coin, "5", "1.0000", "0", "6100" }, isHost: false);
+        string op2 = AskOp(g);
+        g.O.HostLoot(new[] { "loot", "res", "2", op1, "ok", "bandit_7", Coin, "50" }, myId: 2);         // answered, but the game reloaded before settling
+        g.O.GameLoot(new[] { "LOOT", "returned", "abcd1234", "4", "1" }, isHost: false);                 // the game's own 20 s timeout gave op2 back
+        Assert.Contains("loot|receipt|" + op2 + "|returned", g.ToPeers);
+        g.ToGame.Clear();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "77776666", "5500" }, false);
+        Assert.Equal(new[] { "LOOTRECOVER|w1|" + op1 + "|" + Coin + "|50|120|6000|ok" }, g.ToGame.Where(l => l.StartsWith("LOOTRECOVER")));
+        g.O.GameLoot(new[] { "LOOT", "recovered", op1, "0", "0", "reverted" }, isHost: false);          // the save was older than the take
+        Assert.Contains("loot|receipt|" + op1 + "|reverted", g.ToPeers);                                 // the host will put it back
+        Assert.Empty(g.Custody.Open());
+    }
+
+    [Fact]
+    public void A_take_is_never_settled_as_kept_without_an_ok()
+    {
+        using var g = new GuestRig();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "abcd1234", "5000" }, false);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000", "0", "6000" }, isHost: false);
+        g.O.GameLoot(new[] { "LOOT", "kept", "abcd1234", "3" }, isHost: false);
+        Assert.Single(g.Custody.Open());
+        Assert.DoesNotContain(g.ToPeers, l => l.StartsWith("loot|receipt|"));
     }
 
     [Fact]

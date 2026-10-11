@@ -42,7 +42,7 @@ namespace KcdUs.Wire;
 public static class Proto
 {
     /// <summary>Bumped when a frame's meaning changes. A relay refuses a different number outright.</summary>
-    public const int ProtocolVersion = 3; // v3: incarnation/term/sequence-aware NPC ownership; old agents cannot safely drive this policy
+    public const int ProtocolVersion = 4; // v4: durable loot custody (operation ids, receipts, recovery); v3: incarnation/term/sequence-aware NPC ownership
     public const int MaxPayload = 65535;
     public const int DefaultPort = 7788;
 }

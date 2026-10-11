@@ -40,7 +40,7 @@ public class AgentHostTests
                 SavePath = Path.Combine(Dir, "cfg.json"), OpenUrl = u => { lock (Opened) Opened.Add(u); },
                 Store = new KcdUs.Agent.Worlds.SaveStore(Path.Combine(Dir, "saves"), Path.Combine(Dir, "backups")),
                 WorldListPath = Path.Combine(Dir, "worlds.json"),
-                IdentityFile = Path.Combine(Dir, "participant.key"), BindingsFile = Path.Combine(Dir, "room-bindings.txt")
+                IdentityFile = Path.Combine(Dir, "participant.key"), BindingsFile = Path.Combine(Dir, "room-bindings.txt"), CustodyFile = Path.Combine(Dir, "loot-custody.jsonl")
             };
             Host.StartAsync(_cts.Token).GetAwaiter().GetResult();
         }

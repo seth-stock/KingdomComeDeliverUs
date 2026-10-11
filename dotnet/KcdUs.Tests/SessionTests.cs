@@ -170,10 +170,15 @@ public class SessionTests
         host.Game.Emit("KCDUS|CMB|bandit_7|80.00|0.00|1");
         await Until(() => guest.Game.Has("CMBAPPLY|w1|bandit_7|80.00|1"), what: "the host's kill at the guest");
         // loot: the guest took 50 coins; the host decides
-        guest.Game.Emit("KCDUS|LOOT|ask|abcd1234|1|bandit_7|" + coin + "|50|1.0000");
-        await Until(() => host.Game.Has("LOOTASK|w1|2|abcd1234|1|bandit_7|" + coin + "|50"), what: "the ask at the host");
-        host.Game.Emit("KCDUS|LOOT|res|2|1|ok|bandit_7|" + coin + "|50|1.0000");
+        guest.Game.Emit("KCDUS|LOOTMODE|on|w1|guest|abcd1234|5000");                    // this load's nonce (durable custody, GuestCustody.cs)
+        guest.Game.Emit("KCDUS|LOOT|ask|abcd1234|1|bandit_7|" + coin + "|50|1.0000|0|6000");
+        await Until(() => host.Game.Has("LOOTASK|w1|2|"), what: "the ask at the host");
+        string op = host.Game.Last("LOOTASK|w1|2|")!.Split('|')[3];                     // the guest's durable operation id
+        Assert.Equal("LOOTASK|w1|2|" + op + "|1|bandit_7|" + coin + "|50", host.Game.Last("LOOTASK|w1|2|"));
+        host.Game.Emit("KCDUS|LOOT|res|2|1|ok|bandit_7|" + coin + "|50|1.0000|" + op);
         await Until(() => guest.Game.Has("LOOTRES|w1|1|ok|bandit_7|" + coin + "|50"), what: "the answer at the guest");
+        guest.Game.Emit("KCDUS|LOOT|kept|abcd1234|1");                                  // the guest's receipt completes the host's operation
+        await Until(() => guest.Session.Outcomes.Custody.Count == 0, what: "the guest's custody settled");
         // the host's own take reaches the guests
         host.Game.Emit("KCDUS|LOOT|took|bandit_7|" + coin + "|20|1.0000");
         await Until(() => guest.Game.Has("LOOTTOOK|w1|bandit_7|" + coin + "|20"), what: "the host's take at the guest");

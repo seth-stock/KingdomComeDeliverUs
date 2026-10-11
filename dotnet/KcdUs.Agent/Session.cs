@@ -22,6 +22,8 @@ public sealed class SessionOptions
     public bool SharedOutcomes { get; init; } = true;
     /// <summary>Where the host's loot decisions are journalled (empty: not durable, tests only).</summary>
     public string LootJournalPath { get; init; } = "";
+    /// <summary>This player's takes on probation as a guest (GuestCustody.cs; null: a fresh in-memory one, tests only). Owned by the agent, shared by its sessions.</summary>
+    public GuestCustody? Custody { get; init; }
     /// <summary>The engine adapter's pause gate (pause option off: this player's own ESC menu does not pause their game). Null: not available.</summary>
     public IPauseGate? PauseGate { get; init; }
 }
@@ -143,7 +145,7 @@ public sealed class Session : IDisposable
             Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, o.PauseGate);
         _pause.SetShared(o.SharedPause);
         _outcomes = new OutcomesCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
-            text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, LootJournal);
+            text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, Notify, _log, id => _peers.TryGetValue(id, out var p) ? p.Name : "#" + id, LootJournal, o.Custody);
         _outcomes.SetEnabled(o.SharedOutcomes);
         _npcs = new NpcCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
             text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, _log);
@@ -331,7 +333,11 @@ public sealed class Session : IDisposable
                 case "NPCPUP":
                     _log("npc puppet: " + string.Join(' ', f.Skip(1)));
                     break;
-                case "CMBAPPLIED" or "LOOTAPPLIED" or "CMBMODE" or "LOOTMODE":
+                case "LOOTMODE":
+                    _outcomes.GameLootMode(f, IsHost);                       // a new load's nonce: the guest's custody settles what earlier loads left open
+                    _log("lootmode: " + string.Join(' ', f.Skip(1)));
+                    break;
+                case "CMBAPPLIED" or "LOOTAPPLIED" or "CMBMODE":
                     _log(g.Kind.ToLowerInvariant() + ": " + string.Join(' ', f.Skip(1)));
                     break;
 
@@ -551,8 +557,11 @@ public sealed class Session : IDisposable
             case "cmb":
                 _outcomes.PeerCombat(from, f);
                 break;
-            case "loot" when IsHost && f.Length == 7:
+            case "loot" when IsHost && f.Length == 6 && f[1] == "ask":
                 _outcomes.PeerAsk(from, f);
+                break;
+            case "loot" when f.Length == 4 && f[1] == "receipt" && IsHost:
+                _outcomes.PeerReceipt(from, f);
                 break;
             case "loot" when f.Length == 6 && f[1] is "put" or "drop":
                 _outcomes.PeerPutDrop(from, f);
