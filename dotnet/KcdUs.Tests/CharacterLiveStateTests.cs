@@ -82,4 +82,37 @@ public class CharacterLiveStateTests
         public bool Equals(byte[]? x, byte[]? y) => x != null && y != null && (x.AsSpan().IndexOf(y) >= 0 || y.AsSpan().IndexOf(x) >= 0);
         public int GetHashCode(byte[] b) => 0;
     }
+
+    [Fact]
+    public void A_henry_with_an_active_world_reference_moves_with_everything_else_and_the_destinations_own_reference_stays()
+    {
+        var source = CharacterFixture.Save(1_790_000_100, 2, 7, 1, worldReference: 10);
+        var world = CharacterFixture.Save(1_790_000_200, 10, 9000, 22, worldReference: 100);       // the world has its own active reference
+        var state = ExactTraitsSave.CaptureCharacter(source);
+        Assert.True(state.WorldStateKept);
+        var beforeWorld = ExactTraitsSave.CaptureCharacter(world);
+        var prepared = ExactTraitsSave.PrepareCharacter(world, state);
+        var after = ExactTraitsSave.CaptureCharacter(prepared);
+        Assert.Equal(beforeWorld.Core[0x137D].Length, after.Core[0x137D].Length);
+        Assert.True(after.WorldStateKept);                                                           // still the DESTINATION's active reference
+        Assert.Equal(WorldRef(world), WorldRef(prepared));                                         // byte for byte what the world had
+        Assert.NotEqual(WorldRef(source), WorldRef(prepared));                                     // the source world's actor reference did not travel
+        Assert.True(ExactTraitsSave.SameProgressionAndInventory(state, after));                    // the character itself did
+    }
+
+    [Fact]
+    public void A_state_with_an_active_reference_that_was_not_classified_by_capture_is_still_refused()
+    {
+        var state = ExactTraitsSave.CaptureCharacter(CharacterFixture.Save(1_790_000_100, 2));
+        state.Core[0x137D][6] = 1;
+        Assert.Throws<InvalidDataException>(() => ExactTraitsSave.PrepareCharacter(CharacterFixture.Save(1_790_000_200, 10), state));
+    }
+
+    private static byte[] WorldRef(byte[] file)
+    {
+        using var input = new System.IO.Compression.ZLibStream(new MemoryStream(file, 8, BitConverter.ToInt32(file)), System.IO.Compression.CompressionMode.Decompress);
+        using var o = new MemoryStream(); input.CopyTo(o);
+        var raw = o.ToArray(); int at = raw.AsSpan().IndexOf(new byte[] { 0xB0, 0x04, 31, 0, 0, 0 });
+        return raw.AsSpan(at + 6, 31).ToArray();
+    }
 }

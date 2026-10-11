@@ -39,8 +39,9 @@ deciding: never granted twice) and settles answered ones: a take newer than the 
 * **Economy:** world time and class counts cannot prove item custody; there is no persistent item-lineage ledger, no consistent crash checkpoint, and consumption,
   barter and crime are not one authoritative ledger. Receipts have no acknowledgement protocol (they are retried and idempotent).
 * **Quest effects:** spawn and script effects of a quest are not mirrored; a guest-caused quest step is not fenced; XP receipts are keyed per load/world.
-* **Characters:** a Henry with an active world-referenced core soul state (a companion or actor reference) is still refused; clocks are carried as elapsed time,
-  not converted between worlds.
+* **Characters:** a Henry with an active world-referenced core soul state (0x137D/0x04B0: a world actor reference and a timer, e.g. a companion) now MOVES: the reference
+  names an actor of the source world, so it is classified as world-owned and the destination's own value stays (unit-tested; no source save with an active one was
+  available to load live). Other world-linked state (companions, quest knowledge, position) was never carried. Clocks are carried as elapsed time, not converted.
 * **KCD2:** wire 16 custody is tested (Lua synthetic suites and agent tests) but NOT run in the live KCD2 game this session; KCD2 quest XP has no equivalent of the
   KCD1 observer yet (KCD2 reward windows measure inventory only). KCD2's character splice carries the whole joiner `player_henry` soul record (persistent buffs and
   states included) as before.

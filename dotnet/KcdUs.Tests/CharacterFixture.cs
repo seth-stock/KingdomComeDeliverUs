@@ -19,14 +19,14 @@ internal static class CharacterFixture
     public static byte[] Buffs(params byte[][] records) => Join(new[] { BitConverter.GetBytes(records.Length) }.Concat(records).ToArray());
     public static byte[] Accumulators(params double[] values) => Join(values.Select((v, i) => T((ushort)(0x1896 + i), BitConverter.GetBytes(v))).ToArray());
 
-    public static byte[] Save(long unix, double hours, uint xp = 7, int amount = 1, byte[]? buffs = null, byte[]? accumulators = null)
+    public static byte[] Save(long unix, double hours, uint xp = 7, int amount = 1, byte[]? buffs = null, byte[]? accumulators = null, byte worldReference = 0)
     {
         var hero = ExactTraitsSave.Henry;
         var identity = Join(hero.ToByteArray(), "Dude\0"u8.ToArray(), BitConverter.GetBytes(0x7777UL));
         var perk = T(0x137E, T(0x03DC, new byte[104]), T(0x03DA, new byte[8]), T(0x03DB, new byte[114]));
         var resources = Join(new float[] { 73, 115, 64, 82, 0, 0 }.SelectMany(BitConverter.GetBytes).ToArray());
         var core = T(0x092A, T(0x1385, X(0, xp)), T(0x138D, X(26, xp)), perk,
-            T(0x138B, resources), T(0x137D, T(0x04B0, new byte[31])), T(0x137F, new byte[4]), T(0x138F, new byte[4]));
+            T(0x138B, resources), T(0x137D, T(0x04B0, worldReference != 0 ? Enumerable.Range(0, 31).Select(i => (byte)(worldReference + i)).ToArray() : new byte[31])), T(0x137F, new byte[4]), T(0x138F, new byte[4]));
         var live = buffs == null ? Array.Empty<byte>() : Join(T(0x0926, accumulators ?? Accumulators(1, 2)), T(0x0937), T(0x0931, buffs));
         var soul = T(0x115E, hero.ToByteArray(), T(0x1302, identity), T(0x12FC, core, live, T(0x0934, "WORLD-KNOWLEDGE"u8.ToArray()), buffs == null ? Array.Empty<byte>() : T(0x0936, "WORLD-SLOTS"u8.ToArray())));
         var item = new byte[74]; new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").ToByteArray().CopyTo(item, 0);

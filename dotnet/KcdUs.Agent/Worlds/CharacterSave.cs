@@ -8,8 +8,11 @@ public static partial class ExactTraitsSave
     // World-owned soul fields (quest knowledge, companions, position) stay put.
     private static readonly Dictionary<ushort, int> CoreSizes = new()
     { [0x138B] = 24, [0x137D] = 37, [0x137F] = 4, [0x138F] = 4 };
+    /// <param name="WorldStateKept">The source Henry had an ACTIVE world-referenced soul state (0x137D/0x04B0: a world actor reference and a timer, e.g. a companion
+    /// or a scripted follow). Such a reference names an actor of the SOURCE world, which does not exist in another world, so it is classified as world-owned: the
+    /// captured character carries an empty one, and preparing a save keeps the destination's own 0x137D untouched.</param>
     public sealed record CharacterState(Traits Traits, InventoryState Inventory,
-        Dictionary<ushort, byte[]> Core, Dictionary<ushort, byte[]>? Live = null);
+        Dictionary<ushort, byte[]> Core, Dictionary<ushort, byte[]>? Live = null, bool WorldStateKept = false);
 
     // The soul's live state (Henry's 0x12FC, beside the core) that is the CHARACTER's, not the world's:
     //   0x0931  every buff instance: injuries, bleeding, poison, drunkenness, hangover, alcoholism, overeating, starvation, exhaustion, sleep and perk
@@ -26,6 +29,8 @@ public static partial class ExactTraitsSave
         var a = Inflate(file); var core = Chain(a.Raw)[^1];
         var fields = Children(a.Raw, core.Begin, core.End);
         var extra = CoreSizes.ToDictionary(p => p.Key, p => Bytes(a.Raw, One(fields, p.Key)));
+        bool worldKept = WorldReferenceActive(extra);
+        if (worldKept) extra[0x137D] = EmptyWorldState(extra[0x137D]);
         ValidateCore(extra);
         var chain = Chain(a.Raw); var state = chain[^2];
         var stateFields = Children(a.Raw, state.Begin, state.End);
@@ -36,7 +41,23 @@ public static partial class ExactTraitsSave
             live = new() { [LiveBuffs] = Bytes(a.Raw, One(stateFields, LiveBuffs)), [LiveAccumulators] = Bytes(a.Raw, One(stateFields, LiveAccumulators)) };
             ValidateLive(live);
         }
-        return new(Capture(file), CaptureInventory(file), extra, live);
+        return new(Capture(file), CaptureInventory(file), extra, live, worldKept);
+    }
+
+    private static bool WorldReferenceActive(Dictionary<ushort, byte[]> core)
+    {
+        if (!core.TryGetValue(0x137D, out var b) || b.Length != CoreSizes[0x137D]) return false;     // framing is judged by ValidateCore
+        var state = Children(b, 0, b.Length).Where(n => n.Tag == 0x04B0).ToArray();
+        return state.Length == 1 && state[0].Length == 31 && b.AsSpan(state[0].Begin, state[0].Length).IndexOfAnyExcept((byte)0) >= 0;
+    }
+
+    // the same framing with the 0x04B0 payload empty (the observed inactive state)
+    private static byte[] EmptyWorldState(byte[] b)
+    {
+        var copy = b.ToArray();
+        var state = One(Children(copy, 0, copy.Length), 0x04B0);
+        copy.AsSpan(state.Begin, state.Length).Clear();
+        return copy;
     }
 
     /// <summary>The buff list and the personal accumulators, checked field by field before they can enter another world's save.</summary>
@@ -118,6 +139,7 @@ public static partial class ExactTraitsSave
         var raw = a.Raw.ToArray();
         foreach (var (tag, value) in character.Core)
         {
+            if (tag == 0x137D && character.WorldStateKept) continue;                  // world-owned: the destination's stays
             var field = One(fields, tag);
             if (field.Length != value.Length) throw new InvalidDataException("Destination character core framing differs.");
             value.CopyTo(raw, field.Begin);
@@ -145,7 +167,7 @@ public static partial class ExactTraitsSave
             && Xp(expected.Traits.Skills).Where(p => p.Value != 0).SequenceEqual(Xp(actual.Traits.Skills).Where(p => p.Value != 0))
             && expected.Traits.Perks.SequenceEqual(actual.Traits.Perks)
             && SameInventory(expected.Inventory, actual.Inventory)
-            && expected.Core[0x137D].SequenceEqual(actual.Core[0x137D]);
+            && (expected.WorldStateKept || actual.WorldStateKept || expected.Core[0x137D].SequenceEqual(actual.Core[0x137D]));
         // Health/stamina/food/energy naturally change while the acknowledgement save is written.
     }
 }
