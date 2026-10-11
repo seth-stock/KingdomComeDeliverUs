@@ -1,5 +1,18 @@
 # Multiplayer feature parity and acceptance contract
 
+## Session 9 status (2026-10-11)
+
+Full multiplayer remains unfinished. Offline Ghidra exports attempted 910,489
+functions across 37 installed images; raw failures/warnings are retained. Six
+failed KCD1 decoder exports now produce C in a separate repaired project. Both
+mods' journals reject complete corrupt tails and block mutations after a write
+failure. KCD1 private requested/current target handling and native guard requests
+have live readback/cleanup evidence; real attack creation/submission succeeded,
+but independent damaging combat remains unproved. Durable recipient recovery,
+causal quest/XP consequences and arbitrary character restoration remain open.
+See [SESSION9-ENGINE-ANALYSIS.md](SESSION9-ENGINE-ANALYSIS.md). No capability,
+normal-profile experimental path or human acceptance is promoted.
+
 ## Session 8 status (2026-10-10)
 
 Full multiplayer and parity remain unfinished. KCD1 now has a private real combat-action scheduler, native stat/skill XP observation and a validated existing timed-buff loader with actual readback. Independent damaging combat, durable economy, causal quest authority and arbitrary character restoration are not complete. KCD2 loose-item recipient delivery now needs native same-instance readback and retains uncertainty during duplicate replies/timeouts/checkpoint preparation; load/restart recovery and merges remain incomplete. See [SESSION8-RESULTS.md](SESSION8-RESULTS.md) and [SESSION8-HANDOFF.md](SESSION8-HANDOFF.md). No experimental path or human acceptance is promoted.

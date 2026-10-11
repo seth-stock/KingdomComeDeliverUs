@@ -368,6 +368,86 @@ public class CoopContractTests
         finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_corrupt_complete_final_record_is_preserved_and_refused_even_at_the_engine_boundary(bool malformedJson)
+    {
+        string path = TempJournal();
+        try
+        {
+            using (var j = new OperationJournal(path)) { j.Begin("a", "take", D1); Walk(j, "a", OpState.EngineApplying); }
+            var lines = File.ReadAllLines(path);
+            lines[^1] = malformedJson ? "{broken" : lines[^1].Replace(D1, D2);
+            File.WriteAllText(path, string.Join('\n', lines) + "\n");
+            var damaged = File.ReadAllBytes(path);
+            Assert.Throws<InvalidDataException>(() => new OperationJournal(path));
+            Assert.Equal(damaged, File.ReadAllBytes(path)); // never silently recover as IntentRecorded/Rejected
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_oversized_record_cannot_allocate_unbounded_memory_or_be_automatically_truncated(bool newline)
+    {
+        string path = TempJournal();
+        try
+        {
+            using (var j = new OperationJournal(path)) j.Begin("a", "take", D1);
+            File.AppendAllText(path, new string('x', OperationJournal.MaxLineBytes + 1) + (newline ? "\n" : ""));
+            var damaged = File.ReadAllBytes(path);
+            Assert.Throws<InvalidDataException>(() => new OperationJournal(path));
+            Assert.Equal(damaged, File.ReadAllBytes(path));
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
+
+    [Fact]
+    public void Escaped_unicode_evidence_survives_block_boundaries_and_an_unterminated_tail()
+    {
+        string path = TempJournal();
+        string evidence = new string('\u2028', OperationJournal.MaxFieldLength - 4) + "\n\"\\\t";
+        try
+        {
+            using (var j = new OperationJournal(path))
+            {
+                j.Begin("a", "take", D1);
+                j.Advance("a", OpState.Reserved, evidence);
+            }
+            File.AppendAllText(path, "{\"S\":3");
+            using var recovered = new OperationJournal(path);
+            Assert.True(recovered.IgnoredTornTail);
+            Assert.Equal(evidence, recovered.Get("a")!.Evidence);
+            Assert.Equal(2, recovered.Get("a")!.Sequence);
+            recovered.Advance("a", OpState.IntentRecorded, evidence);
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
+
+    [Fact]
+    public void Any_write_failure_latches_the_journal_before_another_operation_can_start_or_advance()
+    {
+        string path = TempJournal();
+        try
+        {
+            using var j = new OperationJournal(path);
+            j.Begin("a", "take", D1);
+            // Fault injection: make the backing file unavailable at the write
+            // boundary. No engine mutation or unsafe filesystem action is used.
+            var field = typeof(OperationJournal).GetField("_file", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            ((FileStream)field.GetValue(j)!).Dispose();
+            Assert.Throws<ObjectDisposedException>(() => j.Advance("a", OpState.Reserved));
+            Assert.Equal(OpState.Requested, j.Get("a")!.State);
+            Assert.Throws<InvalidOperationException>(() => j.Begin("b", "take", D1));
+            Assert.Throws<InvalidOperationException>(() => j.Advance("a", OpState.Reserved));
+            Assert.Throws<InvalidOperationException>(() => j.Recover());
+            Assert.Null(j.Get("b"));
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(path)!, true); } catch { } }
+    }
+
     // ------------------------------------------------------------------ DLC from the game's log
 
     private const string Kcd1Log = """

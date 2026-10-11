@@ -1,5 +1,17 @@
 # Private KCD1 engine probes
 
+Session 9 whole-engine analysis: see [ghidra/README.md](ghidra/README.md).
+This separate resumable workflow analyzes both titles' complete game images
+and KCD2's split Modding Tools modules. It does not change live feature gates.
+The 37-image queue and a six-decoder repair follow-up have finished; see
+`docs/SESSION9-ENGINE-ANALYSIS.md` for counts, remaining failures and private
+combat evidence. The new requested-target and guard paths still do not prove
+independent damage. `KCDUS_FIGHT_HOLD_GUARD`, `KCDUS_FIGHT_ATTACK_DELAY` (0..3000
+ms), `KCDUS_FIGHT_REPEAT_TARGET`, `KCDUS_FIGHT_TERRAIN_SPAWN` and
+`KCDUS_FIGHT_COPY_OUTFIT=false` are private probe controls only. Terrain spawning
+requires an explicitly selected outdoor test site. Guard scope 4 belongs to
+native AI too; do not call it an authority lease.
+
 Session 8: read `docs/SESSION8-RESULTS.md` and `docs/SESSION8-HANDOFF.md`.
 `native_fight_probe.lua` uses the real combat scheduler, but has not proved
 damaging contact against independent participants. It checks native target

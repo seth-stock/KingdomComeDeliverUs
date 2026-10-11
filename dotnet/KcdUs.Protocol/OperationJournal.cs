@@ -35,14 +35,19 @@ public enum Observed { Applied, NotApplied }
 public sealed class OperationJournal : IDisposable
 {
     public const int MaxFieldLength = 2000;
+    // A valid record's two 2000-character fields fit even with JSON escaping.
+    // Bound parsing independently of the journal's total size.
+    public const int MaxLineBytes = 64 * 1024;
     private readonly object _gate = new();
     private readonly Dictionary<string, OperationRecord> _ops = new(StringComparer.Ordinal);
     private readonly FileStream _file;
     private string _prevHash = new('0', 64);
     private long _seq;
+    private Exception? _writeFailure;
+    private bool _disposed;
 
     public string Path { get; }
-    /// <summary>A damaged last line (a write cut off by a crash) that was ignored when the journal was opened.</summary>
+    /// <summary>An unterminated final write ignored on opening. Corrupt newline-terminated records are never discarded.</summary>
     public bool IgnoredTornTail { get; private set; }
 
     private sealed record Line(long S, string Id, string K, string D, OpState St, string O, string E, string P, string H);
@@ -60,37 +65,61 @@ public sealed class OperationJournal : IDisposable
 
     private void Load()
     {
-        var all = new byte[_file.Length];
         _file.Position = 0;
-        _file.ReadExactly(all);
-        long good = 0;
-        int start = 0, lineNo = 0;
-        while (start < all.Length)
+        var block = new byte[8192];
+        var line = new byte[MaxLineBytes];
+        long good = 0, offset = 0;
+        int used = 0, lineNo = 0, count;
+        while ((count = _file.Read(block, 0, block.Length)) > 0)
         {
-            int nl = Array.IndexOf(all, (byte)10, start);
-            bool complete = nl >= 0;
-            int end = complete ? nl : all.Length;
-            lineNo++;
-            Line? l = null;
-            if (complete)
+            for (int i = 0; i < count; i++, offset++)
             {
-                try { l = JsonSerializer.Deserialize<Line>(Encoding.UTF8.GetString(all, start, end - start)); } catch (JsonException) { }
-                if (l is not null && !(l.S == _seq + 1 && l.P == _prevHash && l.H == HashOf(_prevHash, l))) l = null;
+                if (block[i] != 10)
+                {
+                    if (used == line.Length) throw new InvalidDataException($"The operation journal {Path} has an oversized record at line {lineNo + 1}; it is not repaired automatically.");
+                    line[used++] = block[i];
+                    continue;
+                }
+                lineNo++;
+                Line? l = null;
+                try
+                {
+                    l = JsonSerializer.Deserialize<Line>(line.AsSpan(0, used));
+                    if (l is not null)
+                    {
+                        if (l.Id is null || l.K is null || l.D is null || l.O is null || l.E is null
+                            || !Enum.IsDefined(l.St)) l = null;
+                        else
+                        {
+                            Validate(l.Id, l.K, l.D); Field("outcome", l.O); Field("evidence", l.E);
+                            if (_seq == long.MaxValue || l.S != _seq + 1 || l.P != _prevHash || l.H != HashOf(_prevHash, l)) l = null;
+                        }
+                    }
+                }
+                catch (JsonException) { l = null; }
+                catch (ArgumentException) { l = null; }
+                // A terminating newline means this is a complete record. Never
+                // turn corrupted EngineApplying evidence into a safe rejection.
+                if (l is null) throw new InvalidDataException($"The operation journal {Path} is damaged at line {lineNo}; it is not repaired automatically.");
+                _seq = l.S; _prevHash = l.H;
+                _ops[l.Id] = new OperationRecord(l.Id, l.K, l.D, l.St, l.O, l.E, l.S);
+                good = offset + 1;
+                used = 0;
             }
-            if (l is null)
-            {
-                // only the very last line may be damaged (a write cut off by a crash); anything earlier is tampering or disk damage: fail closed
-                bool last = !complete || Array.IndexOf(all, (byte)10, end + 1) < 0 && end + 1 >= all.Length;
-                if (last) { IgnoredTornTail = true; break; }
-                throw new InvalidDataException($"The operation journal {Path} is damaged at line {lineNo}; it is not repaired automatically.");
-            }
-            _seq = l.S; _prevHash = l.H;
-            _ops[l.Id] = new OperationRecord(l.Id, l.K, l.D, l.St, l.O, l.E, l.S);
-            good = end + 1;
-            start = end + 1;
         }
-        _file.SetLength(good);       // cut a torn tail off so the next append stays well formed
+        IgnoredTornTail = used != 0;
+        if (IgnoredTornTail)
+        {
+            _file.SetLength(good); // only an unterminated tail may be cut
+            _file.Flush(true);
+        }
         _file.Seek(0, SeekOrigin.End);
+    }
+
+    private void RequireWritable()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_writeFailure is not null) throw new InvalidOperationException("The operation journal had an ambiguous write failure; close it and recover before any further mutation.", _writeFailure);
     }
 
     private static void Field(string name, string v)
@@ -100,12 +129,24 @@ public sealed class OperationJournal : IDisposable
 
     private OperationRecord Append(string id, string kind, string digest, OpState st, string outcome, string evidence)
     {
+        RequireWritable();
         Field("outcome", outcome); Field("evidence", evidence);
-        var l = new Line(_seq + 1, id, kind, digest, st, outcome, evidence, _prevHash, "");
+        var l = new Line(checked(_seq + 1), id, kind, digest, st, outcome, evidence, _prevHash, "");
         l = l with { H = HashOf(_prevHash, l) };
         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(l) + "\n");
-        _file.Write(bytes, 0, bytes.Length);
-        _file.Flush(true);                                   // durable BEFORE the caller acts on the new state
+        if (bytes.Length - 1 > MaxLineBytes) throw new ArgumentException("The operation record is too long");
+        try
+        {
+            _file.Write(bytes, 0, bytes.Length);
+            _file.Flush(true); // durable BEFORE the caller acts on the new state
+        }
+        catch (Exception ex)
+        {
+            // The file may have received none, some or all of the record. Its
+            // hash/sequence cannot safely be reused within this instance.
+            _writeFailure = ex;
+            throw;
+        }
         _seq = l.S; _prevHash = l.H;
         var rec = new OperationRecord(id, kind, digest, st, outcome, evidence, l.S);
         _ops[id] = rec;
@@ -127,6 +168,7 @@ public sealed class OperationJournal : IDisposable
         Validate(operationId, kind, payloadDigest);
         lock (_gate)
         {
+            RequireWritable();
             if (_ops.TryGetValue(operationId, out var rec))
             {
                 if (rec.PayloadDigest != payloadDigest || rec.Kind != kind) return new BeginResult(BeginKind.Conflict, rec);
@@ -142,6 +184,7 @@ public sealed class OperationJournal : IDisposable
     {
         lock (_gate)
         {
+            RequireWritable();
             var rec = Get(operationId) ?? throw new KeyNotFoundException(operationId);
             if (IsTerminal(rec.State) || rec.State == OpState.RecoveryRequired) throw new InvalidOperationException($"{operationId} is {rec.State}");
             bool ok = next switch
@@ -169,6 +212,7 @@ public sealed class OperationJournal : IDisposable
     {
         lock (_gate)
         {
+            RequireWritable();
             var q = new List<OperationRecord>();
             foreach (var rec in _ops.Values.Where(r => !IsTerminal(r.State) && r.State != OpState.RecoveryRequired).ToList())
             {
@@ -185,11 +229,12 @@ public sealed class OperationJournal : IDisposable
         if (string.IsNullOrWhiteSpace(evidence)) throw new ArgumentException("resolving a quarantined operation needs evidence of the observed native state");
         lock (_gate)
         {
+            RequireWritable();
             var rec = Get(operationId) ?? throw new KeyNotFoundException(operationId);
             if (rec.State != OpState.RecoveryRequired) throw new InvalidOperationException($"{operationId} is {rec.State}, not quarantined");
             return Append(operationId, rec.Kind, rec.PayloadDigest, observed == Observed.Applied ? OpState.Complete : OpState.Rejected, outcome, evidence);
         }
     }
 
-    public void Dispose() { lock (_gate) _file.Dispose(); }
+    public void Dispose() { lock (_gate) { _disposed = true; _file.Dispose(); } }
 }
