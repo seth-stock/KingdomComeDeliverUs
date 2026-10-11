@@ -1,18 +1,29 @@
--- rewards: shared quest rewards (docs/CAPABILITIES.md, "Quest rewards"). The host's quest progress already follows into the guests' copies of the same shared
--- world (quest_mirror.lua). What a quest step GIVES (money, items) follows too:
---   * HOST: when a quest's state changes here (a new objective done, or the quest done), what came into Henry's pack in the next RewardS seconds is that step's
---     reward, minus whatever came from loot, the ground or a shop meanwhile (loot.lua keeps a log). It is told once: KCDUS|QREWARD|code|key|class:n:hp;...
---   * GUEST: the reward is given to this Henry, minus what this game already gave natively when the same step was applied here (quest_mirror.lua tells this file
---     when it applied it; the native quest scripts may or may not have paid). Each key is given once per loaded world: a step is never paid twice.
--- NOT shared: experience (the engine has no exact readback of a skill's XP total), a reward missed while a guest was not in the world, rewards of quests the
--- mirror does not cover (DLC, story rails, unknown objectives).
+-- rewards: shared quest consequences (docs/CAPABILITIES.md, "Quest rewards"). KCD1's quest rewards are DATA (Libs/Tables/quest/quest_reward_exp/_item/_money/
+-- _perk), paid by the engine itself for a (quest, objective): "immediate" ones when the objective completes, the others when the quest completes. Proved in
+-- the private engine: QuestSystem.CompleteObjective (what the guest's quest mirror calls) makes the engine pay that objective's immediate rewards natively,
+-- money and XP, the XP with the quest-objective cause (C_QuestObjectiveChangedCause). So:
+--   * OBJECTIVE rewards follow causally and natively in every guest's copy through the quest mirror: nothing here pays them again.
+--   * QUEST-COMPLETION rewards: a guest's mirror cannot complete a quest (no Lua call does), so the host shares what its completion paid:
+--       - XP exactly: the engine adapter observes every native XP application with its cause (XpRead.h); the host forwards the ones caused by a quest state
+--         change (C_QuestStateChangedCause), with the native amount and stat/skill (KCDUS|QXP), and each guest applies them once (QXPGIVE);
+--       - items and money: what came into the host's pack in the RewardS seconds after its quest completed, minus loot (KCDUS|QREWARD ... done).
+-- Each key is paid once per loaded world. NOT shared: XP without the adapter (Linux, or no launcher), a reward missed while a guest was not in the world,
+-- rewards of quests the mirror does not cover (DLC, story rails, unknown objectives).
 --
--- agent -> game:  QRGIVE|<code>|<key>|class:n:hp;...     (guest) the host's step paid this
--- game -> agent:  KCDUS|QREWARD|<code>|<key>|class:n:hp;...   (host) a quest step paid this
---                 KCDUS|QRGIVEN|<code>|<key>|<given>|<native>   (guest) readback: what was given here, and what the native scripts had paid already
+-- agent -> game:  QRGIVE|<code>|<key>|class:n:hp;...|done   (guest) the host's quest completion paid this
+--                 QXPGIVE|<key>|<kind 0 stat 1 skill>|<index>|<raw>   (guest) the host's quest-caused native XP (raw: 128 per XP point)
+-- game -> agent:  KCDUS|QREWARD|<code>|<key>|class:n:hp;...|done   (host)
+--                 KCDUS|QXP|<key>|<kind>|<index>|<raw>                (host)
+--                 KCDUS|QRGIVEN|<code>|<key>|<given>|<native>  /  KCDUS|QXPGIVEN|<key>|<ok 0/1>   (guest) readback
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|rewards")
-local R = { windows = {}, applied = {}, given = {}, pending = {}, rewardS = 3, appliedTtl = 60, maxItems = 12 }
+local R = { windows = {}, applied = {}, given = {}, pending = {}, rewardS = 3, appliedTtl = 60, maxItems = 12, xpSeq = nil, xpGiven = {}, nonce = '' }
+do local hex, s = '0123456789abcdef', ''; for _ = 1, 6 do local i = math.random(1, 16); s = s .. string.sub(hex, i, i) end; R.nonce = s end
+R.STATS = { [0] = 'str', [1] = 'agi', [2] = 'vit', [3] = 'spc', [9] = 'prg' }       -- native stat indices (read live: AddStatXP -> XpRead)
+R.SKILLS = { [0] = 'stealth', 'horse_riding', 'fencing', 'bard', 'lockpicking', 'pickpocketing', 'alchemy', 'cooking', 'repairing', 'smithing', 'fishing',
+    'mining', 'first_aid', 'drinking', 'hunter', 'defense', 'weapon_sword', 'weapon_axe', 'weapon_bow', 'weapon_crossbow', 'weapon_shield', 'weapon_mace',
+    'weapon_dagger', 'weapon_large', 'weapon_unarmed', 'herbalism', 'reading', 'tailoring', 'armourer', 'weaponsmithing', 'shoemaking', 'gambling', 'houndmaster' }
+R.QUEST_STATE_CAUSE = '2306d30'                                                   -- C_QuestStateChangedCause vtable RVA (the exact engine the adapter accepts)
 K.Rewards = R
 
 local CLASS = '^[%x%-]+$'
@@ -55,6 +66,8 @@ end
 -- (host) quest_mirror.lua: this quest's state just changed (prev nil: the first look at it, nothing happened)
 function R.questChanged(code, signature, prev)
     if prev == nil or not K.Loot or not K.Loot.host then return end
+    local was, now = string.match(prev, '^%d|(%d)|'), string.match(signature, '^%d|(%d)|')
+    if not (was == '0' and now == '1') then return end                            -- objectives pay natively in the guests' mirrors
     local base = counts()
     if not base then return end
     local key = shortKey(code .. '|' .. signature)
@@ -84,7 +97,7 @@ function R.step()
             for class, n in pairs(g or {}) do
                 if validClass(class) and #parts < R.maxItems then parts[#parts + 1] = class .. ':' .. n .. ':' .. string.format('%.4f', hp[class] or 1) end
             end
-            if #parts > 0 then K.out('QREWARD', w.code, key, table.concat(parts, ';')) end
+            if #parts > 0 then K.out('QREWARD', w.code, key, table.concat(parts, ';'), 'done') end
         end
     end
     for code, a in pairs(R.applied) do if now - a.at > R.appliedTtl then R.applied[code] = nil end end
@@ -110,6 +123,12 @@ K.handlers['QRGIVE'] = function(f)
         seen[class]=true; rows[#rows+1]={class,n,hp}
     end
     if #rows==0 then return end
+    if f[5] == 'done' then
+        R.applied[code] = R.applied[code] or { at = K.now(), base = counts() or {}, ready = true }
+        R.applied[code].ready = true                                             -- no native completion here: nothing was paid natively
+        R.applied[code].base = counts() or {}
+        R.applied[code].at = K.now()
+    end
     local a = R.applied[code]
     if not a or not a.ready then
         local size=0; for _ in pairs(R.pending) do size=size+1 end
@@ -144,6 +163,52 @@ K.handlers['QRGIVE'] = function(f)
     K.out('QRGIVEN', code, key, givenN, nativeN)
 end
 
-K.every(0.5, 'quest-rewards', function() K.try('quest-rewards', R.step) end)
+-- (host) the adapter's native XP observations since the last look: forward the quest-completion ones
+function R.xpDrain()
+    if not K.Loot or not K.Loot.enabled or not K.Loot.host or not K.inWorldRaw() then return end
+    local ok, r = pcall(function() return player.human:PlayAnim('@kcdus/xp-since/' .. tostring(R.xpSeq or 0), '') end)
+    if not ok or type(r) ~= 'table' or type(r.last) ~= 'number' then return end      -- no adapter: XP is not shared
+    if R.xpSeq == nil then R.xpSeq = r.last; return end                            -- start from now: earlier XP is not this session's
+    local me = R.myIdentity()
+    for i = 1, tonumber(r.n) or 0 do
+        local row = r['e' .. i]
+        local seq, kind, idx, req, _, applied, verified, cause, soul = string.match(row or '', '^(%d+),(%d),(%d+),(%d+),(%d+),(%d),(%d),(%x+),(%x*),')
+        seq = tonumber(seq)
+        if seq and seq > R.xpSeq then
+            R.xpSeq = seq
+            if cause == R.QUEST_STATE_CAUSE and applied == '1' and verified == '1' and (me == nil or soul == me) then
+                K.out('QXP', 'x' .. R.nonce .. seq, kind, idx, req)
+            end
+        end
+    end
+    if r.last > R.xpSeq then R.xpSeq = r.last end
+end
 
-function R.onWorldReset() R.windows = {}; R.applied = {}; R.given = {}; R.pending = {} end
+function R.myIdentity()
+    local ok, it = pcall(function() return ItemManager.GetItem(player.soul:GetId()) end)
+    if ok and type(it) == 'table' and type(it.kcdusPersistent) == 'string' then return it.kcdusPersistent end
+    return nil
+end
+
+K.handlers['QXPGIVE'] = function(f)
+    local key, kind, idx, raw = f[2], f[3], tonumber(f[4]), tonumber(f[5])
+    if type(key) ~= 'string' or not string.find(key, '^x%x%x%x%x%x%x%d+$') or #key > 24 or R.xpGiven[key] then return end
+    if not K.inWorldRaw() or (K.Loot and K.Loot.host) or not idx or not raw or raw < 1 or raw > 128 * 100000 then return end
+    local name = kind == '0' and R.STATS[idx] or kind == '1' and R.SKILLS[idx] or nil
+    if not name then return end
+    R.xpGiven[key] = true                                                          -- never twice, even if the call below fails
+    local before = nil
+    pcall(function() before = player.human:PlayAnim('@kcdus/xp-last', '') end)
+    local ok = pcall(function()
+        if kind == '0' then player.soul:AddStatXP(name, raw / 128) else player.soul:AddSkillXP(name, raw / 128) end
+    end)
+    local after = nil
+    pcall(function() after = player.human:PlayAnim('@kcdus/xp-last', '') end)
+    local verified = ok and type(before) == 'table' and type(after) == 'table' and after.sequence > before.sequence and after.stat == idx
+    K.out('QXPGIVEN', key, name, ok and 1 or 0, verified and 1 or 0)
+end
+
+K.every(0.5, 'quest-rewards', function() K.try('quest-rewards', R.step) end)
+K.every(0.25, 'quest-xp', function() K.try('quest-xp', R.xpDrain) end)
+
+function R.onWorldReset() R.windows = {}; R.applied = {}; R.given = {}; R.pending = {}; R.xpSeq = nil; R.xpGiven = {} end

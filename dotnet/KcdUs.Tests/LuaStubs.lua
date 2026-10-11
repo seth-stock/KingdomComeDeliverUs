@@ -229,6 +229,8 @@ player = {
         GetSkillLevel = function(self, n) local v = __henry.skills[n]; if v == nil then error("no skill " .. tostring(n)) end return v end,
         AdvanceToStatLevel = function(self, n, v) if v > __henry.stats[n] then __henry.stats[n] = v end end,
         AdvanceToSkillLevel = function(self, n, v) if v > __henry.skills[n] then __henry.skills[n] = v end end,
+        AddStatXP = function(self, n, v) __xpAwards[#__xpAwards + 1] = 'stat:' .. n .. ':' .. v; __world.xpLast = { sequence = __world.xpLast.sequence + 1, stat = __world.statIndex and __world.statIndex[n] or -1 } end,
+        AddSkillXP = function(self, n, v) __xpAwards[#__xpAwards + 1] = 'skill:' .. n .. ':' .. v; __world.xpLast = { sequence = __world.xpLast.sequence + 1, stat = __world.skillIndex and __world.skillIndex[n] or -1 } end,
     },
     inventory = {
         GetInventoryTable = function(self) local t = {}; for i, it in ipairs(__henry.items) do t[i - 1] = it end return t end,
@@ -252,8 +254,17 @@ player = {
         IsWeaponDrawn = function(self) return __world.weapon end,
         IsMounted = function(self) return __world.mounted end,
         IsInDialog = function(self) return __world.dialog end,
+        -- the engine adapter's XP observation (XpRead.h); nil when no adapter is loaded
+        PlayAnim = function(self, fragment, tags)
+            if not __world.xpAdapter then return nil end
+            if fragment == '@kcdus/xp-last' then return __world.xpLast end
+            if string.sub(fragment, 1, 16) == '@kcdus/xp-since/' then return __world.xpSince end
+            return nil
+        end,
     },
 }
+__world.xpLast = { sequence = 0, stat = -1 }
+__xpAwards = {}
 
 -- the player's Henry as the card reads it: levels, and things (class, health, amount)
 __henry = {

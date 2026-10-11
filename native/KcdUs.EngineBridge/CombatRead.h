@@ -48,6 +48,7 @@ static PlayAnimBindingFn play_anim_original;
 static int play_anim_binding(void* binding,void* handler,const char* fragment,const char* tags) {
     if(fragment && !strncmp(fragment,"@kcdus/fight/",13))return private_fight_binding(binding,handler,fragment+13,tags);
     if(fragment && !strcmp(fragment,"@kcdus/xp-last"))return xp_read_binding(binding,handler);
+    if(fragment && !strncmp(fragment,"@kcdus/xp-since/",16))return xp_since_binding(binding,handler,fragment+16);
     if(fragment && !strncmp(fragment,"@kcdus/buff-restore/",20)) {
         int applied=private_restore_timed_buff(fragment+20,tags);
         auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);

@@ -13,6 +13,14 @@ public static class QuestMirrorRules
             CultureInfo.InvariantCulture, out int id) && id > 0 && id < 1000000);
     }
 
+    /// <summary>A quest-caused native XP application (rewards.lua / XpRead.h): key x + 6 hex + sequence, kind 0 stat (0-9) or 1 skill (0-32), raw 1..128*100000.</summary>
+    public static bool ValidXp(string key, string kind, string index, string raw)
+    {
+        if (key.Length is < 8 or > 24 || key[0] != 'x' || !key[1..7].All(char.IsAsciiHexDigitLower) || !key[7..].All(char.IsAsciiDigit)) return false;
+        if (kind is not ("0" or "1") || !int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out int i) || i < 0 || i > (kind == "0" ? 9 : 32)) return false;
+        return long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out long r) && r is >= 1 and <= 128L * 100000;
+    }
+
     /// <summary>A quest step's reward (rewards.lua): a mirrored quest, an 8-hex key and up to 12 entries class:count:health.</summary>
     public static bool ValidReward(string code, string key, string items)
     {

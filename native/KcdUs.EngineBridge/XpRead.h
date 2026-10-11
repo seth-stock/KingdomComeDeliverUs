@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Private observation of native applied stat/skill XP. No grants or inferred quest cause.
+// Observation of native applied stat/skill XP (docs/CAPABILITIES.md, "Quest rewards"). No grants, no altered results.
+// Every application keeps its cause: C_QuestObjectiveChangedCause (0x21c8fd0, 24-byte data) or C_QuestStateChangedCause (0x2306d30, 16-byte data) for quest
+// rewards, C_UknownScriptCause (0x2201b10) for script/Lua awards, others for combat, reading, crafting... The mod forwards only quest-state-caused XP (a
+// quest's completion rewards, which a guest's mirror cannot trigger); objective rewards are paid natively on the guest by its quest mirror (proved live).
+// Installed with the adapter in normal play: the two vtable slots are checked against the exact engine (hash-gated by initialize) and pass every call through.
 #pragma once
 struct AppliedXp {
     int sequence, kind, stat, modifier, applied, verified;
     unsigned requested, actual, sourceVtableRva, causeVtableRva;
     unsigned long long before, after;
     BYTE soulIdentity[16];
+    BYTE causeData[24];
+    int causeDataLength;
 };
 static SRWLOCK xp_read_lock=SRWLOCK_INIT;
 static AppliedXp xp_read_last{};
+static AppliedXp xp_ring[64];
 static LONG xp_read_sequence;
 using StatXpApply=unsigned long long(*)(BYTE*);
 static StatXpApply stat_xp_original;
@@ -44,6 +51,9 @@ static bool xp_before(BYTE* effect,AppliedXp* read,unsigned long long* uid) {
                     auto causeVt=*reinterpret_cast<BYTE**>(cause);
                     offset=reinterpret_cast<size_t>(causeVt)-reinterpret_cast<size_t>(engine);
                     if(offset<nt->OptionalHeader.SizeOfImage)read->causeVtableRva=static_cast<unsigned>(offset);
+                    // The quest causes copy their data right after the vtable: objective 24 bytes (ctor 0x5d5f38), quest state 16 bytes (ctor 0x11b6e14).
+                    if(causeVt==engine+0x21c8fd0) { memcpy(read->causeData,cause+8,24);read->causeDataLength=24; }
+                    else if(causeVt==engine+0x2306d30) { memcpy(read->causeData,cause+8,16);read->causeDataLength=16; }
                 }
             }
         }
@@ -75,6 +85,7 @@ static unsigned long long observe_xp(BYTE* effect,int kind,StatXpApply original)
         if(xp_read_sequence<LONG_MAX)++xp_read_sequence;
         read.sequence=static_cast<int>(xp_read_sequence);
         xp_read_last=read;
+        xp_ring[read.sequence&63]=read;
         ReleaseSRWLockExclusive(&xp_read_lock);
     }
     return result;
@@ -92,12 +103,10 @@ static void install_xp_slot(size_t vtable,size_t apply,StatXpApply observer,Stat
     if(previous!=expected)*original=nullptr;
 }
 static void install_xp_read() {
-    if(!owned_state_probe())return;
     install_xp_slot(0x21c7a48,0x6ac280,stat_xp_observer,&stat_xp_original);
     install_xp_slot(0x21c7a00,0x5a40b8,skill_xp_observer,&skill_xp_original);
 }
 static int xp_read_binding(void* binding,void* handler) {
-    if(!owned_state_probe())return virtual_function<int(*)(void*)>(handler,0x58)(handler);
     AppliedXp read{};
     AcquireSRWLockShared(&xp_read_lock);read=xp_read_last;ReleaseSRWLockShared(&xp_read_lock);
     auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
@@ -116,6 +125,37 @@ static int xp_read_binding(void* binding,void* handler) {
     const char* text=identity;putText(table,"soulIdentity",&text);
     text=before;putText(table,"before",&text);text=after;putText(table,"after",&text);
     text=requested;putText(table,"requestedRaw",&text);text=actual;putText(table,"actualRaw",&text);
+    int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
+    virtual_function<void(*)(void*)>(table,0x20)(table);return result;
+}
+// @kcdus/xp-since/<sequence>: up to 16 applications after <sequence>, as text rows "seq,kind,stat,requested,actual,applied,verified,causeRva,soulIdentity,causeData"
+// (requested/actual are the native fixed-point amounts, 128 per Lua XP unit). "last" is the newest sequence; "lost" counts rows the 64-row ring overwrote.
+static int xp_since_binding(void* binding,void* handler,const char* text) {
+    long after=text?strtol(text,nullptr,10):0;
+    if(after<0)after=0;
+    AppliedXp rows[16];int n=0,lost=0;long last;
+    AcquireSRWLockShared(&xp_read_lock);
+    last=xp_read_sequence;
+    long first=after+1;
+    if(last-first+1>64) { lost=static_cast<int>(last-63-first);first=last-63; }
+    for(long s=first;s<=last && n<16;s++)rows[n++]=xp_ring[s&63];
+    ReleaseSRWLockShared(&xp_read_lock);
+    auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
+    auto table=virtual_function<void*(*)(void*,bool)>(script,0x68)(script,false);
+    if(!table)return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+    virtual_function<void(*)(void*)>(table,0x18)(table);
+    auto putInt=function<void(*)(void*,const char*,const void*)>(0x2b6a0c);
+    auto putText=function<void(*)(void*,const char*,const void*)>(0x2b6a44);
+    int lastInt=static_cast<int>(last);putInt(table,"last",&lastInt);putInt(table,"n",&n);putInt(table,"lost",&lost);
+    for(int i=0;i<n;i++) {
+        char identity[33],cause[49],row[200],key[8];
+        hex(rows[i].soulIdentity,16,identity);
+        hex(rows[i].causeData,rows[i].causeDataLength>0?rows[i].causeDataLength:0,cause);
+        sprintf_s(row,"%d,%d,%d,%u,%u,%d,%d,%x,%s,%s",rows[i].sequence,rows[i].kind,rows[i].stat,rows[i].requested,rows[i].actual,
+            rows[i].applied,rows[i].verified,rows[i].causeVtableRva,identity,cause);
+        sprintf_s(key,"e%d",i+1);
+        const char* value=row;putText(table,key,&value);
+    }
     int result=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
     virtual_function<void(*)(void*)>(table,0x20)(table);return result;
 }

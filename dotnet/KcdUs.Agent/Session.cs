@@ -311,9 +311,17 @@ public sealed class Session : IDisposable
                     }
                     break;
                 case "QREWARD":
-                    // (host) a mirrored quest step paid this: the guests in the same shared world get it too (rewards.lua takes off what their game paid already)
-                    if (_candidateQuests && IsHost && _inWorld && _myId != 0 && f.Length == 4 && QuestMirrorRules.ValidReward(f[1], f[2], f[3]))
-                        _relay.Send(MessageType.HostEvent, $"qreward|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}");
+                    // (host) a mirrored quest's completion paid this: the guests in the same shared world get it too (their mirror cannot complete a quest)
+                    if (_candidateQuests && IsHost && _inWorld && _myId != 0 && f.Length is 4 or 5 && QuestMirrorRules.ValidReward(f[1], f[2], f[3]))
+                        _relay.Send(MessageType.HostEvent, $"qreward|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}{(f.Length == 5 && f[4] == "done" ? "|done" : "")}");
+                    break;
+                case "QXP":
+                    // (host) native XP caused by a quest's completion (the adapter's observation): each guest applies it once
+                    if (_candidateQuests && IsHost && _inWorld && _myId != 0 && f.Length == 5 && QuestMirrorRules.ValidXp(f[1], f[2], f[3], f[4]))
+                        _relay.Send(MessageType.HostEvent, $"qxp|{_questEpoch}|{f[1]}|{f[2]}|{f[3]}|{f[4]}");
+                    break;
+                case "QXPGIVEN":
+                    _log("quest xp: " + string.Join(' ', f.Skip(1)));
                     break;
                 case "QRGIVEN":
                     _log("quest reward: " + string.Join(' ', f.Skip(1)));
@@ -609,9 +617,13 @@ public sealed class Session : IDisposable
             case "quest-epoch" when f.Length == 2 && Guid.TryParseExact(f[1], "N", out _):
                 if (_candidateQuests) { _questHostEpoch = f[1]; _game.Send("QMRESET|" + f[1]); }
                 break;
-            case "qreward" when f.Length == 5:
+            case "qreward" when f.Length is 5 or 6:
                 if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch && QuestMirrorRules.ValidReward(f[2], f[3], f[4]))
-                    _game.Send($"QRGIVE|{f[2]}|{f[3]}|{f[4]}");
+                    _game.Send($"QRGIVE|{f[2]}|{f[3]}|{f[4]}{(f.Length == 6 && f[5] == "done" ? "|done" : "")}");
+                break;
+            case "qxp" when f.Length == 6:
+                if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch && QuestMirrorRules.ValidXp(f[2], f[3], f[4], f[5]))
+                    _game.Send($"QXPGIVE|{f[2]}|{f[3]}|{f[4]}|{f[5]}");
                 break;
             case "quest-mirror" when f.Length == 6:
                 if (_candidateQuests && _inWorld && !_contentDiffers && f[1] == _questHostEpoch
