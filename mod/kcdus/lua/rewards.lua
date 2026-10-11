@@ -170,18 +170,20 @@ function R.xpDrain()
     if not ok or type(r) ~= 'table' or type(r.last) ~= 'number' then return end      -- no adapter: XP is not shared
     if R.xpSeq == nil then R.xpSeq = r.last; return end                            -- start from now: earlier XP is not this session's
     local me = R.myIdentity()
+    if (tonumber(r.lost) or 0) > 0 then K.out('QXPGAP', R.xpSeq, r.lost) end
     for i = 1, tonumber(r.n) or 0 do
         local row = r['e' .. i]
         local seq, kind, idx, req, _, applied, verified, cause, soul = string.match(row or '', '^(%d+),(%d),(%d+),(%d+),(%d+),(%d),(%d),(%x+),(%x*),')
         seq = tonumber(seq)
         if seq and seq > R.xpSeq then
             R.xpSeq = seq
-            if cause == R.QUEST_STATE_CAUSE and applied == '1' and verified == '1' and (me == nil or soul == me) then
+            if cause == R.QUEST_STATE_CAUSE and applied == '1' and verified == '1' and me ~= nil and soul == me then
                 K.out('QXP', 'x' .. R.nonce .. seq, kind, idx, req)
             end
         end
     end
-    if r.last > R.xpSeq then R.xpSeq = r.last end
+    -- The adapter returns at most 16 of its 64 retained observations. 'last' is
+    -- the ring head, not the last row returned: advancing to it silently loses pages.
 end
 
 function R.myIdentity()

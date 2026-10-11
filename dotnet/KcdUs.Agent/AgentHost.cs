@@ -69,14 +69,16 @@ public sealed class AgentHost : IAsyncDisposable
     public string? CustodyFile { get; set; }
     private GuestCustody? _custody, _memoryCustody;
     // one per agent, opened on first use: sessions come and go, the file must not be opened twice
-    private GuestCustody CustodyFor(string role)
+    private GuestCustody CustodyFor(bool transient)
     {
-        if (role == GuestMode) return _memoryCustody ??= new GuestCustody();
+        // Construction/idle sessions run before callers can set their state paths.
+        // A connected guest needs the same persistent custody as a connected host.
+        if (transient) return _memoryCustody ??= new GuestCustody();
         try { return _custody ??= new GuestCustody(CustodyFile ?? UserFile("loot-custody.jsonl")); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            _log("loot custody journal unavailable (" + e.Message + "): takes on probation are kept in memory only");
-            return _memoryCustody ??= new GuestCustody();
+            _log("loot custody journal unavailable (" + e.Message + "): shared session refused; preserve the journal and resolve the storage error");
+            throw;
         }
     }
     /// <summary>The game said its startup engine adapter is in its process (the Lua mod's ADAPTER line).</summary>
@@ -117,20 +119,20 @@ public sealed class AgentHost : IAsyncDisposable
     public AgentHost(AgentConfig cfg, IGameLink game, string release, int statusPort, Action<string> log, Action? quit = null)
     {
         Config = cfg; AllowLoopbackJoin = cfg.AllowLoopbackJoin; _game = game; _release = release; _statusPort = statusPort; _log = log; _quit = quit;
-        _session = NewSession(GuestMode, _relay);
+        _session = NewSession(GuestMode, _relay, transient: true);
         _game.Line += OnGameLine;
     }
 
     public string SettingsUrl => $"http://127.0.0.1:{_statusPort}/settings?t={SettingsToken}";
 
-    private Session NewSession(string role, IRelayLink relay)
+    private Session NewSession(string role, IRelayLink relay, bool transient = false)
     {
-        var s = NewSessionCore(role, relay);
+        var s = NewSessionCore(role, relay, transient);
         s.ScopeProvider = () => _world?.ActiveWorldId;       // the shared world this player has loaded: friends in the same one share fights and loot
         return s;
     }
 
-    private Session NewSessionCore(string role, IRelayLink relay) => new(new SessionOptions
+    private Session NewSessionCore(string role, IRelayLink relay, bool transient) => new(new SessionOptions
     {
         Role = role,
         PlayerName = Config.PlayerName,
@@ -140,7 +142,7 @@ public sealed class AgentHost : IAsyncDisposable
         SharedPause = Config.SharedPause,
         SharedOutcomes = Config.SharedOutcomes,
         LootJournalPath = role == GuestMode ? "" : UserFile("loot-journal.jsonl"),
-        Custody = CustodyFor(role),
+        Custody = CustodyFor(transient),
         PauseGate = _pauseGate,
     }, _game, relay, () => Environment.TickCount64, _log);
 
@@ -273,7 +275,7 @@ public sealed class AgentHost : IAsyncDisposable
                 relay = mode == Idle ? new NullRelay()
                     : new RelayClient(new RelayEndpoint { Host = relayHost, Port = Config.RelayPort, Name = Config.PlayerName, Role = role, Password = Config.Password, Release = _release, HandshakeProvider = Handshake, Identity = Identity() });
             }
-            var session = NewSession(role, relay);
+            var session = NewSession(role, relay, transient: mode == Idle);
             session.WorldEvent += (from, f) => _world?.OnPeerEvent(from, f);
             lock (_gate) { _session = session; _relay = relay; _server = server; Mode = mode; _refusalSaid = ""; }
             relay.Start(_ct);
@@ -397,6 +399,8 @@ public sealed class AgentHost : IAsyncDisposable
         s.Dispose();
         await r.DisposeAsync().ConfigureAwait(false);
         if (srv != null) await srv.DisposeAsync().ConfigureAwait(false);
+        _custody?.Dispose();
+        _memoryCustody?.Dispose();
     }
 
     public static void OpenBrowser(string url)

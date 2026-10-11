@@ -205,6 +205,41 @@ public class OutcomesCoordinatorTests
     private static string AskOp(GuestRig g) => g.ToPeers.Last(l => l.StartsWith("loot|ask|")).Split('|')[2];
 
     [Fact]
+    public void A_completed_receipt_is_retried_after_restart_without_repeating_the_game_settlement()
+    {
+        using var g = new GuestRig();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "abcd1234", "5000" }, false);
+        g.O.GameLoot(new[] { "LOOT", "ask", "abcd1234", "3", "bandit_7", Coin, "50", "1.0000", "0", "6000" }, false);
+        string op = AskOp(g);
+        g.O.HostLoot(new[] { "loot", "res", "2", op, "ok", "bandit_7", Coin, "50" }, 2);
+        g.O.GameLoot(new[] { "LOOT", "kept", "abcd1234", "3" }, false);
+        g.Restart(); g.ToPeers.Clear(); g.ToGame.Clear();
+        g.O.PeerScope(1, "w1"); g.Step();
+        g.O.GameLootMode(new[] { "LOOTMODE", "on", "w1", "guest", "dcba4321", "7000" }, false);
+        Assert.Contains("loot|receipt|" + op + "|kept", g.ToPeers);
+        Assert.DoesNotContain(g.ToGame, l => l.StartsWith("LOOTRECOVER|"));
+    }
+
+    [Fact]
+    public void Host_compensation_is_journalled_before_native_put_and_survives_restart_as_unknown()
+    {
+        using var r = new Rig(journal: true);
+        r.O.PeerScope(2, "w1"); r.Step(host: true);
+        r.O.PeerAsk(2, new[] { "loot", "ask", Op, "bandit_7", Coin, "50" });
+        r.O.GameLoot(new[] { "LOOT", "res", "2", "1", "ok", "bandit_7", Coin, "50", "0.5000", Op }, true);
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, "returned" });
+        var intent = r.Journal!.Get("rs:" + Op)!;
+        Assert.Equal(OpState.EngineApplying, intent.State);
+        Assert.StartsWith("bandit_7|" + Coin + "|50|0.5000", intent.Evidence);
+        r.Journal.Recover();
+        Assert.Equal(OpState.RecoveryRequired, r.Journal.Get(intent.OperationId)!.State);
+        int puts = r.ToGame.Count(l => l.StartsWith("LOOTPUT|"));
+        r.O.PeerReceipt(2, new[] { "loot", "receipt", Op, "returned" });
+        Assert.Equal(puts, r.ToGame.Count(l => l.StartsWith("LOOTPUT|")));
+    }
+
+    [Fact]
     public void A_guests_take_is_journalled_on_disk_before_the_host_hears_of_it_and_the_hosts_answer_reaches_the_game()
     {
         using var g = new GuestRig();

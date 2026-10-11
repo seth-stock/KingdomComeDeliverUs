@@ -83,6 +83,7 @@ Source: "..\docs\SHARED-WORLDS.md"; DestDir: "{app}\docs"; Flags: ignoreversion 
 Source: "..\docs\FEATURE-PARITY.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\SESSION6-RESULTS.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\CAPABILITIES.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
+Source: "..\docs\CONTINUATION-RESULTS.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\HUMAN-ACCEPTANCE-TESTS.md"; DestDir: "{app}\docs"; Flags: ignoreversion overwritereadonly
 Source: "..\docs\WARHORSE-MODDING-EULA.txt"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly
 ; The game mod: these three files and nothing else. uninsneveruninstall: the uninstaller must not delete files in the player's game

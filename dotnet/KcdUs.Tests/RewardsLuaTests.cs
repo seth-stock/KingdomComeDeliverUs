@@ -130,6 +130,7 @@ public class RewardsLuaTests
     public void The_host_forwards_only_quest_state_caused_xp_from_the_adapter_starting_from_now()
     {
         var m = World(host: true);
+        m.Do("KCDUS.Rewards.myIdentity=function() return '' end");
         m.Do("__world.xpAdapter = true; __world.xpSince = { last = 5, n = 0, lost = 0 }");
         m.Advance(0.5);                                                                           // the first look only sets where to start
         m.Do(@"__world.xpSince = { last = 8, n = 3, lost = 0,
@@ -153,6 +154,25 @@ public class RewardsLuaTests
         Assert.Empty(m.Lines("KCDUS|QXP|"));
         m.Send("2~QXPGIVE|xabcdef1|0|9|4096");
         Assert.Equal(0, m.Num("#__xpAwards"));
+    }
+
+    [Fact]
+    public void The_xp_cursor_tracks_returned_rows_instead_of_skipping_to_the_ring_head()
+    {
+        var m = World(host: true);
+        m.Do("__world.xpAdapter=true; KCDUS.Rewards.myIdentity=function() return '' end; KCDUS.Rewards.xpSeq=10; __world.xpSince={last=50,n=1,lost=0,e1='11,0,9,128,128,1,1,2306d30,,0011'}");
+        m.Do("KCDUS.Rewards.xpDrain()");
+        Assert.Equal(11, m.Num("KCDUS.Rewards.xpSeq"));
+        m.Do("__world.xpSince.e1='12,0,9,128,128,1,1,2306d30,,0011'; KCDUS.Rewards.xpDrain()");
+        Assert.Equal(12, m.Num("KCDUS.Rewards.xpSeq")); Assert.Equal(2, m.Lines("KCDUS|QXP|").Count);
+    }
+
+    [Fact]
+    public void Unknown_recipient_identity_never_forwards_another_actors_quest_xp()
+    {
+        var m = World(host: true);
+        m.Do("__world.xpAdapter=true; KCDUS.Rewards.myIdentity=function() return nil end; KCDUS.Rewards.xpSeq=10; __world.xpSince={last=11,n=1,lost=2,e1='11,0,9,128,128,1,1,2306d30,other,0011'}; KCDUS.Rewards.xpDrain()");
+        Assert.Empty(m.Lines("KCDUS|QXP|")); Assert.Single(m.Lines("KCDUS|QXPGAP|"));
     }
 
     [Fact]

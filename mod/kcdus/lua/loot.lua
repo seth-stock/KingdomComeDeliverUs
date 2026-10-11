@@ -430,11 +430,13 @@ K.handlers['LOOTRECOVER'] = function(f)
     local have = player.inventory:GetCountOfClass(class)
     local k = math.min(n, have)
     local ok = k <= 0 or pcall(function() player.inventory:DeleteItemOfClass(class, k) end)
+    local readOk, after = pcall(function() return player.inventory:GetCountOfClass(class) end)
+    local removed = readOk and math.max(0, math.min(k, have - after)) or 0
     local refunded = 0
-    if ok and price > 0 then if giveTo(player.inventory, L.MONEY, price, 1) then refunded = price end end
+    if removed == n and price > 0 then if giveTo(player.inventory, L.MONEY, price, 1) then refunded = price end end
     L.pc = nil
     L.recovered[op] = true
-    K.out('LOOT', 'recovered', op, ok and k or 0, refunded, k < n and 'partial' or 'returned')
+    K.out('LOOT', 'recovered', op, removed, refunded, removed == n and (price == 0 or refunded == price) and 'returned' or 'partial')
 end
 
 K.every(0.5, 'loot-shared', function() K.try('loot', L.scan) end)

@@ -14,7 +14,7 @@ public sealed partial class NpcCoordinator
     {
         _authority=host?Guid.NewGuid().ToString("N"):"";
         _ownerRevision=_termCounter=_sampleSequence=0;
-        _terms.Clear(); _receivedSequences.Clear(); _retiredAuthorities.Clear(); _stateRate.Clear();
+        _terms.Clear(); _receivedSequences.Clear(); _retiredAuthorities.Clear(); _stateRate.Clear(); _engaged.Clear();
     }
     private void SetOwner(string name,int id)
     {
@@ -78,7 +78,7 @@ public sealed partial class NpcCoordinator
             foreach(var row in records)
             {
                 var v=row.Split(',');
-                if(v.Length!=9 || !Counter(v[1],out long term) || !names.Add(v[0]) || !ValidStates(v[0]+","+string.Join(',',v.Skip(2)))) return;
+                if(v.Length is not (9 or 12) || !Counter(v[1],out long term) || !names.Add(v[0]) || !ValidStates(v[0]+","+string.Join(',',v.Skip(2)))) return;
                 if(_owner.TryGetValue(v[0],out int owner) && owner==from && _terms.TryGetValue(v[0],out long expected) && expected==term) selected.Add(row);
             }
             if(selected.Count==0) return;

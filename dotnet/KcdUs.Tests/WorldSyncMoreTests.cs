@@ -70,6 +70,9 @@ public partial class WorldSyncTests
         await using var guest = new Rig("Hans", port, seed: r => { r.WriteSave(0, "permanent001.whs", 1_780_000_000, 5); r.WriteSave(1, "permanent001.whs", 1_780_000_100, 6); });   // his own two games
         await host.Host.HandleAsync("host", "");
         await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
+        // Let the first stamp go out while nobody else is connected. A late
+        // guest must receive a new stamp rather than depending on connect timing.
+        await Task.Delay(1500);
         await guest.Host.HandleAsync("join", "");
         await Until(() => guest.Game.Has("NOTE|Henry has the shared world"), what: "the offer is announced", rigs: new[] { host, guest });
         Assert.False(guest.Game.Has("LOAD|"));                                          // nothing is taken until he asks (he may be in the middle of his own game)

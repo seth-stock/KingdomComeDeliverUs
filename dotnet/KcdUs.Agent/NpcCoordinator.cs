@@ -74,6 +74,7 @@ public sealed partial class NpcCoordinator
         lock (_gate)
         {
             foreach (var m in _near.Values) m.Remove(id);
+            foreach (var m in _engaged.Values) m.Remove(id);
             foreach (var k in _owner.Where(kv => kv.Value == id).Select(kv => kv.Key).ToList()) _owner.Remove(k);
             _stateRate.Remove(id);
         }
@@ -89,7 +90,7 @@ public sealed partial class NpcCoordinator
             if (!_on || f.Length < 2) return;
             var list = ParseNear(f[1]);
             if (list == null) return;
-            if (isHost) NoteNearLocked(_myId, list, _now());
+            if (isHost) { NoteNearLocked(_myId, list, _now()); NoteEngagedLocked(_myId, f[1], _now()); }
             else _toPeers($"npcnear|{_scope}|{f[1]}");
         }
     }
@@ -110,9 +111,9 @@ public sealed partial class NpcCoordinator
     {
         lock (_gate)
         {
-            if (!_on || !isHost || f.Length != 3 || f[1] != _scope) return;
+            if (!_on || !isHost || from is < 1 or > 255 || f.Length != 3 || f[1] != _scope) return;
             var list = ParseNear(f[2]);
-            if (list != null) NoteNearLocked(from, list, _now());
+            if (list != null) { NoteNearLocked(from, list, _now()); NoteEngagedLocked(from, f[2], _now()); }
         }
     }
 
@@ -141,6 +142,26 @@ public sealed partial class NpcCoordinator
 
     // ------------------------------------------------------------------ the host's decision
 
+    // name -> player -> when that player last reported being in combat with it (its own world)
+    private readonly Dictionary<string, Dictionary<int, long>> _engaged = new(StringComparer.Ordinal);
+
+    private void NoteEngagedLocked(int who, string raw, long now)
+    {
+        // A fresh report replaces this player's engagement, including explicit disengagement.
+        foreach (var m in _engaged.Values) m.Remove(who);
+        foreach (var name in _engaged.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToArray()) _engaged.Remove(name);
+        foreach (var p in raw.Split(';'))
+        {
+            if (!p.EndsWith(":1", StringComparison.Ordinal) || p.Count(ch => ch == ':') < 2) continue;
+            string name = p[..p.IndexOf(':')];
+            if (!OutcomesRules.ValidName(name)) continue;
+            if (!_engaged.TryGetValue(name, out var m)) { if (_engaged.Count >= MaxNpcs * 2) continue; _engaged[name] = m = new(); }
+            m[who] = now;
+        }
+    }
+
+    private bool EngagedLocked(string name, int who, long now) => _engaged.TryGetValue(name, out var m) && m.TryGetValue(who, out long at) && now - at <= StaleMs;
+
     private void NoteNearLocked(int who, List<(string Name, double D)> list, long now)
     {
         foreach (var (name, d) in list)
@@ -156,6 +177,9 @@ public sealed partial class NpcCoordinator
 
     private void DecideLocked(long now)
     {
+        foreach (var m in _engaged.Values)
+            foreach (var who in m.Where(kv => now - kv.Value > StaleMs).Select(kv => kv.Key).ToArray()) m.Remove(who);
+        foreach (var name in _engaged.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToArray()) _engaged.Remove(name);
         foreach (var name in _near.Keys.ToList())
         {
             var m = _near[name];
@@ -167,6 +191,7 @@ public sealed partial class NpcCoordinator
             var best = m.OrderBy(kv => kv.Value.D).ThenBy(kv => kv.Key).First();
             if (!_owner.TryGetValue(name, out int cur) || !m.ContainsKey(cur)) { SetOwner(name,best.Key); _challenger.Remove(name); continue; }
             if (best.Key == cur || best.Value.D + SwitchMarginM >= m[cur].D) { _challenger.Remove(name); continue; }
+            if (EngagedLocked(name, cur, now)) { _challenger.Remove(name); continue; }         // in a fight with its owner: not handed over mid-fight
             if (!_challenger.TryGetValue(name, out var c) || c.Who != best.Key) { _challenger[name] = (best.Key, now); continue; }
             if (now - c.Since >= SwitchHoldMs) { SetOwner(name,best.Key); _challenger.Remove(name); }
         }
@@ -193,11 +218,13 @@ public sealed partial class NpcCoordinator
         var parts = s.Split(';');
         if (parts.Length > 32) return null;
         var list = new List<(string, double)>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var p in parts)
         {
-            int i = p.LastIndexOf(':');
-            if (i <= 0 || !OutcomesRules.ValidName(p[..i]) || !OutcomesRules.Number(p[(i + 1)..], 0, 200, out double d)) return null;
-            list.Add((p[..i], d));
+            var q = p.EndsWith(":1", StringComparison.Ordinal) && p.Count(ch => ch == ':') >= 2 ? p[..^2] : p;     // :1 = engaged with the reporter
+            int i = q.LastIndexOf(':');
+            if (i <= 0 || !OutcomesRules.ValidName(q[..i]) || !OutcomesRules.Number(q[(i + 1)..], 0, 200, out double d) || !names.Add(q[..i])) return null;
+            list.Add((q[..i], d));
         }
         return list;
     }
@@ -210,8 +237,10 @@ public sealed partial class NpcCoordinator
         foreach (var p in parts)
         {
             var v = p.Split(',');
-            if (v.Length != 8 || !OutcomesRules.ValidName(v[0]) || v[7] is not ("0" or "1")) return false;
+            if (v.Length is not (8 or 11) || !OutcomesRules.ValidName(v[0]) || v[7] is not ("0" or "1")) return false;
             for (int i = 1; i <= 6; i++) if (!OutcomesRules.Number(v[i], -100000, 100000, out _)) return false;
+            // mode (0-64), in combat, engaged with its owner (npcs.lua: the adapter's read-only combat state)
+            if (v.Length == 11 && (!int.TryParse(v[8], NumberStyles.None, CultureInfo.InvariantCulture, out int mode) || mode > 64 || v[9] is not ("0" or "1") || v[10] is not ("0" or "1"))) return false;
         }
         return true;
     }

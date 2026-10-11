@@ -87,6 +87,32 @@ public class AgentHostTests
     }
 
     [Fact]
+    public async Task Normal_guest_custody_is_on_disk_and_the_agent_releases_its_file_on_exit()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "kcdus-guest-persistent-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir); string path = Path.Combine(dir, "custody.jsonl");
+        try
+        {
+            await using (var host = new Rig())
+            await using (var guest = new Rig())
+            {
+                await host.Host.HandleAsync("host", ""); await Until(() => host.Host.Session.MyId != 0);
+                guest.Host.AllowLoopbackJoin = true;
+                guest.Host.Config.RelayHost = "127.0.0.1"; guest.Host.Config.RelayPort = host.Host.Config.RelayPort;
+                guest.Host.CustodyFile = path;
+                await guest.Host.HandleAsync("join", ""); await Until(() => guest.Host.Session.MyId != 0);
+                var outcomes = guest.Host.Session.Outcomes;
+                outcomes.PeerScope(host.Host.Session.MyId, "w1"); outcomes.Tick(true, true, false, "w1");
+                outcomes.GameLoot(new[] { "LOOT", "ask", "abcd1234", "1", "bandit_7", "5ef63059-322e-4e1b-abe8-926e100c770e", "1", "1", "0", "6000" }, false);
+                Assert.True(File.Exists(path)); Assert.Single(outcomes.Custody);
+            }
+            using var reopened = new GuestCustody(path);
+            Assert.Equal("abcd1234", Assert.Single(reopened.Open()).Take.Nonce);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public async Task Host_a_game_listens_and_leave_lets_go_of_the_port()
     {
         await using var r = new Rig();

@@ -1,5 +1,8 @@
 # Capabilities and what a room really is
 
+**2026-10-11 continuation:** the four requested engine features remain incomplete.
+See [CONTINUATION-RESULTS.md](CONTINUATION-RESULTS.md) for verified changes and remaining requirements.
+
 ## Session 8 status (2026-10-10)
 
 The private native combat scheduler creates real attack actions, but independent damaging combat is not proved. Native stat/skill XP observation and restoration of one existing timed-buff schema passed disposable-engine readback. These do not implement causal shared quest XP or full personal characters. The registry read/publication race found by testing is fixed. Experimental native paths remain Candidate/private; no full multiplayer or human acceptance is claimed. See [SESSION8-RESULTS.md](SESSION8-RESULTS.md).

@@ -50,7 +50,16 @@ public sealed class GuestCustody : IDisposable
     {
         lock (_gate)
         {
-            var t = new CustodyTake(_newId(), nonce, tok, holder, cls, n, hp, price, takeWt, scope);
+            var existing = _j == null
+                ? _mem.Values.Select(v => v.Take).FirstOrDefault(t => t.Nonce == nonce && t.Tok == tok && t.Scope == scope)
+                : _j.All().Where(r => r.Kind == Kind).Select(r => CustodyTake.Parse(r.Evidence))
+                    .FirstOrDefault(t => t != null && t.Nonce == nonce && t.Tok == tok && t.Scope == scope);
+            var t = new CustodyTake(existing?.Op ?? _newId(), nonce, tok, holder, cls, n, hp, price, takeWt, scope);
+            if (existing != null)
+            {
+                if (existing != t) throw new InvalidDataException("Conflicting custody take.");
+                return existing;
+            }
             if (_j == null) { _mem[t.Op] = (t, "", OpState.EngineVerified); return t; }
             string id = OpKey(t.Op), detail = t.Json();
             _j.Begin(id, Kind, Digest(t));
@@ -64,7 +73,7 @@ public sealed class GuestCustody : IDisposable
     {
         lock (_gate)
         {
-            if (_j == null) return _mem.Values.Where(v => v.State != OpState.Complete).ToList();
+            if (_j == null) return _mem.Values.Where(v => v.State != OpState.Complete && v.State != OpState.RecoveryRequired).ToList();
             var list = new List<(CustodyTake, string, OpState)>();
             foreach (var r in _j.All())
             {
@@ -78,6 +87,21 @@ public sealed class GuestCustody : IDisposable
 
     public CustodyTake? Find(string op) => Open().Select(o => o.Take).FirstOrDefault(t => t.Op == op);
     public CustodyTake? Find(string nonce, int tok) => Open().Select(o => o.Take).FirstOrDefault(t => t.Nonce == nonce && t.Tok == tok);
+
+    // Completion is durable before the network send. Repeat receipts after disconnect/restart;
+    // the host's journal makes duplicates harmless. No network delivery is inferred from Send.
+    public IReadOnlyList<(CustodyTake Take, string How)> Receipts()
+    {
+        lock (_gate)
+        {
+            if (_j == null) return _mem.Values.Where(v => v.State == OpState.Complete).Select(v => (v.Take, v.Verdict)).ToList();
+            return _j.All().Where(r => r.Kind == Kind && r.State == OpState.Complete && r.Outcome is "kept" or "returned" or "reverted")
+                .Select(r => (Take: CustodyTake.Parse(r.Evidence), How: r.Outcome)).Where(r => r.Take != null)
+                .Select(r => (r.Take!, r.How)).ToList();
+        }
+    }
+
+    public int QuarantinedCount { get { lock (_gate) return _j == null ? _mem.Values.Count(v => v.State == OpState.RecoveryRequired) : _j.Quarantined().Count(r => r.Kind == Kind); } }
 
     private (string Verdict, OpState State) StateOf(string op)
     {
@@ -116,6 +140,15 @@ public sealed class GuestCustody : IDisposable
             var t = Find(op);
             if (t == null) return false;
             var (v, st) = StateOf(op);
+            if (how == "partial") { Move(t, OpState.RecoveryRequired, how); return false; }
+            if (st is OpState.Delivered or OpState.RecipientVerified)
+            {
+                // A restart after a settlement record must continue forward, never replay engine work.
+                if (v != how) { Move(t, OpState.RecoveryRequired, "conflicting settlement"); return false; }
+                if (st == OpState.Delivered) Move(t, OpState.RecipientVerified, how);
+                Move(t, OpState.Complete, how);
+                return true;
+            }
             if (st < OpState.LedgerCommitted)
             {
                 // returned before any answer (the game's own 20 s timeout, or a save): nothing is ever kept without an "ok"
@@ -123,7 +156,7 @@ public sealed class GuestCustody : IDisposable
                 Move(t, OpState.LedgerCommitted, "unanswered");
             }
             else if (how == "kept" && v != "ok") return false;
-            Move(t, OpState.Delivered, "");
+            Move(t, OpState.Delivered, how);
             Move(t, OpState.RecipientVerified, how);
             Move(t, OpState.Complete, how);
             return true;

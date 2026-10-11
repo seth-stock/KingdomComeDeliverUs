@@ -29,9 +29,17 @@ static void fight_snapshot(BYTE* combat,BYTE* soul,FightResult* out) {
         }
     }
 }
-static void private_fight(void* binding,void* handler,const char* command,const char* targetText,FightResult* out) {
+// Shared enemies' combat mirror (docs/CAPABILITIES.md, "Shared enemies"). A puppet copy of an enemy (npcs.lua: its brain off, driven by the owner's
+// samples) can repeat attacks against a presence body in an owned private probe. This is cosmetic research, not independently damaging multiplayer combat.
+// All native action mutations retain the existing owned-profile gate. A fault switches the mirror off for the rest of the process.
+static bool mirror_faulted;
+static void fight_core(void* binding,void* handler,const char* command,const char* targetText,FightResult* out,bool mirror) {
     *out={2,1,0,0,0,0,0,0,0,-1};
     if(!action_probe_enabled || action_probe_faulted)return;
+    if(mirror) {
+        if(mirror_faulted || !engine)return;
+        if(strcmp(command,"target") && strcmp(command,"attack") && strcmp(command,"clear")) { out->reason=4;return; }
+    } else if(!action_probe_enabled || action_probe_faulted)return;
     __try {
         auto human=function<BYTE*(*)(void*,void*)>(0x10c98a0)(binding,handler);
         if(!human || *reinterpret_cast<BYTE**>(human)!=engine+0x21fc0d8) { out->reason=2;return; }
@@ -112,10 +120,47 @@ static void private_fight(void* binding,void* handler,const char* command,const 
         } else if(strcmp(command,"inspect")) { out->reason=4;return; }
         fight_snapshot(combat,soul,out);
         out->reason=0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { action_probe_faulted=true;out->reason=9;out->submitted=0; }
+    } __except(EXCEPTION_EXECUTE_HANDLER) { if(mirror)mirror_faulted=true; else action_probe_faulted=true;out->reason=9;out->submitted=0; }
 }
-static int private_fight_binding(void* binding,void* handler,const char* command,const char* target) {
-    FightResult read{};private_fight(binding,handler,command,target,&read);
+
+// Read-only combat state of an actor for the owner's report: it never constructs a combat component (actor+0x1a0 is read, not the lazy getter).
+// active: the soul is in combat (+0xbd8); mode: the combat mode (+0xbdc; 4 while an attack runs, seen live); target: the current target's entity id.
+struct CombatState { int version, present, active, mode, target, guard; };
+static void combat_state_read(void* binding,void* handler,CombatState* out) {
+    *out={1,0,0,0,0,0};
+    if(mirror_faulted || !engine)return;
+    __try {
+        auto human=function<BYTE*(*)(void*,void*)>(0x10c98a0)(binding,handler);
+        if(!human || *reinterpret_cast<BYTE**>(human)!=engine+0x21fc0d8)return;
+        auto combat=*reinterpret_cast<BYTE**>(human+0x1a0);
+        if(!combat || *reinterpret_cast<BYTE**>(combat)!=engine+0x2228be8)return;
+        auto soul=*reinterpret_cast<BYTE**>(combat+0x4b8);
+        if(!soul)return;
+        out->present=1;
+        out->active=soul[0xbd8]?1:0;
+        out->mode=*reinterpret_cast<int*>(soul+0xbdc);
+        out->guard=combat[0x565]?1:0;
+        auto target=*reinterpret_cast<BYTE**>(soul+0xca8);
+        if(target && *reinterpret_cast<BYTE**>(target)==engine+0x2228be8) {
+            auto targetHuman=*reinterpret_cast<BYTE**>(target+0x4a0);
+            if(targetHuman)out->target=*reinterpret_cast<int*>(targetHuman+0x30);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) { mirror_faulted=true;*out={1,0,0,0,0,0}; }
+}
+static int combat_state_binding(void* binding,void* handler) {
+    CombatState s{};combat_state_read(binding,handler,&s);
+    auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
+    auto table=virtual_function<void*(*)(void*,bool)>(script,0x68)(script,false);
+    if(!table)return virtual_function<int(*)(void*)>(handler,0x58)(handler);
+    virtual_function<void(*)(void*)>(table,0x18)(table);
+    auto put=function<void(*)(void*,const char*,const void*)>(0x2b6a0c);
+    put(table,"version",&s.version);put(table,"present",&s.present);put(table,"active",&s.active);
+    put(table,"mode",&s.mode);put(table,"target",&s.target);put(table,"guard",&s.guard);
+    int r=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
+    virtual_function<void(*)(void*)>(table,0x20)(table);return r;
+}
+static int private_fight_binding(void* binding,void* handler,const char* command,const char* target,bool mirror=false) {
+    FightResult read{};fight_core(binding,handler,command,target,&read,mirror);
     auto script=*reinterpret_cast<void**>(static_cast<BYTE*>(binding)+0x50);
     auto table=virtual_function<void*(*)(void*,bool)>(script,0x68)(script,false);
     if(!table)return virtual_function<int(*)(void*)>(handler,0x58)(handler);

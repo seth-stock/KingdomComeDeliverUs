@@ -1,5 +1,8 @@
 # Multiplayer feature parity and acceptance contract
 
+**2026-10-11 continuation:** the four requested engine features remain incomplete.
+See [CONTINUATION-RESULTS.md](CONTINUATION-RESULTS.md) for verified changes and remaining requirements.
+
 ## Session 9 status (2026-10-11)
 
 Full multiplayer remains unfinished. Offline Ghidra exports attempted 910,489

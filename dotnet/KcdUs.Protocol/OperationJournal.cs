@@ -217,7 +217,8 @@ public sealed class OperationJournal : IDisposable
             foreach (var rec in _ops.Values.Where(r => !IsTerminal(r.State) && r.State != OpState.RecoveryRequired).ToList())
             {
                 if (rec.State <= OpState.IntentRecorded) Append(rec.OperationId, rec.Kind, rec.PayloadDigest, OpState.Rejected, "", "abandoned before the engine was called");
-                else q.Add(Append(rec.OperationId, rec.Kind, rec.PayloadDigest, OpState.RecoveryRequired, rec.Outcome, "interrupted from " + rec.State));
+                // Native/item lineage evidence is needed to resolve the quarantine; retain it exactly.
+                else q.Add(Append(rec.OperationId, rec.Kind, rec.PayloadDigest, OpState.RecoveryRequired, rec.Outcome, rec.Evidence));
             }
             return q;
         }

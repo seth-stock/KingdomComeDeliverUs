@@ -26,6 +26,18 @@ public class LootRecoveryLuaTests
     private static double HenryHas(LuaMod m, string cls) =>
         m.Num("(function() local n = 0 for _, it in ipairs(__henry.items) do if it.class == '" + cls + "' then n = n + it.amount end end return n end)()");
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Refused_or_faulted_deletion_never_reports_a_return_or_refunds_a_shop(bool fault)
+    {
+        var m = Guest(7000);
+        m.Do("__henry.items[#__henry.items+1]=__item('" + Coat + "',1,0.7); player.inventory.DeleteItemOfClass=function() " + (fault ? "error('native refusal')" : "return false") + " end");
+        m.Send($"2~LOOTRECOVER|{Scope}|{Op}|{Coat}|1|120|6000|gone");
+        Assert.Equal(1, HenryHas(m, Coat)); Assert.Equal(0, HenryHas(m, Coin));
+        Assert.Single(m.Lines($"KCDUS|LOOT|recovered|{Op}|0|0|partial"));
+    }
+
     [Fact]
     public void The_loot_mode_readback_names_this_loads_nonce_and_world_time()
     {

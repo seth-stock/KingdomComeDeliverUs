@@ -6,13 +6,19 @@
 --     the owner's is. So in every world the same bandit chases the same player. When the NPC comes nearest to ME it becomes mine: the brain is switched back on
 --     and it fights me. Health and death are shared separately (combat.lua).
 --   * A puppet is never kept without news: no sample for 4 s, the owner gone, the mode off, a loaded world or a save (menu.lua) gives the brain back at once.
--- NOT shown on a puppet: its individual sword swings (it walks, faces and holds its weapon as the owner's copy does).
+--   * Combat research: the owner's game reads its NPC's native combat state (the engine adapter's read-only @kcdus/combat-state:
+--     in combat, combat mode, current target). An NPC engaged with its owner stays with that owner (NPCNEAR's engaged flag: the host does not hand it to a
+--     nearer player mid-fight), and each sample carries mode/engaged. The owner is hit by its own NPCs natively, in its own world. A puppet repeats the
+--     owner's attacks: when the owner's NPC starts an attack (mode 4) at its owner, the puppet makes the engine's own attack (@kcdus/mirror/target+attack)
+--     at the owner's presence body in an owned private probe. This cosmetic experiment retains the native action-probe gate; it does not prove independent
+--     damaging combat. Normal play puppets walk, face and hold their weapons only.
 --
 -- agent -> game:  NPCMODE|1|<scope>|<my id>   on for this shared world;  NPCMODE|0  off (every puppet gets its brain back)
 --                 NPCOWN|<scope>|name:owner;name:owner...      the host's decision (an entry lives 3 s unless repeated)
 --                 NPCSET|<scope>|<from>|name,x,y,z,yaw,vx,vy,w;...  the owner's samples of its NPCs
--- game -> agent:  KCDUS|NPCNEAR|name:dist;...                  the living NPCs near this player (once a second, nearest 24)
---                 KCDUS|NPCST|name,x,y,z,yaw,vx,vy,w;...       the NPCs this game owns (5 a second, 12 a line)
+-- game -> agent:  KCDUS|NPCNEAR|name:dist[:1];...             the living NPCs near this player (once a second, nearest 24); :1 = in combat with this player
+--                 KCDUS|NPCST|name,x,y,z,yaw,vx,vy,w[,mode,active,engaged];...   the NPCs this game owns (5 a second, 12 a line)
+--                 KCDUS|NPCMIRROR|<name>|<owner>|<ok>          a puppet repeated its owner's attack (readback)
 --                 KCDUS|NPCPUP|<name>|<on|off>|<why>           a puppet taken or given back (readback)
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|npcs")
@@ -30,6 +36,42 @@ local function living(e)
 end
 local function f2(v) return string.format('%.2f', v) end
 
+-- ---------------------------------------------------------------- combat (the engine adapter; nil without it)
+function N.combatState(e)
+    local ok, s = pcall(function() return e.human:PlayAnim('@kcdus/combat-state', '') end)
+    if ok and type(s) == 'table' and s.present == 1 then return s end
+    return nil
+end
+
+local function entityNumber(e)
+    if e and type(e.id) == 'number' then return e.id end
+    local hex = e and string.match(tostring(e.id), '([0-9A-Fa-f]+)$')
+    return hex and tonumber(hex, 16) or nil
+end
+function N.myEntity() return entityNumber(player) end
+
+-- the owner's attack, repeated by its puppet at the owner's presence body (never damaging: ghosts are invulnerable)
+function N.mirrorAttack(name, p, e)
+    local o = N.own[name]
+    local g = o and K.Ghosts and K.Ghosts.list[o.owner]
+    local ghost = g and g.id and System.GetEntity(g.id)
+    if not ghost or ghost:GetName() ~= 'kcdus_ghost_' .. o.owner then return false end
+    local entity = entityNumber(ghost)
+    if not entity then return false end
+    local id = string.format('%08x', entity)
+    local okT, t = pcall(function() return e.human:PlayAnim('@kcdus/mirror/target', id) end)
+    if not okT or type(t) ~= 'table' or t.reason ~= 0 then return false end
+    -- The native target changed even if the following attack factory refuses.
+    p.mirroredTarget = true
+    local okA, a = pcall(function() return e.human:PlayAnim('@kcdus/mirror/attack', '') end)
+    local done = okA and type(a) == 'table' and a.reason == 0 and a.submitted == 1
+    N.mirrored = (N.mirrored or 0) + (done and 1 or 0)
+    K.out('NPCMIRROR', name, o.owner, done and 1 or 0)
+    return done
+end
+
+local function mirrorClear(e) pcall(function() e.human:PlayAnim('@kcdus/mirror/clear', '') end) end
+
 -- ---------------------------------------------------------------- the puppets
 local function brain(e, on)
     return pcall(function() if on then e:EnableBehaviorTreeEvaluation() else e:DisableBehaviorTreeEvaluation() end end)
@@ -42,6 +84,7 @@ function N.release(name, why)
     local e = System.GetEntityByName(name)
     if e and e.id == p.id then
         pcall(function() e:StopAnimation(0, K.Locomotion and K.Locomotion.layer or 0) end)
+        if p.mirroredTarget then mirrorClear(e) end
         brain(e, true)
     end
     N.released = N.released + 1
@@ -78,6 +121,12 @@ local function steer(name, p, now)
     pcall(function() e:SetWorldAngles({ x = 0, y = 0, z = p.yaw }) end)
     p.g.vx, p.g.vy, p.g.stamp = p.vx, p.vy, p.at
     if K.Locomotion then pcall(K.Locomotion.drive, e, p.g, now) end
+    -- the owner's attack starts (mode 4, at its owner): the puppet attacks the owner's presence body once per attack
+    if p.mode == 4 and p.lastMode ~= 4 and p.active == 1 and p.engaged == 1 then
+        if N.mirrorAttack(name, p, e) then p.mirroredTarget = true end
+    end
+    if p.mirroredTarget and (p.active ~= 1 or p.engaged ~= 1) then mirrorClear(e); p.mirroredTarget = nil end
+    p.lastMode = p.mode
     -- the weapon as the owner's copy holds it; a draw can be refused mid-animation, so it is tried again every 1.5 s
     if now >= (p.wTry or 0) then
         local okW, drawn = pcall(function() return e.human:IsWeaponDrawn() end)
@@ -106,12 +155,13 @@ function N.near()
     for _, e in pairs(list) do
         if living(e) then
             local q = e:GetWorldPos()
-            found[#found + 1] = { nameOf(e), math.sqrt((pp.x - q.x) ^ 2 + (pp.y - q.y) ^ 2 + (pp.z - q.z) ^ 2) }
+            local s = N.combatState(e)
+            found[#found + 1] = { nameOf(e), math.sqrt((pp.x - q.x) ^ 2 + (pp.y - q.y) ^ 2 + (pp.z - q.z) ^ 2), s and s.active == 1 and s.target == N.myEntity() }
         end
     end
     table.sort(found, function(a, b) return a[2] < b[2] end)
     local parts = {}
-    for i = 1, math.min(#found, N.maxNear) do parts[i] = found[i][1] .. ':' .. string.format('%.1f', found[i][2]) end
+    for i = 1, math.min(#found, N.maxNear) do parts[i] = found[i][1] .. ':' .. string.format('%.1f', found[i][2]) .. (found[i][3] and ':1' or '') end
     K.out('NPCNEAR', table.concat(parts, ';'))
 end
 
@@ -132,7 +182,14 @@ function N.report()
                 N.last[name] = { x = q.x, y = q.y, t = now }
                 local okA, a = pcall(function() return e:GetWorldAngles() end)
                 local okW, w = pcall(function() return e.human:IsWeaponDrawn() end)
-                parts[#parts + 1] = table.concat({ name, f2(q.x), f2(q.y), f2(q.z), string.format('%.3f', okA and a and a.z or 0), f2(vx), f2(vy), (okW and w) and '1' or '0' }, ',')
+                local row = { name, f2(q.x), f2(q.y), f2(q.z), string.format('%.3f', okA and a and a.z or 0), f2(vx), f2(vy), (okW and w) and '1' or '0' }
+                local s = N.combatState(e)
+                if s then
+                    row[9] = tostring(math.max(0, math.min(64, s.mode or 0)))
+                    row[10] = s.active == 1 and '1' or '0'
+                    row[11] = (s.active == 1 and s.target == N.myEntity()) and '1' or '0'
+                end
+                parts[#parts + 1] = table.concat(row, ',')
                 if #parts == 12 then K.out('NPCST', table.concat(parts, ';')); parts = {} end
             end
         end
@@ -168,7 +225,12 @@ K.handlers['NPCSET'] = function(f)
     if not N.enabled or f[2] ~= N.scope or N.scope == '' or f[3] == N.me then return end
     local now = K.now()
     for entry in string.gmatch(f[4] or '', '[^;]+') do
-        local name, x, y, z, yaw, vx, vy, w = string.match(entry, '^([^,]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),([01])$')
+        local name, x, y, z, yaw, vx, vy, w, rest = string.match(entry, '^([^,]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),([01])(.*)$')
+        local mode, active, engaged = 0, 0, 0
+        if rest and rest ~= '' then
+            local m, a, g = string.match(rest, '^,(%d+),([01]),([01])$')
+            if not m then name = nil else mode, active, engaged = tonumber(m), tonumber(a), tonumber(g) end
+        end
         local o = name and N.own[name]
         if o and o.owner == f[3] and o.owner ~= N.me and now - o.at <= N.ownTtl then          -- only the owner the host named may move it
             local e = System.GetEntityByName(name)
@@ -177,6 +239,7 @@ K.handlers['NPCSET'] = function(f)
                 if p then
                     p.x, p.y, p.z, p.yaw = tonumber(x), tonumber(y), tonumber(z), tonumber(yaw)
                     p.vx, p.vy, p.w, p.at = tonumber(vx), tonumber(vy), tonumber(w), now
+                    p.mode, p.active, p.engaged = mode, active, engaged
                 end
             end
         end

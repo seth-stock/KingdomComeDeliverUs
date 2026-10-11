@@ -47,6 +47,8 @@ using PlayAnimBindingFn=int(*)(void*,void*,const char*,const char*);
 static PlayAnimBindingFn play_anim_original;
 static int play_anim_binding(void* binding,void* handler,const char* fragment,const char* tags) {
     if(fragment && !strncmp(fragment,"@kcdus/fight/",13))return private_fight_binding(binding,handler,fragment+13,tags);
+    if(fragment && !strncmp(fragment,"@kcdus/mirror/",14))return private_fight_binding(binding,handler,fragment+14,tags,true);
+    if(fragment && !strcmp(fragment,"@kcdus/combat-state"))return combat_state_binding(binding,handler);
     if(fragment && !strcmp(fragment,"@kcdus/xp-last"))return xp_read_binding(binding,handler);
     if(fragment && !strncmp(fragment,"@kcdus/xp-since/",16))return xp_since_binding(binding,handler,fragment+16);
     if(fragment && !strncmp(fragment,"@kcdus/buff-restore/",20)) {

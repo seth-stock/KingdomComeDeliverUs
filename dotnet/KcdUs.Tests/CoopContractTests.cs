@@ -241,6 +241,28 @@ public class CoopContractTests
     private static string TempJournal() => Path.Combine(Path.GetTempPath(), "coop-j-" + Guid.NewGuid().ToString("N")[..8], "ops.jsonl");
     private static readonly string D1 = new('1', 64), D2 = new('2', 64);
 
+    [Fact]
+    public void Crash_quarantine_preserves_native_recovery_evidence_exactly()
+    {
+        string path = TempJournal();
+        string evidence = "holder|class|50|0.5000|guest 2";
+        try
+        {
+            using (var j = new OperationJournal(path))
+            {
+                j.Begin("take", "loot.ask", D1);
+                j.Advance("take", OpState.Reserved);
+                j.Advance("take", OpState.IntentRecorded, evidence);
+                j.Advance("take", OpState.EngineApplying, evidence);
+            }
+            using var restarted = new OperationJournal(path);
+            var quarantined = Assert.Single(restarted.Recover());
+            Assert.Equal(evidence, quarantined.Evidence);
+            Assert.Equal(evidence, restarted.Get("take")!.Evidence);
+        }
+        finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
+
     private static void Walk(OperationJournal j, string id, OpState upTo)
     {
         foreach (var s in new[] { OpState.Reserved, OpState.IntentRecorded, OpState.EngineApplying, OpState.EngineVerified, OpState.LedgerCommitted, OpState.Delivered, OpState.RecipientVerified, OpState.Complete })

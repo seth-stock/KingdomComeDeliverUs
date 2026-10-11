@@ -109,6 +109,9 @@ public sealed class RelayClient : IRelayLink
                         if (f.Value.Type == MessageType.Reject)
                         {
                             Refused = f.Value.Text;
+                            // Publish the final connection state before observers see the refusal.
+                            Connected = false;
+                            ConnectionChanged?.Invoke(false);
                             Frame?.Invoke(f.Value);
                             return;   // final
                         }

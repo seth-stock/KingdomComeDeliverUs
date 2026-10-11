@@ -50,6 +50,7 @@ public sealed class WorldCoordinator : IDisposable
     private string _cardWaitId = "";
     private TaskCompletionSource<bool>? _saveWait;
     private int _announcedFor = -1;         // my relay id when the stamp was last announced
+    private string _announcedRoster = "";
     private long _lastCardMs, _lastBindCheckMs, _lastTickMs;
     private bool _inWorldFlag;
     /// <summary>The player is in the open world: from the game's READY lines, or from the session (which also sees the position samples, so it is right after an agent restart).</summary>
@@ -370,6 +371,7 @@ public sealed class WorldCoordinator : IDisposable
         var s = _session();
         if (s.MyId == 0) return;
         _announcedFor = s.MyId;
+        _announcedRoster = string.Join(',', s.Peers.Select(p => p.Id).OrderBy(id => id));
         var w = _reg.ActiveWorld;
         if (w is null || w.Playline < 0) return;
         var f = _store.Newest(w.Playline);
@@ -654,7 +656,8 @@ public sealed class WorldCoordinator : IDisposable
         if (now - _lastTickMs < 1000) return;
         _lastTickMs = now;
         var s = _session();
-        if (s.MyId != 0 && s.MyId != _announcedFor) Enqueue(AnnounceAsync);
+        if (s.MyId == 0) { _announcedFor = -1; _announcedRoster = ""; }
+        else if (s.MyId != _announcedFor || _announcedRoster != string.Join(',', s.Peers.Select(p => p.Id).OrderBy(id => id))) Enqueue(AnnounceAsync);
         if (_requestedFrom != 0 && (s.MyId == 0 || now - _requestStartedMs > LoadingGraceMs))
         {
             long requestStarted = _requestStartedMs;

@@ -161,7 +161,8 @@ public sealed class OutcomesCoordinator : IDisposable
                 case "kept" or "returned" when !isHost && f.Length >= 4 && OutcomesRules.ValidNonce(f[2]) && OutcomesRules.Count(f[3], out int rtok):
                 {
                     var t = _custody.Find(f[2], rtok);
-                    if (t != null && _custody.Settle(t.Op, f[1])) _toPeers($"loot|receipt|{t.Op}|{f[1]}");
+                    string how = f[1] == "returned" && (f.Length < 5 || f[4] != "1") ? "partial" : f[1];
+                    if (t != null && _custody.Settle(t.Op, how)) _toPeers($"loot|receipt|{t.Op}|{how}");
                     break;
                 }
                 case "recovered" when !isHost && f.Length >= 6 && OutcomesRules.ValidOp(f[2]) && f[5] is "kept" or "returned" or "reverted" or "partial":
@@ -248,10 +249,33 @@ public sealed class OutcomesCoordinator : IDisposable
     {
         lock (_gate)
         {
-            if (f.Length != 4 || !OutcomesRules.ValidOp(f[2]) || f[3] is not ("kept" or "returned" or "reverted" or "partial")) return;
+            if (!_on || f.Length != 4 || !OutcomesRules.ValidOp(f[2]) || f[3] is not ("kept" or "returned" or "reverted" or "partial")) return;
             var j = _journal();
             if (j is null || j.Get(OpId(f[2])) is not { } rec) return;
+            if (f[3] == "kept" && rec.Outcome != "ok") return;
+            if (f[3] == "partial")
+            {
+                if (rec.State == OpState.Delivered) j.Advance(rec.OperationId, OpState.RecoveryRequired, rec.Evidence, rec.Outcome);
+                return;
+            }
             bool compensate = rec.Outcome == "ok" && f[3] is "returned" or "reverted";
+            var d = rec.Evidence.Split('|');
+            bool pending = rec.State == OpState.Delivered || rec.State == OpState.RecoveryRequired && rec.Outcome.Length > 0;
+            if (compensate && pending)
+            {
+                if (d.Length < 4 || !OutcomesRules.ValidName(d[0]) || !OutcomesRules.ValidClass(d[1]) || !OutcomesRules.Count(d[2], out _)) return;
+                // Keep compensation intent before completing the source receipt. If the
+                // process dies here, native recovery evidence remains quarantined.
+                string restoreId = "rs:" + f[2];
+                var restore = j.Begin(restoreId, "loot.restore", Digest(_scope + "|" + rec.Evidence));
+                if (restore.Kind == BeginKind.New)
+                {
+                    j.Advance(restoreId, OpState.Reserved, rec.Evidence);
+                    j.Advance(restoreId, OpState.IntentRecorded, rec.Evidence);
+                    j.Advance(restoreId, OpState.EngineApplying, rec.Evidence);
+                }
+                else compensate = false; // An unknown native outcome is never retried.
+            }
             if (rec.State == OpState.Delivered)
             {
                 j.Advance(rec.OperationId, OpState.RecipientVerified, rec.Evidence + "|receipt " + f[3], rec.Outcome);
@@ -261,7 +285,6 @@ public sealed class OutcomesCoordinator : IDisposable
                 j.Resolve(rec.OperationId, Observed.Applied, "guest receipt " + f[3] + " after a host restart|" + rec.Evidence, rec.Outcome);
             else compensate = false;                                             // already completed: a repeated receipt changes nothing
             if (!compensate || !_on) return;
-            var d = rec.Evidence.Split('|');
             if (d.Length < 4 || !OutcomesRules.ValidName(d[0]) || !OutcomesRules.ValidClass(d[1]) || !OutcomesRules.Count(d[2], out _)) return;
             string hp = OutcomesRules.Number(d[3], 0, 1, out _) ? d[3] : "1.0000";
             _toGame($"LOOTPUT|{_scope}|{d[0]}|{d[1]}|{d[2]}|{hp}");
@@ -295,6 +318,7 @@ public sealed class OutcomesCoordinator : IDisposable
 
     private string _luaNonce = "";
     private long _lastRecoveryMs;
+    private int _receiptCursor;
 
     private void Recover(CustodyTake t, string verdict) =>
         _toGame($"LOOTRECOVER|{_scope}|{t.Op}|{t.Class}|{t.N}|{t.Price}|{t.TakeWt.ToString("0", CultureInfo.InvariantCulture)}|{verdict}");
@@ -315,9 +339,23 @@ public sealed class OutcomesCoordinator : IDisposable
         long now = _now();
         if (!_on || (!force && now - _lastRecoveryMs < 10_000)) return;
         _lastRecoveryMs = now;
-        foreach (var (t, verdict, _) in _custody.Open())
+        var receipts = _custody.Receipts().Where(r => r.Take.Scope == _scope).ToArray();
+        // Bound retries per tick; rotate through old receipts so a large journal cannot starve new ones.
+        for (int i = 0; i < Math.Min(32, receipts.Length); i++)
+        {
+            var r = receipts[(_receiptCursor + i) % receipts.Length];
+            _toPeers($"loot|receipt|{r.Take.Op}|{r.How}");
+        }
+        _receiptCursor = receipts.Length == 0 ? 0 : (_receiptCursor + Math.Min(32, receipts.Length)) % receipts.Length;
+        foreach (var (t, verdict, state) in _custody.Open())
         {
             if (t.Scope != _scope || t.Nonce == _luaNonce) continue;               // this load's own asks are the game's (20 s timeout, LOOTRES)
+            if (state is OpState.Delivered or OpState.RecipientVerified)
+            {
+                if (_custody.Settle(t.Op, verdict is "kept" or "returned" or "reverted" ? verdict : "partial"))
+                    _toPeers($"loot|receipt|{t.Op}|{verdict}");
+                continue;
+            }
             if (verdict is "ok" or "gone" or "none") Recover(t, verdict);
             else if (verdict == "unanswered") Recover(t, "gone");                  // the game already gave it back before the answer came
             else _toPeers($"loot|ask|{t.Op}|{t.Holder}|{t.Class}|{t.N}");         // never answered: ask again (the host replays a recorded answer)
