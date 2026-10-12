@@ -57,7 +57,7 @@ public class NpcCombatStateTests
         m.Send("1~NPCMODE|1|w1|1"); m.Send("2~NPCOWN|w1|bandit_7:1");
         m.Advance(1.1);
         Assert.Contains(m.Lines("KCDUS|NPCNEAR|"), l => l.EndsWith("bandit_7:4.0:1"));
-        Assert.Contains(m.Lines("KCDUS|NPCST|"), l => l.EndsWith(",4,1,1"));
+        Assert.Contains(m.Lines("KCDUS|NPCST|"), l => l.EndsWith(",4,1,1,0"));   // the last field: the friend whose ghost it fights (none)
     }
 
     [Fact]

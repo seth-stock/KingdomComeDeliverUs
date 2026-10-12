@@ -36,7 +36,7 @@ public static class HandshakeFactory
         if (gameDir is null) return null;
         try
         {
-            var log = Path.Combine(gameDir, "kcd.log");
+            var log = Path.Combine(gameDir, AgentPaths.GameLog);
             if (!File.Exists(log)) return null;
             using var fs = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var rd = new StreamReader(fs, Encoding.UTF8);

@@ -99,7 +99,7 @@ public sealed class AgentHost : IAsyncDisposable
     private ParticipantBindings.Identity? _identity;
     private HandshakeFactory.Fingerprint? _fingerprint;
 
-    private static string UserFile(string name) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", name);
+    private static string UserFile(string name) => Path.Combine(AgentPaths.Data, name);
 
     private ParticipantBindings.Identity Identity()
     {

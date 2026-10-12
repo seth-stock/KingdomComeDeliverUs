@@ -12,7 +12,7 @@
 --
 -- agent -> game:  CMBMODE|1|<scope>   shared outcomes on for this world (the agent only does this when both players are in the same world); CMBMODE|0 off
 --                 CMBAPPLY|<scope>|<npc>|<damage>|<dead>   a friend's damage (or death) to <npc>
--- game -> agent:  KCDUS|CMB|<npc>|<damage>|<health now>|<dead>     what the local player's side did to an NPC
+-- game -> agent:  KCDUS|CMB|<npc>|<damage>|<health now>|<dead>|<mine>     what happened to an NPC near the local player; mine=1: in a fight with him
 --                 KCDUS|CMBAPPLIED|<npc>|<health before>|<health after>|<note>
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|combat")
@@ -55,6 +55,22 @@ end
 
 local function flat(a, b) local dx, dy = a.x - b.x, a.y - b.y; return math.sqrt(dx * dx + dy * dy) end
 
+-- Was it MY fight? The player's combat target is this NPC, or this NPC's target is the player (the adapter's ids, npcs.lua N.myEntity).
+-- Only then does the host turn the NPC on this player (aggro); damage is shared either way. Without the adapter: no claim (0).
+C.mineOverride = {}                                                       -- the two-game rig marks a scripted blow as the player's
+local function combatState(e)
+    local ok, s = pcall(function() return e.human:PlayAnim('@kcdus/combat-state', '') end)
+    return ok and type(s) == 'table' and s.present == 1 and s or nil
+end
+local function mine(e, name)
+    if C.mineOverride[name] then return true end
+    -- the player's actor has no combat actor where an NPC's is: the adapter gives only its id (self); its own target is not read
+    local okm, me = pcall(function() return player.human:PlayAnim('@kcdus/combat-state', '') end)
+    local it = combatState(e)
+    if not okm or type(me) ~= 'table' or not me.self or me.self == 0 or not it then return false end
+    return it.active == 1 and it.target == me.self
+end
+
 function C.scan()
     if not C.enabled or not K.inWorldRaw() then return end
     local pp = player:GetWorldPos()
@@ -75,10 +91,10 @@ function C.scan()
                     if close then
                         if dead and not C.dead[name] then
                             C.reported = C.reported + 1
-                            K.out('CMB', name, fmt(math.max(d, 0)), fmt(hp), 1)
+                            K.out('CMB', name, fmt(math.max(d, 0)), fmt(hp), 1, mine(e, name) and 1 or 0)
                         elseif not dead and d >= C.minDelta then
                             C.reported = C.reported + 1
-                            K.out('CMB', name, fmt(d), fmt(hp), 0)
+                            K.out('CMB', name, fmt(d), fmt(hp), 0, mine(e, name) and 1 or 0)
                         end
                     end
                     C.hp[name] = hp

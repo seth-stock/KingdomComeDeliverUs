@@ -59,7 +59,13 @@ local function entityNumber(e)
     local hex = e and string.match(tostring(e.id), '([0-9A-Fa-f]+)$')
     return hex and tonumber(hex, 16) or nil
 end
-function N.myEntity() return entityNumber(player) end
+-- The adapter names a fight's target by the actor's own id (human+0x30), which is NOT the Lua entity id (found on the two-game rig: the player is
+-- 0x7777 to Lua and a different number to the engine's combat). The adapter reports each actor's own id as `self`: compare targets with that.
+function N.myEntity()
+    local ok, s = pcall(function() return player.human:PlayAnim('@kcdus/combat-state', '') end)
+    if ok and type(s) == 'table' and type(s.self) == 'number' and s.self ~= 0 then return s.self end
+    return entityNumber(player)
+end
 
 -- the owner's attack, repeated by its puppet at the owner's presence body (never damaging: ghosts are invulnerable)
 function N.mirrorAttack(name, p, e)
@@ -240,6 +246,21 @@ function N.takeRemoteHit(from, name, seq, hp)
     K.out('NPCHITAPPLIED', name, seq, string.format('%.1f', hp), string.format('%.1f', before - after), ok and 1 or 0)
 end
 
+-- Which friend's GHOST (if any) this NPC is fighting in my world: the adapter's target id against each ghost's own id. The two-game rig showed an
+-- owner's enemy picking the other player's ghost (invulnerable here: its blows land nowhere). The host then gives the NPC to THAT player, whose game
+-- runs it against the real Henry.
+function N.ghostTarget(s)
+    if not s or s.active ~= 1 or not s.target or s.target == 0 or not (K.Ghosts and K.Ghosts.list) then return '0' end
+    for key, g in pairs(K.Ghosts.list) do
+        local e = g.id and System.GetEntity(g.id)
+        if e and e.human then
+            local ok, gs = pcall(function() return e.human:PlayAnim('@kcdus/combat-state', '') end)
+            if ok and type(gs) == 'table' and gs.self and gs.self ~= 0 and gs.self == s.target and string.match(tostring(key), '^%d+$') then return tostring(key) end
+        end
+    end
+    return '0'
+end
+
 function N.report()
     if not N.enabled or not K.inWorldRaw() then return end
     local now = K.now()
@@ -264,7 +285,8 @@ function N.report()
                     row[9] = tostring(math.max(0, math.min(64, s.mode or 0)))
                     row[10] = s.active == 1 and '1' or '0'
                     row[11] = (s.active == 1 and s.target == N.myEntity()) and '1' or '0'
-                    if s.mode == 4 and s.active == 1 and row[11] == '1' then N.attackAt[name] = now end
+                    if s.active == 1 and row[11] == '1' then N.attackAt[name] = now end      -- fighting me: a health drop now is its blow
+                    row[12] = N.ghostTarget(s)
                 end
                 parts[#parts + 1] = table.concat(row, ',')
                 if #parts == 12 then K.out('NPCST', table.concat(parts, ';')); parts = {} end
@@ -307,6 +329,7 @@ K.handlers['NPCSET'] = function(f)
         local mode, active, engaged = 0, 0, 0
         if rest and rest ~= '' then
             local m, a, g = string.match(rest, '^,(%d+),([01]),([01])$')
+            if not m then m, a, g = string.match(rest, '^,(%d+),([01]),([01]),%d+$') end
             if not m then name = nil else mode, active, engaged = tonumber(m), tonumber(a), tonumber(g) end
         end
         local o = name and N.own[name]

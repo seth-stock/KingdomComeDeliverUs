@@ -370,7 +370,10 @@ public sealed class Session : IDisposable
                     _log("Candidate quest readback: " + string.Join(' ', f.Skip(1)));
                     break;
 
-                case "CMB": _outcomes.GameCombat(f); break;
+                case "CMB":
+                    _outcomes.GameCombat(f);
+                    if (f.Length > 5 && f[5] == "1") _npcs.NoteHurt(_myId, f[1]);       // this player is fighting it: the host turns it on whoever attacks it
+                    break;
                 case "LOOT": _outcomes.GameLoot(f, IsHost); break;
                 case "NPCNEAR": _npcs.GameNear(f, IsHost); break;
                 case "NPCST": _npcs.GameStates(f); break;
@@ -619,6 +622,7 @@ public sealed class Session : IDisposable
                 break;
             case "cmb":
                 _outcomes.PeerCombat(from, f);
+                if (f.Length == 5 && f[4] == "1") _npcs.NoteHurt(from, f[1]);
                 break;
             case "loot" when IsHost && f.Length == 6 && f[1] == "ask":
                 _outcomes.PeerAsk(from, f);

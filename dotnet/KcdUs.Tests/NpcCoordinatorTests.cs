@@ -6,6 +6,81 @@ namespace KcdUs.Tests;
 
 public class NpcCoordinatorTests
 {
+    private static (NpcCoordinator N, Func<long> Clock, Action<long> Advance) HostWithBandit()
+    {
+        long now = 50000;
+        var n = new NpcCoordinator(() => now, _ => {}, _ => {}, _ => {}, _ => {});
+        n.Tick("w1", true, 1);
+        n.GameNear(["NPCNEAR", "bandit_7:2"], true);                 // the host stands 2 m from it
+        n.PeerNear(2, ["npcnear", "w1", "bandit_7:10"], true);       // the guest 10 m
+        now += 1000; n.Tick("w1", true, 1);
+        return (n, () => now, d => { now += d; n.GameNear(["NPCNEAR", "bandit_7:2"], true); n.PeerNear(2, ["npcnear", "w1", "bandit_7:10"], true); n.Tick("w1", true, 1); });
+    }
+
+    [Fact]
+    public void An_enemy_whose_running_copy_fights_a_friends_ghost_is_handed_to_that_friend()
+    {
+        var (n, _, advance) = HostWithBandit();
+        Assert.Equal(1, n.Owners["bandit_7"]);
+        // the host's copy runs it and is fighting player 2's ghost (12th field): player 2's game must run it against the real Henry
+        n.GameStates(["NPCST", "bandit_7,14,20,30,0,0,0,1,2,1,0,2"]);
+        advance(1000);
+        Assert.Equal(2, n.GhostTargetOf("bandit_7"));
+        Assert.Equal(2, n.Owners["bandit_7"]);
+        // a report from a copy that does not run it is ignored
+        n.GameStates(["NPCST", "bandit_7,14,20,30,0,0,0,1,2,1,0,1"]);
+        advance(1000);
+        Assert.Equal(2, n.Owners["bandit_7"]);
+    }
+
+    [Fact]
+    public void An_enemy_turns_on_the_player_who_attacks_it_even_when_another_is_nearer()
+    {
+        var (n, _, advance) = HostWithBandit();
+        Assert.Equal(1, n.Owners["bandit_7"]);                       // nearest: the host
+        n.NoteHurt(2, "bandit_7");                                    // the guest hits it
+        advance(1000);
+        Assert.Equal(2, n.Owners["bandit_7"]);                       // it fights the guest now: the guest's game runs it
+        Assert.Equal(2, n.AttackerOf("bandit_7"));
+    }
+
+    [Fact]
+    public void An_enemy_its_owner_is_fighting_is_not_pulled_away_by_a_second_attacker()
+    {
+        var (n, _, advance) = HostWithBandit();
+        n.NoteHurt(1, "bandit_7");                                    // the host is fighting it
+        n.NoteHurt(2, "bandit_7");                                    // and the guest joins in
+        advance(1000);
+        Assert.Equal(1, n.Owners["bandit_7"]);                       // it stays on the host (both are hit: the damage mirror and shared health)
+        advance(NpcCoordinator.OwnerFightMs);                         // the host stops; the guest keeps hitting
+        n.NoteHurt(2, "bandit_7");
+        advance(1000);
+        Assert.Equal(2, n.Owners["bandit_7"]);
+    }
+
+    [Fact]
+    public void Aggro_lapses_and_the_nearest_player_takes_the_enemy_back()
+    {
+        var (n, _, advance) = HostWithBandit();
+        n.NoteHurt(2, "bandit_7");
+        advance(1000);
+        Assert.Equal(2, n.Owners["bandit_7"]);
+        advance(NpcCoordinator.AggroMs + 1000);                       // nobody hurts it any more
+        for (int i = 0; i < 4; i++) advance(1000);                    // the nearest rule's hold
+        Assert.Equal(1, n.Owners["bandit_7"]);
+        Assert.Null(n.AttackerOf("bandit_7"));
+    }
+
+    [Fact]
+    public void An_attacker_far_from_the_enemy_does_not_take_it()
+    {
+        var (n, _, advance) = HostWithBandit();
+        n.PeerNear(3, ["npcnear", "w1", "bandit_7:60"], true);       // a third player 60 m away (out of aggro reach) reports damage
+        n.NoteHurt(3, "bandit_7");
+        advance(1000);
+        Assert.Equal(1, n.Owners["bandit_7"]);
+    }
+
     [Fact]
     public void A_blow_travels_only_from_the_npcs_owner_once_and_within_the_rate()
     {

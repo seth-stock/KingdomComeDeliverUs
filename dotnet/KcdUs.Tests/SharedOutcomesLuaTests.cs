@@ -33,7 +33,7 @@ public class SharedOutcomesLuaTests
         var m = Combat();
         m.Do("__world_ents[1].hp = 80");
         m.Advance(0.5);
-        Assert.Equal(new[] { "KCDUS|CMB|bandit_7|20.00|80.00|0" }, m.Lines("KCDUS|CMB|"));
+        Assert.Equal(new[] { "KCDUS|CMB|bandit_7|20.00|80.00|0|0" }, m.Lines("KCDUS|CMB|"));
         m.ClearLog(); m.Advance(1.0);
         Assert.Empty(m.Lines("KCDUS|CMB|"));                                                      // reported once
     }
@@ -44,7 +44,7 @@ public class SharedOutcomesLuaTests
         var m = Combat();
         m.Do("__world_ents[1].hp = 0; __world_ents[1].dead = true");
         m.Advance(1.0);
-        Assert.Equal(new[] { "KCDUS|CMB|bandit_7|100.00|0.00|1" }, m.Lines("KCDUS|CMB|"));
+        Assert.Equal(new[] { "KCDUS|CMB|bandit_7|100.00|0.00|1|0" }, m.Lines("KCDUS|CMB|"));
     }
 
     [Fact]

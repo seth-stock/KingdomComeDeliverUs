@@ -21,7 +21,12 @@ public sealed partial class NpcCoordinator
     public const long OwnPeriodMs = 1000;
     public const long ModeRepeatMs = 10000;
     public const int MaxNpcs = 96;
-    public const int MaxStatesPerSecond = 48; // 96 owned NPCs / 12 rows per packet * 5 Hz = 40; retain bounded burst headroom
+    public const int MaxStatesPerSecond = 48;
+    /// <summary>An NPC turns on whoever hurt it in the last AggroMs (if that player is within AggroReachM of it) ...</summary>
+    public const long AggroMs = 6000;
+    public const double AggroReachM = 25.0;
+    /// <summary>... unless its current owner hurt it within the last OwnerFightMs: then it keeps fighting the owner (no flicker between two attackers).</summary>
+    public const long OwnerFightMs = 3000; // 96 owned NPCs / 12 rows per packet * 5 Hz = 40; retain bounded burst headroom
 
     private readonly Func<long> _now;
     private readonly Action<string> _toGame, _toPeers, _toGuests, _log;
@@ -35,6 +40,7 @@ public sealed partial class NpcCoordinator
     private string _scope = "";
     private int _myId;
     private long _lastOwnMs, _lastModeMs;
+    private string _lastOwnerSig = "";
 
     public NpcCoordinator(Func<long> now, Action<string> toGame, Action<string> toPeers, Action<string> toGuests, Action<string> log)
     {
@@ -55,7 +61,7 @@ public sealed partial class NpcCoordinator
             if (want != _on || (want && (scope != _scope || myId != _myId)))
             {
                 _on = want; _scope = want ? scope : ""; _myId = myId;
-                _near.Clear(); _owner.Clear(); _challenger.Clear();
+                _near.Clear(); _owner.Clear(); _challenger.Clear(); _hurtBy.Clear(); _ghostTarget.Clear();
                 ResetAuthority(isHost);
                 _toGame(want ? $"NPCMODE|1|{_scope}|{_myId}" : "NPCMODE|0");
                 _lastModeMs = now;
@@ -89,7 +95,7 @@ public sealed partial class NpcCoordinator
         {
             if (!_on || f.Length < 2) return;
             var list = ParseNear(f[1]);
-            if (list == null) return;
+            if (list == null) { _log("shared enemies: a near-report was refused: " + (f[1].Length > 200 ? f[1][..200] : f[1])); return; }
             if (isHost) { NoteNearLocked(_myId, list, _now()); NoteEngagedLocked(_myId, f[1], _now()); }
             else _toPeers($"npcnear|{_scope}|{f[1]}");
         }
@@ -101,6 +107,7 @@ public sealed partial class NpcCoordinator
         lock (_gate)
         {
             if (!_on || f.Length < 2 || !ValidStates(f[1])) return;
+            NoteGhostTargetsLocked(f[1], _myId);
             SendStatesV2(f[1]);
         }
     }
@@ -160,6 +167,48 @@ public sealed partial class NpcCoordinator
         }
     }
 
+    // name -> player -> when that player's game last saw the NPC lose health near them (its CMB report): who is fighting it
+    private readonly Dictionary<string, Dictionary<int, long>> _hurtBy = new(StringComparer.Ordinal);
+
+    /// <summary>A player's game reported damage to this NPC near them (combat.lua CMB): that player is fighting it. The host's decision turns the NPC on its attacker.</summary>
+    public void NoteHurt(int who, string name)
+    {
+        lock (_gate)
+        {
+            if (!_on || who is < 1 or > 255 || !OutcomesRules.ValidName(name)) return;
+            if (!_hurtBy.TryGetValue(name, out var m)) { if (_hurtBy.Count >= MaxNpcs * 2) return; _hurtBy[name] = m = new(); }
+            m[who] = _now();
+        }
+    }
+
+    public int? AttackerOf(string name)
+    {
+        lock (_gate)
+        {
+            long now = _now();
+            return _hurtBy.TryGetValue(name, out var m) && m.Count > 0 && m.MaxBy(kv => kv.Value) is var last && now - last.Value <= AggroMs ? last.Key : null;
+        }
+    }
+
+    // name -> (the player whose ghost its owner's copy is fighting, when): the host hands it to that player
+    private readonly Dictionary<string, (int Who, long At)> _ghostTarget = new(StringComparer.Ordinal);
+    public const long GhostTargetMs = 3000;
+
+    private void NoteGhostTargetsLocked(string rows, int reporter)
+    {
+        long now = _now();
+        foreach (var row in rows.Split(';'))
+        {
+            var v = row.Split(',');
+            if (v.Length != 12 || !int.TryParse(v[11], NumberStyles.None, CultureInfo.InvariantCulture, out int who) || who is < 1 or > 255 || who == reporter) continue;
+            if (!_owner.TryGetValue(v[0], out int owner) || owner != reporter) continue;   // only the copy that runs the NPC says whom it fights
+            if (_ghostTarget.Count < MaxNpcs * 2 || _ghostTarget.ContainsKey(v[0])) _ghostTarget[v[0]] = (who, now);
+        }
+    }
+
+    /// <summary>Test seam and diagnostics: whom the NPC's running copy is fighting through a ghost, if recent.</summary>
+    public int? GhostTargetOf(string name) { lock (_gate) return _ghostTarget.TryGetValue(name, out var t) && _now() - t.At <= GhostTargetMs ? t.Who : null; }
+
     private bool EngagedLocked(string name, int who, long now) => _engaged.TryGetValue(name, out var m) && m.TryGetValue(who, out long at) && now - at <= StaleMs;
 
     private void NoteNearLocked(int who, List<(string Name, double D)> list, long now)
@@ -186,8 +235,31 @@ public sealed partial class NpcCoordinator
             foreach (var who in m.Where(kv => now - kv.Value.At > StaleMs).Select(kv => kv.Key).ToList()) m.Remove(who);
             if (m.Count == 0) { _near.Remove(name); _owner.Remove(name); _challenger.Remove(name); }
         }
+        foreach (var m in _hurtBy.Values)
+            foreach (var who in m.Where(kv => now - kv.Value > AggroMs).Select(kv => kv.Key).ToArray()) m.Remove(who);
+        foreach (var name in _hurtBy.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToArray()) _hurtBy.Remove(name);
         foreach (var (name, m) in _near.OrderBy(kv => kv.Value.Values.Min(v => v.D)).Take(MaxNpcs))
         {
+            // Whom it is fighting first: its running copy targets a friend's ghost, so that friend's game takes it and it fights the real Henry.
+            if (_ghostTarget.TryGetValue(name, out var gt) && now - gt.At <= GhostTargetMs && m.ContainsKey(gt.Who))
+            {
+                if (!_owner.TryGetValue(name, out int o) || o != gt.Who) SetOwner(name, gt.Who);
+                _challenger.Remove(name);
+                continue;
+            }
+            // Aggro next: the NPC fights whoever is hurting it (its newest attacker within reach), unless its owner is hurting it too.
+            if (_hurtBy.TryGetValue(name, out var hurt))
+            {
+                var attacker = hurt.Where(h => m.TryGetValue(h.Key, out var nd) && nd.D <= AggroReachM).OrderByDescending(h => h.Value).ThenBy(h => h.Key).Select(h => (int?)h.Key).FirstOrDefault();
+                if (attacker is int a)
+                {
+                    bool hasOwner = _owner.TryGetValue(name, out int owner) && m.ContainsKey(owner);
+                    bool ownerFighting = hasOwner && hurt.TryGetValue(owner, out long oh) && now - oh <= OwnerFightMs;
+                    if (!hasOwner || (a != owner && !ownerFighting)) SetOwner(name, a);
+                    _challenger.Remove(name);
+                    continue;
+                }
+            }
             var best = m.OrderBy(kv => kv.Value.D).ThenBy(kv => kv.Key).First();
             if (!_owner.TryGetValue(name, out int cur) || !m.ContainsKey(cur)) { SetOwner(name,best.Key); _challenger.Remove(name); continue; }
             if (best.Key == cur || best.Value.D + SwitchMarginM >= m[cur].D) { _challenger.Remove(name); continue; }
@@ -200,6 +272,8 @@ public sealed partial class NpcCoordinator
         var supported = _near.OrderBy(kv => kv.Value.Values.Min(v => v.D)).ThenBy(kv=>kv.Key,StringComparer.Ordinal).Take(MaxNpcs).Select(kv=>kv.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var name in _owner.Keys.Where(n=>!supported.Contains(n)).ToArray()) _owner.Remove(name);
         foreach (var name in _terms.Keys.Where(n=>!_owner.ContainsKey(n)).ToArray()) _terms.Remove(name);
+        string sig = string.Join(",", _owner.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key + ":" + kv.Value));
+        if (sig != _lastOwnerSig) { _lastOwnerSig = sig; _log(FormattableString.Invariant($"shared enemies: {_owner.Count} owned ({_owner.Count(kv => kv.Value == _myId)} by me) of {_near.Count} near: {(sig.Length > 300 ? sig[..300] + "..." : sig)}")); }
         if (_owner.Count == 0) return;
         long revision = ++_ownerRevision;
         foreach (var chunk in _owner.Chunk(24))
@@ -237,10 +311,12 @@ public sealed partial class NpcCoordinator
         foreach (var p in parts)
         {
             var v = p.Split(',');
-            if (v.Length is not (8 or 11) || !OutcomesRules.ValidName(v[0]) || v[7] is not ("0" or "1")) return false;
+            if (v.Length is not (8 or 11 or 12) || !OutcomesRules.ValidName(v[0]) || v[7] is not ("0" or "1")) return false;
             for (int i = 1; i <= 6; i++) if (!OutcomesRules.Number(v[i], -100000, 100000, out _)) return false;
             // mode (0-64), in combat, engaged with its owner (npcs.lua: the adapter's read-only combat state)
-            if (v.Length == 11 && (!int.TryParse(v[8], NumberStyles.None, CultureInfo.InvariantCulture, out int mode) || mode > 64 || v[9] is not ("0" or "1") || v[10] is not ("0" or "1"))) return false;
+            if (v.Length >= 11 && (!int.TryParse(v[8], NumberStyles.None, CultureInfo.InvariantCulture, out int mode) || mode > 64 || v[9] is not ("0" or "1") || v[10] is not ("0" or "1"))) return false;
+            // the friend whose ghost it is fighting in the reporter's world (0: none)
+            if (v.Length == 12 && (!int.TryParse(v[11], NumberStyles.None, CultureInfo.InvariantCulture, out int tp) || tp > 255)) return false;
         }
         return true;
     }

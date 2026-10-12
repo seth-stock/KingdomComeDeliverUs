@@ -151,6 +151,19 @@ static HRESULT WINAPI isolated(REFKNOWNFOLDERID id, DWORD flags, HANDLE token, P
     return original(id, flags, token, out);
 }
 
+// Two private games at once (a local two-player rig): the launcher refuses a second instance through the named mutex
+// "WhKcdGameMutex". Each private profile gets its own name, so only games of the SAME profile exclude each other.
+static HANDLE WINAPI mutex_isolated(LPSECURITY_ATTRIBUTES attributes, BOOL owner, LPCSTR name) {
+    if (name && !strcmp(name, "WhKcdGameMutex")) {
+        unsigned long hash = 2166136261u;
+        for (const wchar_t* c = root; *c; ++c) hash = (hash ^ static_cast<unsigned long>(*c)) * 16777619u;
+        char scoped[64]; sprintf_s(scoped, "WhKcdGameMutex_%08lx", hash);
+        trace("mutex-scoped", 1);
+        return CreateMutexA(attributes, owner, scoped);
+    }
+    return CreateMutexA(attributes, owner, name);
+}
+
 static unsigned patch(HMODULE module) {
     if (!module) return 0;
     auto base = reinterpret_cast<BYTE*>(module);
@@ -176,6 +189,7 @@ static unsigned patch(HMODULE module) {
                 replacement = reinterpret_cast<PVOID>(load_isolated);
             if (!strcmp(reinterpret_cast<char*>(name->Name), "SHGetFolderPathW")) replacement = reinterpret_cast<PVOID>(folder_w);
             if (!strcmp(reinterpret_cast<char*>(name->Name), "SHGetFolderPathA")) replacement = reinterpret_cast<PVOID>(folder_a);
+            if (!strcmp(reinterpret_cast<char*>(name->Name), "CreateMutexA")) replacement = reinterpret_cast<PVOID>(mutex_isolated);
             if (!strcmp(reinterpret_cast<char*>(name->Name), "GetProcAddress") && slots->u1.Function == reinterpret_cast<ULONG_PTR>(&GetProcAddress)) replacement = reinterpret_cast<PVOID>(proc_isolated);
             if (!replacement) continue;
             DWORD old;

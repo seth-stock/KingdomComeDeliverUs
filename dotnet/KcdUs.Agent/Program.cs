@@ -31,7 +31,7 @@ public static class Program
         if (Worlds.SlotCommands.Requested(args)) return Worlds.SlotCommands.Run(args, cfg);
         if (args.Contains("--build-ui")) return BuildUi(cfg);
         string release = Release.Current;
-        string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "logs", "agent.log");
+        string logPath = Path.Combine(AgentPaths.Data, "logs", "agent.log");
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
         var logLock = new object();
         void Log(string line)

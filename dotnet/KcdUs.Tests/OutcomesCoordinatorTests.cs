@@ -66,7 +66,7 @@ public class OutcomesCoordinatorTests
         using var r = new Rig();
         r.O.PeerScope(2, "w1"); r.Step();
         r.O.GameCombat(new[] { "CMB", "bandit_7", "20.00", "80.00", "0" });
-        Assert.Contains("cmb|bandit_7|20.00|0", r.ToPeers);
+        Assert.Contains("cmb|bandit_7|20.00|0|0", r.ToPeers);       // the last field: was it the reporter's own fight (aggro)
         r.ToPeers.Clear();
         foreach (var bad in new[] { new[] { "CMB", "bad name", "1", "1", "0" }, new[] { "CMB", "bandit_7", "-1", "1", "0" }, new[] { "CMB", "kcdus_ghost_2", "1", "1", "0" }, new[] { "CMB", "bandit_7", "1", "1", "7" } })
             r.O.GameCombat(bad);

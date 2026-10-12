@@ -95,7 +95,7 @@ public sealed class WorldRegistry
     public int HomePlayline { get; set; } = -1;
     public string HomeLeaseId { get; set; } = "";
 
-    public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "worlds.json");
+    public static string DefaultPath => Path.Combine(AgentPaths.Data, "worlds.json");
 
     public static WorldRegistry Load(string? path = null)
     {

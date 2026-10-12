@@ -122,7 +122,8 @@ public sealed class OutcomesCoordinator : IDisposable
         lock (_gate)
         {
             if (!_on || f.Length < 5 || !OutcomesRules.ValidName(f[1]) || !OutcomesRules.Number(f[2], 0, 5000, out _) || f[4] is not ("0" or "1") || !Allow()) return;
-            _toPeers($"cmb|{f[1]}|{f[2]}|{f[4]}");
+            string mine = f.Length > 5 && f[5] == "1" ? "1" : "0";
+            _toPeers($"cmb|{f[1]}|{f[2]}|{f[4]}|{mine}");
         }
     }
 
@@ -131,7 +132,7 @@ public sealed class OutcomesCoordinator : IDisposable
     {
         lock (_gate)
         {
-            if (!_on || f.Length != 4 || !OutcomesRules.ValidName(f[1]) || !OutcomesRules.Number(f[2], 0, 5000, out _) || f[3] is not ("0" or "1")) return;
+            if (!_on || f.Length is not (4 or 5) || !OutcomesRules.ValidName(f[1]) || !OutcomesRules.Number(f[2], 0, 5000, out _) || f[3] is not ("0" or "1")) return;
             _toGame($"CMBAPPLY|{_scope}|{f[1]}|{f[2]}|{f[3]}");
         }
     }

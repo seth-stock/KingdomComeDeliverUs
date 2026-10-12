@@ -58,7 +58,7 @@ public sealed class AgentConfig
     public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, "kcdus-agent.json");
 
     /// <summary>Where a player's own changes go when the program's folder is not writable (a Program Files install).</summary>
-    public static string UserPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "kcdus-agent.json");
+    public static string UserPath => Path.Combine(AgentPaths.Data, "kcdus-agent.json");
 
     /// <summary>The settings file: the one next to the exe, or the player's own copy when that is newer (the Multiplayer tab saved there).</summary>
     public static AgentConfig Load(string? path = null)
@@ -114,6 +114,10 @@ public sealed class AgentConfig
                 case "--shared-outcomes": c.SharedOutcomes = true; break;
                 case "--no-shared-outcomes": c.SharedOutcomes = false; break;
                 case "--idle": c.Idle = true; break;
+                // the local two-player rig (two private games on one computer): each agent names its own game console and saves
+                case "--console-port" when next != null && int.TryParse(next, out int cp) && cp is > 1023 and < 65536: c.ConsolePort = cp; i++; break;
+                case "--saves-dir" when next != null: c.SavesDir = next; i++; break;
+                case "--allow-loopback-join": c.AllowLoopbackJoin = true; break;
             }
         }
         return c;

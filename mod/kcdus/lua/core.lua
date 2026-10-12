@@ -128,7 +128,9 @@ end
 -- agent -> game. The agent calls: kcdus "<seq>~REC|f|f~REC|f"
 function KCDUS_In(line)
     K.kick()
-    local recs = K.split(tostring(line), "~")
+    -- the engine's console ends a command at ';', so the agent sends ';' as '^' (CommandPacker): restore it before anything reads the records
+    line = string.gsub(tostring(line), "%^", ";")
+    local recs = K.split(line, "~")
     local seq = tonumber(recs[1])
     if seq then
         K.lastSeq = seq

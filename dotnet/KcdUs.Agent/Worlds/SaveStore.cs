@@ -43,7 +43,7 @@ public sealed class SaveStore
     }
 
     public static string DefaultBackupRoot() =>
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KCDUS", "world-backups");
+        System.IO.Path.Combine(AgentPaths.Data, "world-backups");
 
     public string PlaylineDir(int playline) => System.IO.Path.Combine(Root, "playline" + playline);
 

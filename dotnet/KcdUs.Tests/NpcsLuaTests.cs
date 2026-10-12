@@ -29,6 +29,22 @@ public class NpcsLuaTests
     }
 
     [Fact]
+    public void A_multi_npc_line_survives_the_consoles_semicolon_split()
+    {
+        // The engine's console ends a command at ';' (found on the two-game rig: only the first NPC of an ownership line arrived).
+        // The agent sends ';' as '^' and KCDUS_In restores it.
+        var m = World("1");
+        string line = KcdUs.Agent.CommandPacker.ConsoleSafe("NPCOWN|" + Scope + "|bandit_7:1;bandit_8:1");
+        Assert.DoesNotContain(";", line);
+        m.Send("2~" + line);
+        m.ClearLog();
+        m.Advance(0.5);
+        var st = string.Join(" ", m.Lines("KCDUS|NPCST|"));
+        Assert.Contains("bandit_7,", st);
+        Assert.Contains("bandit_8,", st);
+    }
+
+    [Fact]
     public void An_npc_this_game_owns_is_reported_five_times_a_second_and_one_it_does_not_own_is_not()
     {
         var m = World("1");
@@ -138,7 +154,7 @@ public class NpcsLuaTests
     private static LuaMod Fight(string me = "1")
     {
         var m = World(me);
-        m.Do("__world_ents[1].human.PlayAnim = function(self, frag) if frag == '@kcdus/combat-state' then return { present = 1, mode = __attackMode or 4, active = 1, target = 1 } end end");
+        m.Do("__world_ents[1].human.PlayAnim = function(self, frag) if frag == '@kcdus/combat-state' then return { present = 1, mode = __attackMode or 4, active = __attackActive or 1, target = 1 } end end");
         return m;
     }
 
@@ -168,7 +184,7 @@ public class NpcsLuaTests
         m.Do("__world.health = 70"); m.Advance(0.5);
         Assert.Empty(m.Lines("KCDUS|NPCHIT|"));
         var n = Fight("1");
-        n.Do("__attackMode = 1");                                         // an NPC that is not attacking
+        n.Do("__attackActive = 0");                                       // an NPC that is not fighting me
         n.Send("2~NPCOWN|" + Scope + "|bandit_7:1");
         n.Advance(0.5); n.Do("__world.health = 70"); n.Advance(0.5);
         Assert.Empty(n.Lines("KCDUS|NPCHIT|"));

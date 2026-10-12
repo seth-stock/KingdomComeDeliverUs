@@ -18,7 +18,11 @@ GAME = Path(r'F:\SteamLibrary\steamapps\common\KingdomComeDeliverance')
 SAVED = Path(os.environ['USERPROFILE']) / 'Saved Games'
 REAL = SAVED / 'kingdomcome' / 'saves'
 ROOT = Path(__file__).resolve().parents[2]
-CURRENT = ROOT / '_work' / 'engine-current.json'
+# KCDUS_ENGINE_SESSION=<name>: a second, independent owned session (two private games at once: a local two-player rig)
+_SESSION_NAME = os.environ.get('KCDUS_ENGINE_SESSION', '')
+if _SESSION_NAME and not re.fullmatch(r'[a-z0-9]{1,12}', _SESSION_NAME):
+    raise SystemExit('KCDUS_ENGINE_SESSION must be 1-12 lower-case letters/digits')
+CURRENT = ROOT / '_work' / ('engine-current%s.json' % ('-' + _SESSION_NAME if _SESSION_NAME else ''))
 
 
 def hashes():
@@ -31,7 +35,10 @@ def session():
 
 
 def log_path():
-    return Path(session().get('gameRoot', str(GAME))) / 'kcd.log'
+    # A second game running at the same time writes kcd(1).log (CryEngine's own second-instance naming): take this root's newest log.
+    root = Path(session().get('gameRoot', str(GAME)))
+    logs = [p for p in (root / 'kcd.log', root / 'kcd(1).log', root / 'kcd(2).log') if p.exists()]
+    return max(logs, key=lambda p: p.stat().st_mtime) if logs else root / 'kcd.log'
 
 
 def verified():
@@ -47,25 +54,34 @@ def verified():
     if subprocess.check_output(['powershell','-NoProfile','-Command',query],text=True).strip()!='owned':
         raise RuntimeError('Recorded engine process exited or its PID was reused')
     log = log_path().read_text(errors='replace').replace('\\', '/').lower()
-    expected = str(Path(s['saveRoot']) / 'KingdomCome').replace('\\', '/').lower()
-    if f"user folder is '{expected}'" not in log:
+    # a second game at the same time gets the user folder 'KingdomCome(1)' (CryEngine's second-instance naming)
+    expected = [str(Path(s['saveRoot']) / n).replace('\\', '/').lower() for n in ('KingdomCome', 'KingdomCome(1)')]
+    if not any(f"user folder is '{e}'" in log for e in expected):
         raise RuntimeError('Engine has not confirmed the disposable user folder; do not load or mutate anything.')
     if hashes() != s['realSaveHashes']:
         raise RuntimeError('Real-save hashes differ; stop this experiment and preserve evidence.')
     return s
 
 
+def console_port(pid):
+    """The remote-console port (4600..4620) the owned process listens on; a second game takes the next free one."""
+    query=f"Get-NetTCPConnection -State Listen -OwningProcess {int(pid)} -ErrorAction SilentlyContinue | Where-Object {{ $_.LocalPort -ge 4600 -and $_.LocalPort -le 4620 }} | Select-Object -ExpandProperty LocalPort"
+    ports=sorted(int(x) for x in subprocess.run(['powershell','-NoProfile','-Command',query],capture_output=True,text=True).stdout.split() if x.isdigit())
+    return ports[0] if ports else None
+
+
 def send(code, wait=1.5, guard=True):
     if guard:
         s=verified()
-        query='Get-NetTCPConnection -State Listen -LocalPort 4600 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess'
-        owners=subprocess.run(['powershell','-NoProfile','-Command',query],capture_output=True,text=True).stdout.split()
-        if owners!=[str(s['pid'])]:raise RuntimeError('Remote console is not owned by this disposable process')
+        port=console_port(s['pid'])
+        if port is None:raise RuntimeError('Remote console is not owned by this disposable process')
+    else:
+        port=console_port(session()['pid']) or 4600
     if len(code.encode('utf-8')) > 1700:
         raise ValueError('Remote console command exceeds safe size')
     log = log_path()
     offset = log.stat().st_size
-    with socket.create_connection(('127.0.0.1', 4600), timeout=4) as sock:
+    with socket.create_connection(('127.0.0.1', port), timeout=4) as sock:
         sock.settimeout(0.3)
         end = time.monotonic() + 0.5
         while time.monotonic() < end:
@@ -203,6 +219,9 @@ def launch(source):
     slot.mkdir(parents=True)
     data = source.read_bytes()
     (slot / 'probe.whs').write_bytes(data)
+    second = save_root / 'KingdomCome(1)' / 'saves' / 'playline0'     # if this game starts second, CryEngine names its user folder so
+    second.mkdir(parents=True)
+    (second / 'probe.whs').write_bytes(data)
     game_root = work / 'game-root'
     game_root.mkdir()
     # The process-local hook handles early folder discovery. Config disables cloud.

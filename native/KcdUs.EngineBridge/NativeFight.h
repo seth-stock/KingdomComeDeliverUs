@@ -125,13 +125,19 @@ static void fight_core(void* binding,void* handler,const char* command,const cha
 
 // Read-only combat state of an actor for the owner's report: it never constructs a combat component (actor+0x1a0 is read, not the lazy getter).
 // active: the soul is in combat (+0xbd8); mode: the combat mode (+0xbdc; 4 while an attack runs, seen live); target: the current target's entity id.
-struct CombatState { int version, present, active, mode, target, guard; };
+struct CombatState { int version, present, active, mode, target, guard, self; };
 static void combat_state_read(void* binding,void* handler,CombatState* out) {
-    *out={1,0,0,0,0,0};
+    *out={1,0,0,0,0,0,0};
     if(mirror_faulted || !engine)return;
     __try {
         auto human=function<BYTE*(*)(void*,void*)>(0x10c98a0)(binding,handler);
-        if(!human || *reinterpret_cast<BYTE**>(human)!=engine+0x21fc0d8)return;
+        if(!human)return;
+        auto humanVtable=*reinterpret_cast<BYTE**>(human);
+        // the actor's own id in the SAME scheme as `target` (human+0x30): a target compares to this, not to the Lua entity id (found on the two-game rig).
+        // The player's actor is its own class (vtable +0x26c3e30, seen live) with no combat actor at +0x1a0: only its id is read.
+        if(humanVtable==engine+0x26c3e30) { out->self=*reinterpret_cast<int*>(human+0x30); return; }
+        if(humanVtable!=engine+0x21fc0d8)return;
+        out->self=*reinterpret_cast<int*>(human+0x30);
         auto combat=*reinterpret_cast<BYTE**>(human+0x1a0);
         if(!combat || *reinterpret_cast<BYTE**>(combat)!=engine+0x2228be8)return;
         auto soul=*reinterpret_cast<BYTE**>(combat+0x4b8);
@@ -145,7 +151,7 @@ static void combat_state_read(void* binding,void* handler,CombatState* out) {
             auto targetHuman=*reinterpret_cast<BYTE**>(target+0x4a0);
             if(targetHuman)out->target=*reinterpret_cast<int*>(targetHuman+0x30);
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) { mirror_faulted=true;*out={1,0,0,0,0,0}; }
+    } __except(EXCEPTION_EXECUTE_HANDLER) { mirror_faulted=true;*out={1,0,0,0,0,0,0}; }
 }
 static int combat_state_binding(void* binding,void* handler) {
     CombatState s{};combat_state_read(binding,handler,&s);
@@ -155,7 +161,7 @@ static int combat_state_binding(void* binding,void* handler) {
     virtual_function<void(*)(void*)>(table,0x18)(table);
     auto put=function<void(*)(void*,const char*,const void*)>(0x2b6a0c);
     put(table,"version",&s.version);put(table,"present",&s.present);put(table,"active",&s.active);
-    put(table,"mode",&s.mode);put(table,"target",&s.target);put(table,"guard",&s.guard);
+    put(table,"mode",&s.mode);put(table,"target",&s.target);put(table,"guard",&s.guard);put(table,"self",&s.self);
     int r=function<int(*)(void*,void*)>(0x2b5f18)(handler,&table);
     virtual_function<void(*)(void*)>(table,0x20)(table);return r;
 }

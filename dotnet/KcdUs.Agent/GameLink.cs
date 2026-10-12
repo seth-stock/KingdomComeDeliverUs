@@ -53,8 +53,13 @@ public sealed class CommandPacker
     public int Dropped { get; private set; }
     public int LastSequence => _seq;
 
+    /// <summary>The engine's console ends a command at ';' (found on the local two-player rig: every multi-NPC ownership after the first entry
+    /// arrived as "Unknown command"). Records carry ';' as '^'; the mod's KCDUS_In turns it back.</summary>
+    public static string ConsoleSafe(string record) => record.Replace(';', '^');
+
     public void Add(string record)
     {
+        record = ConsoleSafe(record);
         lock (_gate)
         {
             if (_fifo.Count >= MaxQueued) { _fifo.RemoveAt(0); Dropped++; }
@@ -64,6 +69,7 @@ public sealed class CommandPacker
 
     public void AddLatest(string key, string record)
     {
+        record = ConsoleSafe(record);
         lock (_gate)
         {
             if (!_latest.ContainsKey(key)) _latestOrder.Add(key);
@@ -309,7 +315,7 @@ public sealed class ConsoleGameLink : IGameLink
         _now = nowMs ?? (() => Environment.TickCount64);
         _log = log ?? (_ => { });
         _console = new RemoteConsoleClient(host, port);
-        _tail = new LogTail(Path.Combine(gameDir, "kcd.log"));
+        _tail = new LogTail(Path.Combine(gameDir, AgentPaths.GameLog));
         _tail.LineRead += l =>
         {
             if (GameLine.Parse(l) is not { } g) return;
