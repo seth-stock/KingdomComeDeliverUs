@@ -224,6 +224,11 @@ player = {
     IsDead = function(self) return __world.dead end,
     soul = {
         GetState = function(self, k) if k == "health" then return __world.health end return __world.stamina end,
+        DealDamage = function(self, st, hp, attacker, suppress)
+            __world.damageCalls = (__world.damageCalls or 0) + 1
+            __world.lastDamage = { stam = st, hp = hp, attacker = attacker, suppress = suppress }
+            __world.health = math.max(0, __world.health - hp)
+        end,
         IsInCombatDanger = function(self) return __world.danger end,
         GetStatLevel = function(self, n) local v = __henry.stats[n]; if v == nil then error("no stat " .. tostring(n)) end return v end,
         GetSkillLevel = function(self, n) local v = __henry.skills[n]; if v == nil then error("no skill " .. tostring(n)) end return v end,

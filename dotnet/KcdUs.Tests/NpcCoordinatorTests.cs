@@ -6,6 +6,34 @@ namespace KcdUs.Tests;
 
 public class NpcCoordinatorTests
 {
+    [Fact]
+    public void A_blow_travels_only_from_the_npcs_owner_once_and_within_the_rate()
+    {
+        var game = new List<string>(); var peers = new List<string>();
+        long now = 50000;
+        var n = new NpcCoordinator(() => now, game.Add, peers.Add, _ => {}, _ => {});
+        n.Tick("w1", false, 1);
+        n.HostOwnersV2(["npcown2", "w1", "0123456789abcdef0123456789abcdef", "1", "bandit_7:2:5;bandit_8:1:6"]);
+        // my game reports a blow of the NPC I own; one I do not own is never sent
+        n.GameHit(["NPCHIT", "bandit_8", "1", "12.0"]);
+        n.GameHit(["NPCHIT", "bandit_7", "1", "12.0"]);
+        n.GameHit(["NPCHIT", "bandit_8", "2", "99"]);
+        n.GameHit(["NPCHIT", "bandit_8", "0", "12.0"]);
+        Assert.Equal(["npchit|w1|bandit_8|1|12.0"], peers.Where(x => x.StartsWith("npchit")).ToList());
+        // a friend's blow: from the owner only, each sequence once
+        n.PeerHit(2, ["npchit", "w1", "bandit_7", "1", "12.0"]);
+        n.PeerHit(2, ["npchit", "w1", "bandit_7", "1", "12.0"]);
+        n.PeerHit(3, ["npchit", "w1", "bandit_7", "2", "12.0"]);          // not the owner
+        n.PeerHit(2, ["npchit", "other", "bandit_7", "2", "12.0"]);       // another world
+        n.PeerHit(2, ["npchit", "w1", "bandit_7", "2", "0.1"]);           // below a blow
+        Assert.Equal(["NPCHITIN|w1|2|bandit_7|1|12.0"], game.Where(x => x.StartsWith("NPCHITIN")).ToList());
+        for (int i = 3; i < 20; i++) n.PeerHit(2, ["npchit", "w1", "bandit_7", i.ToString(), "5.0"]);
+        Assert.Equal(NpcCoordinator.MaxHitsPerSecond, game.Count(x => x.StartsWith("NPCHITIN")));
+        now += 1500;
+        n.PeerHit(2, ["npchit", "w1", "bandit_7", "30", "5.0"]);
+        Assert.Equal(NpcCoordinator.MaxHitsPerSecond + 1, game.Count(x => x.StartsWith("NPCHITIN")));
+    }
+
     private sealed class Rig
     {
         public long Now = 50_000;

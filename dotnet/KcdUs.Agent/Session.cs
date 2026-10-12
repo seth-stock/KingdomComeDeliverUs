@@ -26,6 +26,8 @@ public sealed class SessionOptions
     public string ParticipantId { get; init; } = "";
     /// <summary>This player's takes on probation as a guest (GuestCustody.cs; null: a fresh in-memory one, tests only). Owned by the agent, shared by its sessions.</summary>
     public GuestCustody? Custody { get; init; }
+    /// <summary>The economy audit ledger (EconomyLedger.cs; null: a fresh in-memory one). Owned by the agent, shared by its sessions.</summary>
+    public EconomyLedger? Economy { get; init; }
     /// <summary>The engine adapter's pause gate (pause option off: this player's own ESC menu does not pause their game). Null: not available.</summary>
     public IPauseGate? PauseGate { get; init; }
 }
@@ -74,6 +76,8 @@ public sealed class Session : IDisposable
     private string _refused = "";
     private long _lastGameSignalMs;
     private bool _gameKnown;
+    private readonly EconomyLedger _economy;
+    private bool _economyFailed;
 
     // the local player, as the game reports it
     private PlayerState? _local;
@@ -168,6 +172,7 @@ public sealed class Session : IDisposable
         _npcs = new NpcCoordinator(nowMs, line => _game.Send(line), text => { if (_myId != 0) _relay.Send(MessageType.Event, text); },
             text => { if (_myId != 0) _relay.Send(MessageType.HostEvent, text); }, _log);
         _weather=new WeatherCoordinator(nowMs,line=>_game.Send(line),text=>{if(_myId!=0)_relay.Send(MessageType.HostEvent,text);});
+        _economy = o.Economy ?? new EconomyLedger();
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
         _relay.Frame += OnRelayFrame;
@@ -369,6 +374,14 @@ public sealed class Session : IDisposable
                 case "LOOT": _outcomes.GameLoot(f, IsHost); break;
                 case "NPCNEAR": _npcs.GameNear(f, IsHost); break;
                 case "NPCST": _npcs.GameStates(f); break;
+                case "NPCHIT": _npcs.GameHit(f); break;
+                case "ECON":     // KCDUS|ECON|kind|class|delta|world time[|ref]: the pack watcher's attribution (observation only)
+                    if (EconomyLedger.TryParseEvent(string.Join(' ', f.Skip(1)), out var ek, out string ec, out long ed, out double ew, out string eref))
+                    {
+                        try { _economy.Record(ek, ec, ed, ew, eref); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { if (!_economyFailed) { _economyFailed = true; _log("economy ledger could not be written (" + ex.Message + ")"); } }
+                    }
+                    break;
                 case "WOPT" when f.Length==2 && f[1] is "on" or "off":
                     _weather.Enabled=f[1]=="on";
                     if(!_weather.Enabled) _weather.Reset();
@@ -624,6 +637,9 @@ public sealed class Session : IDisposable
                 break;
             case "npcst2":
                 _npcs.PeerStatesV2(from,f);
+                break;
+            case "npchit":
+                _npcs.PeerHit(from,f);
                 break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");

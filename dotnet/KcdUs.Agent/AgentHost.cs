@@ -68,6 +68,19 @@ public sealed class AgentHost : IAsyncDisposable
     /// <summary>The guest's durable loot custody (GuestCustody.cs). Tests point it at a private folder.</summary>
     public string? CustodyFile { get; set; }
     private GuestCustody? _custody, _memoryCustody;
+    /// <summary>The economy audit ledger (EconomyLedger.cs). Tests point it at a private folder.</summary>
+    public string? EconomyFile { get; set; }
+    private EconomyLedger? _economy, _memoryEconomy;
+    private EconomyLedger EconomyFor(bool transient)
+    {
+        if (transient) return _memoryEconomy ??= new EconomyLedger();
+        try { return _economy ??= new EconomyLedger(EconomyFile ?? UserFile("economy-ledger.jsonl")); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _log("economy ledger unavailable (" + e.Message + "): this session's pack changes are not audited; preserve the file");
+            return _memoryEconomy ??= new EconomyLedger();
+        }
+    }
     // one per agent, opened on first use: sessions come and go, the file must not be opened twice
     private GuestCustody CustodyFor(bool transient)
     {
@@ -145,6 +158,7 @@ public sealed class AgentHost : IAsyncDisposable
         QuestJournalPath = transient ? "" : UserFile("quest-effects.jsonl"),
         ParticipantId = transient ? "" : NativeParticipantId(),
         Custody = CustodyFor(transient),
+        Economy = EconomyFor(transient),
         PauseGate = _pauseGate,
     }, _game, relay, () => Environment.TickCount64, _log);
 

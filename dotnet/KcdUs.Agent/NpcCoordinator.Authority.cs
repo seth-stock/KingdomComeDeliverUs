@@ -14,7 +14,7 @@ public sealed partial class NpcCoordinator
     {
         _authority=host?Guid.NewGuid().ToString("N"):"";
         _ownerRevision=_termCounter=_sampleSequence=0;
-        _terms.Clear(); _receivedSequences.Clear(); _retiredAuthorities.Clear(); _stateRate.Clear(); _engaged.Clear();
+        _terms.Clear(); _receivedSequences.Clear(); _retiredAuthorities.Clear(); _stateRate.Clear(); _engaged.Clear(); _hitRate.Clear(); _hitSeen.Clear();
     }
     private void SetOwner(string name,int id)
     {
@@ -66,6 +66,42 @@ public sealed partial class NpcCoordinator
                 rows.Add(name+","+term.ToString(CultureInfo.InvariantCulture)+row[name.Length..]);
         }
         if(rows.Count>0) _toPeers(FormattableString.Invariant($"npcst2|{_scope}|{_authority}|{++_sampleSequence}|{string.Join(';',rows)}"));
+    }
+    // ---- the damage mirror (npcs.lua): a blow of an NPC this player owns hurt this player; the others' copies decide whether it reached them
+    public const int MaxHitsPerSecond = 8;
+    private readonly Dictionary<int,(long Window,int N)> _hitRate=new();
+    private readonly Dictionary<(int From,string Name),long> _hitSeen=new();
+    public static bool ValidHit(string name,string seq,string health,out long sequence,out double hp)
+    {
+        sequence=0; hp=0;
+        return OutcomesRules.ValidName(name) && Counter(seq,out sequence)
+            && double.TryParse(health,NumberStyles.Float,CultureInfo.InvariantCulture,out hp) && hp is >=0.5 and <=60 && !double.IsNaN(hp);
+    }
+    /// <summary>KCDUS|NPCHIT|name|seq|health: my NPC hurt me. Sent to the others only for an NPC this player owns.</summary>
+    public void GameHit(string[] f)
+    {
+        lock(_gate)
+        {
+            if(!_on || f.Length!=4 || !ValidHit(f[1],f[2],f[3],out _,out _)) return;
+            if(!_owner.TryGetValue(f[1],out int owner) || owner!=_myId) return;
+            _toPeers($"npchit|{_scope}|{f[1]}|{f[2]}|{f[3]}");
+        }
+    }
+    /// <summary>A friend's blow. Passed to the game only when that friend is the NPC's owner as the host named it, once per blow, within the rate.</summary>
+    public void PeerHit(int from,string[] f)
+    {
+        lock(_gate)
+        {
+            if(!_on || f.Length!=5 || f[1]!=_scope || !ValidHit(f[2],f[3],f[4],out long sequence,out _)) return;
+            if(!_owner.TryGetValue(f[2],out int owner) || owner!=from) return;
+            if(_hitSeen.TryGetValue((from,f[2]),out long last) && sequence<=last) return;
+            long now=_now(); var rate=_hitRate.TryGetValue(from,out var r) && now-r.Window<1000?r:(now,0);
+            if(rate.Item2>=MaxHitsPerSecond) return;
+            _hitRate[from]=(rate.Item1,rate.Item2+1);
+            if(_hitSeen.Count>=MaxNpcs*4) _hitSeen.Clear();
+            _hitSeen[(from,f[2])]=sequence;
+            _toGame($"NPCHITIN|{_scope}|{from}|{f[2]}|{f[3]}|{f[4]}");
+        }
     }
     public void PeerStatesV2(int from,string[] f)
     {

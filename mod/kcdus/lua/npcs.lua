@@ -13,6 +13,12 @@
 --     at the owner's presence body in an owned private probe. This cosmetic experiment retains the native action-probe gate; it does not prove independent
 --     damaging combat. Normal play puppets walk, face and hold their weapons only.
 --
+--   * Damage mirror (an APPROXIMATION, not independent combat): when a blow of an NPC this game owns lowers MY health (it was attacking and engaged on me,
+--     within 4 m), the owner reports the health actually lost (NPCHIT). The other games hear it (NPCHITIN) and, if their copy of that NPC is a current puppet
+--     of that owner AND their Henry stands inside its reach (2.8 m, +-75 degrees in front, 1.6 m up/down), take that same health loss through the engine's
+--     own soul:DealDamage, once per blow, read back (NPCHITAPPLIED). So one swing can hurt every player standing in front of it. Block, parry and armour of
+--     the receiving Henry are NOT applied (the owner's measured loss is what travels), a puppet's brain is off so it never starts a fight of its own, and a
+--     blow that missed the owner reports nothing. Switch: NPCDMGMIRROR|0.
 -- agent -> game:  NPCMODE|1|<scope>|<my id>   on for this shared world;  NPCMODE|0  off (every puppet gets its brain back)
 --                 NPCOWN|<scope>|name:owner;name:owner...      the host's decision (an entry lives 3 s unless repeated)
 --                 NPCSET|<scope>|<from>|name,x,y,z,yaw,vx,vy,w;...  the owner's samples of its NPCs
@@ -20,9 +26,14 @@
 --                 KCDUS|NPCST|name,x,y,z,yaw,vx,vy,w[,mode,active,engaged];...   the NPCs this game owns (5 a second, 12 a line)
 --                 KCDUS|NPCMIRROR|<name>|<owner>|<ok>          a puppet repeated its owner's attack (readback)
 --                 KCDUS|NPCPUP|<name>|<on|off>|<why>           a puppet taken or given back (readback)
+--                 KCDUS|NPCHIT|<name>|<seq>|<health lost>      a blow of my NPC hurt me (for the other players' copies)
+--                 KCDUS|NPCHITAPPLIED|<name>|<seq>|<asked>|<lost>|<ok>   a friend's NPC's blow, taken by my Henry (health read back)
+--                 KCDUS|NPCHITSKIP|<name>|<seq>|<why>          a friend's blow that did not reach me (out of reach, behind, dead, ...)
+-- agent -> game:  NPCHITIN|<scope>|<from>|<name>|<seq>|<health>   a friend's blow (the agent checked it came from the NPC's owner)
 local K = KCDUS
 System.LogAlways("KCDUS|LOAD|npcs")
-local N = { enabled = false, scope = '', me = '', own = {}, puppets = {}, last = {}, reach = 40, maxNear = 24, ownTtl = 3, staleS = 4, snapM = 6, taken = 0, released = 0 }
+local N = { enabled = false, scope = '', me = '', own = {}, puppets = {}, last = {}, reach = 40, maxNear = 24, ownTtl = 3, staleS = 4, snapM = 6, taken = 0, released = 0,
+    hitReach = 2.8, hitArc = 75, hitMax = 60, hitSeq = 0, hits = 0, hitsApplied = 0, attackAt = {}, hitAt = {}, hitSeen = {}, damageMirror = true }
 K.Npcs = N
 
 local function validName(n) return type(n) == 'string' and #n >= 3 and #n <= 80 and not string.find(n, '[^%w_%.%-]') and not string.find(n, 'kcdus_', 1, true) end
@@ -165,9 +176,74 @@ function N.near()
     K.out('NPCNEAR', table.concat(parts, ';'))
 end
 
+-- ---------------------------------------------------------------- the damage mirror
+local function hypot(a, b) return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) end
+-- the owner's side: my health fell while an NPC I own was attacking and engaged on me, close by
+function N.watchHealth(now)
+    local ok, hp = pcall(function() return player.soul:GetState('health') end)
+    if not ok or type(hp) ~= 'number' or hp ~= hp then return end
+    local prev = N.lastHp
+    N.lastHp = hp
+    if not N.damageMirror or not prev or hp >= prev - 0.4 then return end
+    local pp = player:GetWorldPos()
+    local best, bestD
+    for name, at in pairs(N.attackAt) do
+        local o = N.own[name]
+        if o and o.owner == N.me and now - at <= 1.2 and now - (N.hitAt[name] or -9) >= 0.4 then
+            local e = System.GetEntityByName(name)
+            if e and living(e) then
+                local d = hypot(pp, e:GetWorldPos())
+                if d <= 4 and (not bestD or d < bestD) then best, bestD = name, d end
+            end
+        end
+    end
+    if best then
+        N.hitAt[best] = now
+        N.hitSeq = N.hitSeq + 1
+        N.hits = N.hits + 1
+        K.out('NPCHIT', best, N.hitSeq, string.format('%.1f', math.min(prev - hp, N.hitMax)))
+    end
+end
+
+-- the other side: a friend's NPC's blow, if my Henry stands where the swing would have reached
+function N.takeRemoteHit(from, name, seq, hp)
+    local now = K.now()
+    local o, p = N.own[name], N.puppets[name]
+    local function skip(why) K.out('NPCHITSKIP', name, seq, why) end
+    if not N.damageMirror then return skip('off') end
+    if not (o and o.owner == from and p and now - p.at <= N.staleS) then return skip('no-puppet') end
+    local key = from .. ':' .. name
+    if (N.hitSeen[key] or 0) >= seq then return end                          -- once per blow, even if the puppet was released and taken again meanwhile
+    N.hitSeen[key] = seq
+    local e = System.GetEntityByName(name)
+    if not e or e.id ~= p.id or isDead(e) then return skip('npc-gone') end
+    if isDead(player) or not K.inWorldRaw() then return skip('henry-unavailable') end
+    local q, pp = e:GetWorldPos(), player:GetWorldPos()
+    local dx, dy = pp.x - q.x, pp.y - q.y
+    local d = math.sqrt(dx * dx + dy * dy)
+    if d > N.hitReach or math.abs(pp.z - q.z) > 1.6 then return skip('out-of-reach') end
+    if d > 0.3 then
+        local yaw = p.yaw or 0
+        local fx, fy = -math.sin(yaw), math.cos(yaw)                       -- the engine's forward at yaw 0 is +y, counter-clockwise
+        local cos = (dx * fx + dy * fy) / d
+        if cos < math.cos(math.rad(N.hitArc)) then return skip('behind') end
+    end
+    local okB, before = pcall(function() return player.soul:GetState('health') end)
+    if not okB or type(before) ~= 'number' then return skip('no-health') end
+    local attacker = nil
+    pcall(function() attacker = e.soul:GetId() end)
+    local ok = pcall(function() player.soul:DealDamage(0, hp, attacker, true) end)
+    local okA, after = pcall(function() return player.soul:GetState('health') end)
+    after = okA and type(after) == 'number' and after or before
+    N.lastHp = after                                                         -- my own health watch must not report this as a blow of mine
+    N.hitsApplied = N.hitsApplied + 1
+    K.out('NPCHITAPPLIED', name, seq, string.format('%.1f', hp), string.format('%.1f', before - after), ok and 1 or 0)
+end
+
 function N.report()
     if not N.enabled or not K.inWorldRaw() then return end
     local now = K.now()
+    N.watchHealth(now)
     local parts = {}
     for name, o in pairs(N.own) do
         if o.owner == N.me and now - o.at <= N.ownTtl then
@@ -188,6 +264,7 @@ function N.report()
                     row[9] = tostring(math.max(0, math.min(64, s.mode or 0)))
                     row[10] = s.active == 1 and '1' or '0'
                     row[11] = (s.active == 1 and s.target == N.myEntity()) and '1' or '0'
+                    if s.mode == 4 and s.active == 1 and row[11] == '1' then N.attackAt[name] = now end
                 end
                 parts[#parts + 1] = table.concat(row, ',')
                 if #parts == 12 then K.out('NPCST', table.concat(parts, ';')); parts = {} end
@@ -202,6 +279,7 @@ K.handlers['NPCMODE'] = function(f)
     local on = f[2] == '1'
     if not on then
         if N.enabled then N.releaseAll('mode-off') end
+        N.lastHp, N.attackAt, N.hitAt, N.hitSeen = nil, {}, {}, {}
         N.enabled, N.own = false, {}
         return
     end
@@ -245,6 +323,15 @@ K.handlers['NPCSET'] = function(f)
         end
     end
 end
+
+local function hitCounter(t) local n = tonumber(t); return n and n >= 1 and n < 1e12 and n == math.floor(n) and n or nil end
+K.handlers['NPCHITIN'] = function(f)
+    if not N.enabled or f[2] ~= N.scope or N.scope == '' or f[3] == N.me then return end
+    local name, seq, hp = f[4], hitCounter(f[5]), tonumber(f[6])
+    if not validName(name) or not seq or not hp or hp ~= hp or hp < 0.5 or hp > N.hitMax then return end
+    N.takeRemoteHit(f[3], name, seq, hp)
+end
+K.handlers['NPCDMGMIRROR'] = function(f) N.damageMirror = f[2] ~= '0' end
 
 K.every(0.1, 'npc-drive', function() K.try('npc-drive', N.drive) end)
 K.every(0.2, 'npc-report', function() K.try('npc-report', N.report) end)
@@ -305,5 +392,6 @@ K.handlers.NPCMODE=function(f)
     legacyMode(f)
 end
 function N.onWorldReset()
+    N.lastHp=nil; N.attackAt={}; N.hitAt={}; N.hitSeen={}
     N.puppets={}; N.own={}; N.last={}; N.authority=nil; N.ownerRevision=0; N.samples={}; N.retired={}
 end

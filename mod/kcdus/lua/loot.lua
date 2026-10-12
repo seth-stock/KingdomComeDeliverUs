@@ -203,9 +203,20 @@ local function rebaseline(e)
     if counts then L.snap[snapKey(e, kind, id)] = { id = id, counts = counts, hp = hp, kind = kind, pos = e:GetWorldPos() } end
 end
 
+-- Session 10: the economy audit ledger's events (agent EconomyLedger): KCDUS|ECON|<kind>|<class>|<delta>|<world time>[|<ref>] where delta is the change of THIS
+-- pack. Kinds: 1 take, 2 put, 3 barter-buy, 4 barter-sell, 5 loss, 6 gain. Observation only; nothing is moved.
+L.econCount = 0
+local function econ(kind, class, delta, ref)
+    if not validClass(class) or type(delta) ~= 'number' or delta == 0 or delta ~= delta then return end
+    L.econCount = L.econCount + 1
+    if type(ref) == 'string' and validId(ref) then K.out('ECON', kind, class, math.floor(delta), string.format('%.0f', L.worldTime()), ref)
+    else K.out('ECON', kind, class, math.floor(delta), string.format('%.0f', L.worldTime())) end
+end
+
 L.gainLog = {}
 local function took(id, class, n, hp, price)
     L.taken = L.taken + 1
+    if price and price > 0 then econ(3, class, n, id); econ(3, L.MONEY, -price, id) else econ(1, class, n, id) end
     local now = K.now()
     L.gainLog[#L.gainLog + 1] = { class = class, n = n, at = now }            -- rewards.lua: a take is never mistaken for a quest's reward
     while #L.gainLog > 0 and now - L.gainLog[1].at > 120 do table.remove(L.gainLog, 1) end
@@ -258,7 +269,7 @@ function L.scan()
                             if g > 0 and validClass(class) then
                                 gained[class] = gained[class] - g
                                 local price = 0
-                                if kind == 'shop' and class ~= L.MONEY then price = spent; spent = 0 end
+                                if kind == 'shop' and class ~= L.MONEY then price = spent; spent = 0; lost[L.MONEY] = math.max(0, (lost[L.MONEY] or 0) - price) end
                                 took(id, class, g, prev.hp[class] or 1, price)
                             end
                         end
@@ -269,6 +280,8 @@ function L.scan()
                                 lost[class] = lost[class] - p
                                 L.put = L.put + 1
                                 K.out('LOOT', 'put', id, class, p, fmt(hp[class] or 1))
+                                econ(kind == 'shop' and 4 or 2, class, -p, id)
+                                if kind == 'shop' and class ~= L.MONEY and (gained[L.MONEY] or 0) > 0 then econ(4, L.MONEY, gained[L.MONEY], id); gained[L.MONEY] = 0 end
                             end
                         end
                     elseif kind == 'ground' and not L.spawned[tostring(e.id)] and dist(pp, e:GetWorldPos()) <= L.dropReach then
@@ -278,6 +291,7 @@ function L.scan()
                                 lost[class] = lost[class] - p
                                 L.dropped = L.dropped + 1
                                 K.out('LOOT', 'drop', id, class, p, fmt(hp[class] or 1))
+                                econ(2, class, -p, id)
                             end
                         end
                     end
@@ -298,6 +312,9 @@ function L.scan()
             L.snap[key] = nil                                                               -- out of reach (or gone): a re-approach starts from what is there
         end
     end
+    -- what is left changed the pack with no holder on the other side: used up, dropped out of reach, found, crafted, paid out, a quest's reward
+    for class, n in pairs(lost) do if n > 0 then econ(5, class, -n) end end
+    for class, n in pairs(gained) do if n > 0 then econ(6, class, n) end end
     L.pc = pc
 end
 
