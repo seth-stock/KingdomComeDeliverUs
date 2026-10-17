@@ -30,16 +30,32 @@ public sealed class SaveStore
         if (OperatingSystem.IsWindows())
         {
             string p = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "kingdomcome", "saves");
-            return Directory.Exists(p) ? p : null;
+            return Existing(p);
         }
         // <library>/steamapps/common/KingdomComeDeliverance  ->  <library>/steamapps/compatdata/379430/pfx/drive_c/users/steamuser/Saved Games/kingdomcome/saves
         if (steamLibraryOfGame is { Length: > 0 })
         {
             var steamapps = System.IO.Path.GetFullPath(System.IO.Path.Combine(steamLibraryOfGame, "..", ".."));
             string p = System.IO.Path.Combine(steamapps, "compatdata", GameLocator.SteamAppId, "pfx", "drive_c", "users", "steamuser", "Saved Games", "kingdomcome", "saves");
-            if (Directory.Exists(p)) return p;
+            if (Existing(p) is { } found) return found;
         }
         return null;
+    }
+
+    /// <summary>
+    /// The saves folder, created when the game's own user folder exists but has no saves yet: the game makes "saves" only at its first save, so a
+    /// player who never saved (a fresh Proton prefix, found with a Linux player) had shared worlds switched off and could not even RECEIVE a world.
+    /// The folder is created only inside the game's existing user folder (Windows: Saved Games\kingdomcome; Proton: the prefix's steamuser profile).
+    /// </summary>
+    public static string? Existing(string saves)
+    {
+        if (Directory.Exists(saves)) return saves;
+        var user = System.IO.Path.GetDirectoryName(saves);            // ...\kingdomcome
+        var profile = user is null ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(user)!);   // the user profile ("steamuser" / the Windows profile)
+        if (user is null || profile is null || !Directory.Exists(profile)) return null;
+        if (!Directory.Exists(user) && !Directory.Exists(System.IO.Path.GetDirectoryName(user)!)) return null;   // no "Saved Games" either: not this game's prefix yet
+        try { Directory.CreateDirectory(saves); return saves; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     public static string DefaultBackupRoot() =>
