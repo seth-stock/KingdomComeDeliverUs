@@ -175,6 +175,9 @@ public sealed class Session : IDisposable
         _economy = o.Economy ?? new EconomyLedger();
         _game.Line += OnGameLine;
         _game.ConsoleStateChanged += OnConsole;
+        // Host / Join / Leave make a NEW session while the game's console is already connected: ask the mod again, or this session never
+        // learns the game is there and says "the co-op mod did not answer" forever (found by a player: the mod was answering every ping).
+        if (_game.ConsoleConnected) _game.Send("HELLO?");
         _relay.Frame += OnRelayFrame;
         _relay.ConnectionChanged += OnRelayConnection;
     }
@@ -249,6 +252,10 @@ public sealed class Session : IDisposable
                     _log($"game mod {_gameModVersion} (protocol {(f.Length > 2 ? f[2] : "?")})");
                     if (!Release.Same(_gameModVersion, _o.GameVersion) && _gameModVersion.Length > 0)
                         _log($"WARNING: the game's mod is {_gameModVersion} and this agent is {_o.GameVersion}: reinstall");
+                    break;
+
+                case "PONG" when !_gameKnown:
+                    _game.Send("HELLO?");                                            // the mod answers our pings: ask who it is
                     break;
 
                 case "READY":

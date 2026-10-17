@@ -138,18 +138,21 @@ public sealed class MainForm : Form
             : host ? "Tell your friends: " + string.Join("  or  ", MyAddresses()) : "Ask your host for their address and port.";
     }
 
-    /// <summary>The addresses a friend could use: a Tailscale 100.x address first, then the LAN ones. Never "localhost".</summary>
+    /// <summary>The addresses a friend could use: the Tailscale adapter's address first (marked), then the others. Never "localhost".</summary>
     private static List<string> MyAddresses()
     {
-        var all = new List<string>();
+        var all = new List<(string Ip, bool Tailscale)>();
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (ni.OperationalStatus != OperationalStatus.Up || ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            // a 100.x address is Tailscale only on Tailscale's own adapter: some internet providers (carrier-grade NAT) hand the Wi-Fi a 100.64.x
+            // address too, which a friend cannot reach (found on a player's PC)
+            bool tailscale = ni.Name.Contains("Tailscale", StringComparison.OrdinalIgnoreCase) || ni.Description.Contains("Tailscale", StringComparison.OrdinalIgnoreCase);
             foreach (var ua in ni.GetIPProperties().UnicastAddresses)
                 if (ua.Address.AddressFamily == AddressFamily.InterNetwork && !ua.Address.ToString().StartsWith("169.254"))
-                    all.Add(ua.Address.ToString());
+                    all.Add((ua.Address.ToString(), tailscale));
         }
-        var ordered = all.OrderBy(a => a.StartsWith("100.") ? 0 : 1).Take(3).Select(a => a + ":" + Proto.DefaultPort).ToList();
+        var ordered = all.OrderBy(a => a.Tailscale ? 0 : 1).Take(3).Select(a => a.Ip + ":" + Proto.DefaultPort + (a.Tailscale ? " (Tailscale)" : "")).ToList();
         if (ordered.Count == 0) ordered.Add("(no network found)");
         return ordered;
     }

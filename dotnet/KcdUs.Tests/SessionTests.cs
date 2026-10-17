@@ -457,6 +457,31 @@ public class SessionTests
     }
 }
 
+public class NewSessionHelloTests
+{
+    [Fact]
+    public void A_session_made_while_the_console_is_already_connected_asks_the_mod_and_learns_it_is_there()
+    {
+        // Host / Join make a new session on a game that is already running: it must not report "the co-op mod did not answer" forever.
+        var game = new FakeGame { ConsoleConnected = true };
+        var s = new Session(new SessionOptions { GameVersion = "0.1.0" }, game, new RelayClient(new RelayEndpoint { Port = 1 }), () => 0, _ => { });
+        Assert.Contains(game.Snapshot(), r => r.StartsWith("HELLO?"));
+        Assert.False(s.GetStatus().GameKnown);
+        game.Emit("KCDUS|HELLO|0.1.0|4|pak");
+        Assert.True(s.GetStatus().GameKnown);
+    }
+
+    [Fact]
+    public void A_pong_from_a_mod_this_session_has_not_met_makes_it_ask_who_it_is()
+    {
+        var game = new FakeGame { ConsoleConnected = false };
+        var s = new Session(new SessionOptions { GameVersion = "0.1.0" }, game, new RelayClient(new RelayEndpoint { Port = 1 }), () => 0, _ => { });
+        game.Clear();
+        game.Emit("KCDUS|PONG|3|1");
+        Assert.Contains(game.Snapshot(), r => r.StartsWith("HELLO?"));
+    }
+}
+
 public class TimeSyncTests
 {
     [Fact]
