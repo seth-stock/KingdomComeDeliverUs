@@ -88,6 +88,9 @@ public static class MenuUi
 
     /// <summary>One page of buttons with a Back button. Pressing an action button runs its Lua; a page button opens that page and the page is rebuilt when it closes.</summary>
     public static string Page(string title, IReadOnlyList<Button> buttons, string? onOpen = null)
+        => PageCore(title, buttons, onOpen ?? "KCDUS_PageOpened('sub')");
+
+    private static string PageCore(string title, IReadOnlyList<Button> buttons, string onOpen)
     {
         var g = new Graph();
         int start = g.Add("UI:Action:Start", ("UseAsState", "1"));
@@ -97,9 +100,8 @@ public static class MenuUi
         g.Wire(start, "StartAction", clear, "Call");
         g.Wire(clear, "OnCall", container, "Call");
         g.Wire(clear, "OnCall", head, "Call");
-        if (onOpen is not null)
         {
-            // the page tells the agent it opened, and the agent answers with the status line for the title (MP_SetTitle)
+            // the page says it opened (the main page tells the agent, which answers with the status line for the title)
             int opened = g.Add("System:ExecuteScript", ("Script", onOpen));
             g.Wire(clear, "OnCall", opened, "Call");
         }
@@ -127,6 +129,8 @@ public static class MenuUi
         int backEv = g.Add("UI:Events:MainMenu:OnButton", ("instanceID", "-1"), ("Port", "0"), ("Idx", "IDD_Back"));
         int end = g.Add("UI:Action:End", ("UseAsState", "1"), ("Args", ""));
         g.Wire(backEv, "onEvent", end, "EndAction");
+        int closed = g.Add("System:ExecuteScript", ("Script", "KCDUS_PageClosed()"));
+        g.Wire(backEv, "onEvent", closed, "Call");
         return g.ToString();
     }
 
@@ -138,6 +142,24 @@ public static class MenuUi
     public const string PageWorld = "MP_World";
     public const string PageHenry = "MP_Henry";
     public const string PageResolve = "MP_Resolve";
+    public const string PageMore = "MP_More";
+    /// <summary>The graph that puts any text into the title box: Lua starts it with the text as its one argument (the Start node's Args port, as the game's help screen does).</summary>
+    public const string GraphText = ActionsDir + "MP_Text.xml";
+    /// <summary>A box with the text it is started with and OK (the game's own confirmation box, AddConfirmation, as its Quit question).</summary>
+    public const string GraphMsg = ActionsDir + "MP_Msg.xml";
+    /// <summary>The box shows about six lines (~250 characters, seen in the game); a longer text is cut.</summary>
+    public const int BoxMax = 250;
+
+    /// <summary>A line for MP_Text: what the console and the record format cannot carry is replaced, and it is kept to what the title box shows.</summary>
+    public static string TitleLineText(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text) sb.Append(c is '|' or '~' or '"' or '\\' or '^' or ';' or < ' ' ? ' ' : c);
+        string t = sb.ToString().Trim();
+        return t.Length <= TitleMax ? t : t[..(TitleMax - 3)].TrimEnd() + "...";
+    }
+    /// <summary>The title box shows one line of about 40 characters (seen in the game at 1280x720); a longer line is cut.</summary>
+    public const int TitleMax = 44;
     /// <summary>The line under the page's heading. A flow-graph global holds only a number (a string comes back as 0), so the agent sends a code
     /// and each code has a graph of its own with the text written in: MP_Title0 ... (menu.lua's MENUTEXT starts <c>MP_Title&lt;code&gt;</c>).</summary>
     public enum Title { Idle = 0, Hosting = 1, Joining = 2, Joined = 3, Refused = 4, NeedAddress = 5, Settings = 6, StoryAsk = 7, StoryJoin = 8, StoryFree = 9, KeysDefault = 10, KeysAlt = 11, KeysOff = 12, PortBusy = 13,
@@ -146,36 +168,36 @@ public static class MenuUi
 
     public static string TitleText(Title t) => t switch
     {
-        Title.Idle => "Multiplayer: not in a session",
-        Title.Hosting => "Multiplayer: hosting a game",
-        Title.Joining => "Multiplayer: reaching the host...",
-        Title.Joined => "Multiplayer: joined the host",
-        Title.Refused => "Multiplayer: the host refused you",
-        Title.NeedAddress => "Enter the host's address in the browser settings first",
+        Title.Idle => "Not in a session",
+        Title.Hosting => "Hosting a game",
+        Title.Joining => "Connecting to the host...",
+        Title.Joined => "Connected to the host",
+        Title.Refused => "The host refused you",
+        Title.NeedAddress => "First set the host's address (Settings)",
         Title.Settings => "Settings: opened in your browser",
         Title.StoryAsk => "Story: you are asked each time",
         Title.StoryJoin => "Story: you always join the host",
-        Title.StoryFree => "Story: you always stay in the open world",
+        Title.StoryFree => "Story: you always stay free",
         Title.KeysDefault => "Keys: join F11, stay F12",
         Title.KeysAlt => "Keys: join F9, stay F10",
-        Title.KeysOff => "Keys: none (answer from the menu)",
-        Title.PortBusy => "That port is in use: change it in the browser settings",
-        Title.NoWorld => "No shared world yet: join the host's, or start a new one",
-        Title.WorldAsked => "Asking the host for their world...",
-        Title.WorldReceiving => "Receiving the host's world...",
-        Title.WorldLoading => "Loading the shared world...",
-        Title.WorldSaved => "World saved for everyone",
-        Title.WorldNew => "New world: start a New Game now, and your friend does too",
-        Title.HenryHost => "Henry: you play the host's Henry",
-        Title.HenryMine => "Henry: your own Henry goes into the world",
-        Title.ResolveFurthest => "On reconnect: the further-played world wins",
-        Title.ResolveHost => "On reconnect: the host's world wins",
-        Title.ResolveNewest => "On reconnect: the newest save wins",
-        Title.NeedHost => "Join a host first (Join a game)",
+        Title.KeysOff => "Keys: none (answer in the menu)",
+        Title.PortBusy => "Port in use: change it in Settings",
+        Title.NoWorld => "No shared game here yet",
+        Title.WorldAsked => "Asking the host for the game...",
+        Title.WorldReceiving => "Receiving the host's game...",
+        Title.WorldLoading => "Loading the shared game...",
+        Title.WorldSaved => "Saved",
+        Title.WorldNew => "Host: start a New Game",
+        Title.HenryHost => "Join: host's Henry, then your own",
+        Title.HenryMine => "Join brings your own Henry",
+        Title.ResolveFurthest => "The host's game is the one played",
+        Title.ResolveHost => "The host's game is the one played",
+        Title.ResolveNewest => "The host's game is the one played",
+        Title.NeedHost => "Join a host first",
         Title.HenryHome => "Your Henry is going home",
-        Title.InSync => "Your world matches the host's",
-        Title.WorldBusy => "A world transfer is already running",
-        Title.WorldSent => "Sending your world to your friend...",
+        Title.InSync => "Your copy matches the host's",
+        Title.WorldBusy => "Busy: wait a moment",
+        Title.WorldSent => "Sending your game...",
         _ => "Multiplayer",
     };
 
@@ -191,43 +213,32 @@ public static class MenuUi
     {
         [ActionsDir + PageMain + ".xml"] = Page("Multiplayer", new Button[]
         {
-            new("MP_Status", "Status", Menu("status"), Tooltip: "Who is connected, and what the mod sees"),
-            new("MP_Host", "Host a game", Menu("host"), Tooltip: "Start a session others can join (set the name and port in the browser settings)"),
-            new("MP_Join", "Join a game", Menu("join"), Tooltip: "Join the host saved in your settings"),
-            new("MP_Leave", "Leave the session", Menu("leave")),
-            new("MP_WorldPage", "Game world", Opens: PageWorld, Tooltip: "Join the host's world, start a new one together, which Henry you play, and how the two copies are reconciled"),
-            new("MP_StoryPage", "Story: join or stay", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails"),
-            new("MP_KeysPage", "Keys", Opens: PageKeys, Tooltip: "The keys that answer the host's question"),
-            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether the pause menu pauses: your own, and a friend's"),
-            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether enemies (where they go, whom they fight, their health) and items (bodies, chests, the ground, saddlebags, shops, quest rewards) are shared with friends in your world"),
-            new("MP_Web", "Settings in your browser", Menu("settings"), Tooltip: "Name, address, password, ports and the rest"),
+            new("MP_Host", "Host: share my game", Menu("host"), Tooltip: "Load your game or start a New Game (before or after pressing this). Friends who press Join get your game and play in it with you"),
+            new("MP_Join", "Join my friend's game", Menu("join"), Tooltip: "Connects to the host in your settings, gets the game they are playing and loads it. The first time you play a copy of their Henry; after that your own Henry from last time"),
+            new("MP_JoinMine", "Join with my own Henry", Menu("joinmine"), Tooltip: "Load your own game first: the Henry in it (stats, skills, perks, inventory) goes into the host's game"),
+            new("MP_Save", "Save now", Menu("save"), Tooltip: "Saves your game. The host's game, as it is when a friend presses Join, is what that friend gets"),
+            new("MP_Leave", "Leave the session", Menu("leave"), Tooltip: "Disconnect. Your game goes on alone"),
+            new("MP_Web", "Settings: host address, name", Menu("settings"), Tooltip: "Opens in your browser: the host's address (for Join), your name, password, ports"),
+            new("MP_MorePage", "More options", Opens: PageMore, Tooltip: "How to play together, who is here, story, pausing, shared fights and loot, your Henry's way home"),
         }, onOpen: Menu("page")),
-        [ActionsDir + PageWorld + ".xml"] = Page("Game world", new Button[]
+        [ActionsDir + PageMore + ".xml"] = Page("More options", new Button[]
         {
-            new("MP_WorldPlay", "Play my shared world", Menu("world", "play"), Tooltip: "Load your own copy of the shared world and play it, alone or with friends"),
-            new("MP_WorldJoin", "Join the host's world", Menu("world", "join"), Tooltip: "Get the host's world (even one with hundreds of hours) and load it"),
-            new("MP_WorldNew", "Start a new world together", Menu("world", "new"), Tooltip: "Both of you start a New Game, with new characters"),
-            new("MP_WorldSave", "Save the world for everyone", Menu("world", "save"), Tooltip: "Save now and send the save to the friends who are connected"),
-            new("MP_HenryPage", "Which Henry", Opens: PageHenry, Tooltip: "The host's Henry, or your own Henry from another world"),
-            new("MP_ResolvePage", "When we reconnect", Opens: PageResolve, Tooltip: "Which copy of the world goes on when two copies have been played apart"),
-            new("MP_HenryHome", "Send my Henry home", Menu("henry", "home"), Tooltip: "Back into your own world, with what he gained here"),
+            new("MP_Help", "How to play together", Menu("help"), Tooltip: "The steps, for the host and the friend"),
+            new("MP_Status", "Who is here", Menu("status"), Tooltip: "Who is connected, and what the mod is doing"),
+            new("MP_WorldPlay", "Load my copy of the shared game", Menu("world", "play"), Tooltip: "Load your own copy of the last shared game, to play it alone"),
+            new("MP_HenryHome", "Send my Henry home", Menu("henry", "home"), Tooltip: "Back into the game you played before joining, with what he gained here"),
+            new("MP_StoryPage", "Story and keys", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails, and the keys that answer"),
+            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether the pause menu pauses: your own, and a friend's"),
+            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether enemies (where they go, whom they fight, their health) and items are shared with friends in the same game"),
         }),
-        [ActionsDir + PageHenry + ".xml"] = Page("Which Henry", new Button[]
+        [ActionsDir + PageStory + ".xml"] = Page("Story and keys", new Button[]
         {
-            new("MP_HenryHost", "The host's Henry (as he is)", Menu("henry", "host"), Tooltip: "You play a copy of the host's character"),
-            new("MP_HenryMine", "My own Henry", Menu("henry", "mine"), Tooltip: "Save your Henry first. His native stats, skills, perk records, resources and inventory replace the world's Henry. Active world-linked state or conflicting item ownership stops the transfer"),
-        }),
-        [ActionsDir + PageResolve + ".xml"] = Page("When we reconnect", new Button[]
-        {
-            new("MP_ResFar", "The further-played world wins", Menu("resolve", "furthest"), Tooltip: "The copy with more hours of play replaces the other; the other is kept as a backup"),
-            new("MP_ResHost", "The host's world wins", Menu("resolve", "host")),
-            new("MP_ResNew", "The newest save wins", Menu("resolve", "newest")),
-        }),
-        [ActionsDir + PageStory + ".xml"] = Page("Story", new Button[]
-        {
-            new("MP_StoryAsk", "Ask me each time", Menu("pref", "ask")),
+            new("MP_StoryAsk", "Ask me each time", Menu("pref", "ask"), Tooltip: "When the host's story goes on rails you are asked: join them, or stay in the open world"),
             new("MP_StoryJoin", "Always join the host", Menu("pref", "join")),
             new("MP_StoryFree", "Always stay in the open world", Menu("pref", "free")),
+            new("MP_KeysDefault", "Answer keys: F11 join, F12 stay", Menu("keys", "f11f12")),
+            new("MP_KeysAlt", "Answer keys: F9 join, F10 stay", Menu("keys", "f9f10")),
+            new("MP_KeysOff", "No answer keys", Menu("keys", "off"), Tooltip: "Answer from this menu or the console"),
         }),
         [ActionsDir + PageShared + ".xml"] = Page("Shared fights and loot", new Button[]
         {
@@ -239,16 +250,41 @@ public static class MenuUi
             new("MP_PauseShared", "Shared: any player's pause menu pauses everyone", Menu("pause", "shared"), Tooltip: "Your menu pauses your game as usual; while a friend's pause menu is open your game is held too, and lets go by itself if they vanish"),
             new("MP_PauseOff", "Off: the pause menu pauses nobody", Menu("pause", "off"), Tooltip: "With a friend in the world your own pause menu opens without pausing your game (needs the launcher's engine adapter), your inventory does not slow time, and a friend's menu never holds you"),
         }),
-        [ActionsDir + PageKeys + ".xml"] = Page("Keys", new Button[]
-        {
-            new("MP_KeysDefault", "Join: F11  Stay: F12 (default)", Menu("keys", "f11f12")),
-            new("MP_KeysAlt", "Join: F9  Stay: F10", Menu("keys", "f9f10")),
-            new("MP_KeysOff", "No keys (use the menu or the console)", Menu("keys", "off")),
-        }),
         [GraphLoad] = LoadGraph(),
+        [GraphText] = TextGraph(),
+        [GraphMsg] = DialogGraph("MP_MSG", "OK", "", null),
         [GraphList] = ListGraph(),
         [GraphMenuWatch] = MenuWatchGraph(),
     }.Concat(Enum.GetValues<Title>().Select(t => new KeyValuePair<string, string>(TitleGraphName(t), TitleGraph(t)))).ToDictionary(kv => kv.Key, kv => kv.Value);
+
+    /// <summary>Puts the text it is started with into the open page's title box: <c>UIAction.StartAction('MP_Text', {text})</c>.</summary>
+    private static string TextGraph()
+    {
+        var g = new Graph();
+        int start = g.Add("UI:Action:Start", ("UseAsState", "0"));
+        int head = g.Add("UI:Functions:MainMenu:SetTitleBox", ("instanceID", "-1"), ("header", ""));
+        g.Wire(start, "Args", head, "header");
+        g.Wire(start, "StartAction", head, "Call");   // no End node (see TitleGraph)
+        return g.ToString();
+    }
+
+    /// <summary>The game's confirmation box (AddConfirmation, the node of its own Quit question) with the text the action is started with.</summary>
+    private static string DialogGraph(string id, string answer0, string answer1, string? onYes)
+    {
+        var g = new Graph();
+        int start = g.Add("UI:Action:Start", ("UseAsState", "0"));
+        int box = g.Add("UI:Functions:MainMenu:AddConfirmation", ("instanceID", "-1"), ("confirmationId", id), ("uiQuestion", ""), ("uiAnswer0", answer0), ("uiAnswer1", answer1),
+            ("defaultSelect0", "1"), ("tooltip0", ""), ("tooltip1", ""), ("actionBackOnAnswer", "0"), ("sound0", ""), ("sound1", ""));
+        g.Wire(start, "Args", box, "uiQuestion");
+        g.Wire(start, "StartAction", box, "Call");
+        if (onYes is not null)
+        {
+            int yes = g.Add("UI:Events:MainMenu:OnConfirm", ("instanceID", "-1"), ("Port", "0"), ("Idx", id));
+            int run = g.Add("System:ExecuteScript", ("Script", onYes));
+            g.Wire(yes, "onEvent", run, "Call");
+        }
+        return g.ToString();   // no End node (see TitleGraph)
+    }
 
     /// <summary>Puts one fixed line into the open page's title box.</summary>
     private static string TitleGraph(Title t)
@@ -360,7 +396,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 8;
+    public const int Revision = 12;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 

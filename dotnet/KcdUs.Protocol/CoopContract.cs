@@ -213,6 +213,18 @@ public static class DlcLog
         @"^\[(?<id>\d+) (?<name>[A-Za-z0-9_]+)\]\s.*active: (?<active>[YN])(?:, free: (?<free>[YN]))?, save: (?<save>[YN])",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>The name a player knows a DLC by (the store's), for the game's internal one in kcd.log.</summary>
+    public static string Friendly(string name) => name switch
+    {
+        "TreasuresOfThePast" => "Treasures of the Past",
+        "NewHomes" => "From the Ashes",
+        "StoryDLC" => "The Amorous Adventures of Bold Sir Hans Capon",
+        "ExpeditionaryRides" => "Band of Bastards",
+        "TheresaAndDog" => "A Woman's Lot",
+        _ => name,
+    };
+    public static string Friendly(IEnumerable<string> names) => string.Join(", ", names.Select(Friendly));
+
     /// <summary>The names of the DLC that are active and affect saves, from the LAST "DLC list:" block of the log; null when the log has no such block (the game has not started far enough).</summary>
     public static IReadOnlyList<string>? ActiveSaveAffecting(IEnumerable<string> lines)
     {

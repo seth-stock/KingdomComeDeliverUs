@@ -89,21 +89,20 @@ public class MenuUiTests
         var pages = MenuUi.Pages();
         var scripts = pages.Values.SelectMany(x => Parse(x).Descendants("Node"))
             .Where(n => (string)n.Attribute("Class")! == "System:ExecuteScript").Select(n => (string)n.Element("Inputs")!.Attribute("Script")!).ToList();
-        foreach (var verb in new[] { "page", "status", "host", "join", "leave", "settings" })
+        foreach (var verb in new[] { "page", "status", "host", "join", "joinmine", "save", "leave", "settings", "help" })
             Assert.Contains($"KCDUS_Menu('{verb}','')", scripts);
         foreach (var arg in new[] { "ask", "join", "free" }) Assert.Contains($"KCDUS_Menu('pref','{arg}')", scripts);
+        foreach (var (name, xml) in pages.Where(kv => kv.Key.Contains("/MP_") || kv.Key.Contains("/MM_Multiplayer")))
+            if (Parse(xml).Descendants("Node").Count(n => (string)n.Attribute("Class")! == "UI:Functions:MainMenu:AddButton" && (string)n.Element("Inputs")!.Attribute("containerIndex")! == "0") is var c && c > 0)
+                Assert.True(c <= 7, $"{name} has {c} buttons: an 8th is drawn under Back");
         foreach (var arg in new[] { "f11f12", "f9f10", "off" }) Assert.Contains($"KCDUS_Menu('keys','{arg}')", scripts);
-        foreach (var arg in new[] { "play", "join", "new", "save" }) Assert.Contains($"KCDUS_Menu('world','{arg}')", scripts);
-        foreach (var arg in new[] { "host", "mine", "home" }) Assert.Contains($"KCDUS_Menu('henry','{arg}')", scripts);
-        foreach (var arg in new[] { "furthest", "host", "newest" }) Assert.Contains($"KCDUS_Menu('resolve','{arg}')", scripts);
+        Assert.Contains("KCDUS_Menu('world','play')", scripts);
+        Assert.Contains("KCDUS_Menu('henry','home')", scripts);
 
         var opened = pages.Values.SelectMany(x => Parse(x).Descendants("Node")).Where(n => (string)n.Attribute("Class")! == "UI:Action:Control")
             .Select(n => (string)n.Element("Inputs")!.Attribute("uiActions_UIAction")!).ToList();
         Assert.Contains(MenuUi.PageStory, opened);
-        Assert.Contains(MenuUi.PageKeys, opened);
-        Assert.Contains(MenuUi.PageWorld, opened);
-        Assert.Contains(MenuUi.PageHenry, opened);
-        Assert.Contains(MenuUi.PageResolve, opened);
+        Assert.Contains(MenuUi.PageMore, opened);
         foreach (var o in opened) Assert.True(pages.ContainsKey(MenuUi.ActionsDir + o + ".xml"), o);
     }
 
@@ -215,6 +214,21 @@ public class MenuUiTests
             Assert.Equal(MenuUi.TitleText(t), (string)head.Element("Inputs")!.Attribute("header")!);
             Assert.NotEqual("Multiplayer", MenuUi.TitleText(t));
         }
+    }
+
+    [Fact]
+    public void Any_text_reaches_the_title_box_through_the_start_nodes_argument()
+    {
+        // MP_Text: Lua starts it with the words as its one argument; the Start node's Args port feeds the title box (as the game's help screen feeds its page)
+        var g = Parse(MenuUi.Pages()[MenuUi.GraphText]);
+        var nodes = g.Descendants("Node").ToDictionary(n => (string)n.Attribute("Id")!, n => (string)n.Attribute("Class")!);
+        var edges = g.Descendants("Edge").Select(e => (Out: nodes[(string)e.Attribute("nodeOut")!], Port: (string)e.Attribute("portOut")!, In: nodes[(string)e.Attribute("nodeIn")!], InPort: (string)e.Attribute("portIn")!)).ToList();
+        Assert.Contains(("UI:Action:Start", "Args", "UI:Functions:MainMenu:SetTitleBox", "header"), edges);
+        Assert.Contains(("UI:Action:Start", "StartAction", "UI:Functions:MainMenu:SetTitleBox", "Call"), edges);
+        Assert.DoesNotContain(nodes.Values, c => c == "UI:Action:End");
+        Assert.Equal("Hosting a game", MenuUi.TitleLineText("Hosting a game"));
+        Assert.Equal("a b c d", MenuUi.TitleLineText("a|b~c\"d"));
+        Assert.True(MenuUi.TitleLineText(new string('x', 400)).Length <= MenuUi.TitleMax);
     }
 
     [Fact]

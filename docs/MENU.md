@@ -6,20 +6,23 @@ Once the mod is installed, the game's main menu and its pause menu have a **Mult
 nothing has to be typed.
 
 ```
-Multiplayer
-  Status                    what the agent sees (shown on screen in a world; the line above the buttons in a menu)
-  Host a game               start a session others can join
-  Join a game               join the host saved in the settings
+Multiplayer                       (the line under the heading says what is happening: "Waiting for Henry's game", "Receiving: 40% of 6.1 MB", ...)
+  Host: share my game             the host: load your game or start a New Game (before or after pressing this); friends get THAT game
+  Join my friend's game           the friend: connects, gets the game the host is playing now and loads it (asks again by itself until it has it)
+  Join with my own Henry          the same, with the Henry of the game you have loaded (stats, skills, perks, inventory)
+  Save now                        saves your game (the host's save is what a joining friend gets)
   Leave the session
-  Game world                  Play my shared world / Join the host's world / Start a new world together / Save the world for everyone
-                              Which Henry (the world's own / my own)  ·  When we reconnect (further-played / host's / newest)  ·  Send my Henry home
-  Story: join or stay       ask me / always join the host / always stay in the open world   (what to do when the host's story goes on rails)
-  Keys                      join F11 + stay F12 (default) / F9 + F10 / none
-  Settings in your browser  your name, the host's address and password, the port, the world options, the keys
+  Settings: host address, name    your name, the host's address and password, the port (in your browser)
+  More options                    How to play together · Who is here · Load my copy of the shared game · Send my Henry home ·
+                                  Story and keys · Pausing · Shared fights and loot
   Back
 ```
 
-The line at the top of a page tells you what happened ("hosting a game", "joined the host", "receiving the host's world...", "Keys: join F9, stay F10").
+* **New game together:** the host starts a New Game and presses Host; the friend presses Join. The friend waits ("Waiting for Henry's game") and gets the
+  host's new game as soon as it has begun.
+* **Joining a game in progress:** the host loads the game and presses Host; the friend presses Join. The first time the friend plays a copy of the host's
+  Henry; when they join that world again they keep their own Henry from their last save of it.
+* The heading line holds one short line (about 40 characters). Anything longer is a box with OK in the menu, or the centred line in the world.
 
 ## The settings page
 
@@ -45,8 +48,10 @@ the agent put in the link, so a web page you visit cannot change your settings. 
 |---|---|
 | No Multiplayer entry in the menu | Start the agent once (the launcher, or `KcdUsAgent.exe`): it makes the tab if it is missing. Restart the game. Or run `KcdUsAgent.exe --build-ui`. |
 | A button does nothing | The agent is not running. Start it from the launcher (it starts *waiting* and the tab tells it what to do) or `kcdus play` on Linux. |
-| "Enter your host's address in the browser settings first" | *Settings in your browser*, fill in the host's address, save, then *Join a game*. |
-| "All five playlines are in use" | The game has five. Delete a game you do not need on the Load screen, then *Join the host's world* again. |
+| "First set the host's address (Settings)" | *Settings: host address, name*, fill in the host's address, save, then *Join my friend's game*. |
+| "Waiting for Henry's game" | The host is in the main menu: they load a game or start a New Game; the game arrives by itself. |
+| "Missing DLC: cannot join" | The box names the DLC (for example Band of Bastards). Get it on Steam, or the host turns it off in Steam and plays a game without it. |
+| "All five playlines are full" | The box names the playline the mod would use (the one played longest ago; its saves go to the backup folder). Press Join again to say yes, or delete a game on the Load screen. |
 | The game does not start after something was copied into the saves folder | A folder `playline5` or higher stops the game: remove it. |
 
 The same options, for Linux and for the second game, are in [LINUX.md](LINUX.md) and [FEATURE-PARITY.md](FEATURE-PARITY.md).

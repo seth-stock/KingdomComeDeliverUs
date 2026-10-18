@@ -1,5 +1,18 @@
 # Playing together: the guide for the host and for the friends
 
+## How to play (2026-10-17: one button each)
+
+1. Both of you start the game from the Deliver Us launcher (Linux: `./kcdus play`).
+2. **Host:** load your game, or start a New Game, then *Multiplayer > Host: share my game*.
+3. **Friend:** *Multiplayer > Settings: host address, name*: put in the host's address (Tailscale: the host's 100.x address). Then *Multiplayer > Join my
+   friend's game*. That is all: the host's game (saved that moment) comes over and loads by itself. If the host is still in the main menu it waits and comes
+   as soon as the host is in a game.
+4. Play. *Save now* saves. To get the host's newest game later, press Join again: you keep your own Henry from your last save of that world.
+   *Join with my own Henry* brings the Henry of the game you have loaded instead.
+
+Proved with two real games on one computer (the rig, docs/SESSION11-TWO-GAME-RIG.md): joining a running game from the main menu in one press (6 MB, under
+10 s), a new game (prologue) started by the host after the friend pressed Join, and a rejoin that kept the friend's own Henry (his money) in the host's newer save.
+
 ## Session 6 status (2026-10-09)
 
 This is an unfinished playtest. Native combat lifetime/readback has improved; full independent combat, complete economy, quest/XP/effects and arbitrary character restoration remain open. KCD1's direct animation bypass was unsafe and removed. Use disposable campaign copies for testing. See [SESSION6-RESULTS.md](SESSION6-RESULTS.md); no two-computer acceptance is claimed.
@@ -25,7 +38,7 @@ Warhorse Studios or Deep Silver.
 
 > **Read this first.** Nobody has played this with two people yet. What is true and what is not yet seen is in `KNOWN-LIMITS.md`.
 > Each of you plays your own copy of the world in your own game; you see each other, talk, share the clock, and the host's story can ask the friends whether they want
-> to be brought along. When you both play the SAME shared world (the host's, loaded with Game world > Join the host's world), the health and death of enemies, the loot of
+> to be brought along. When you both play the SAME shared world (the host's, loaded with Multiplayer > Join my friend's game), the health and death of enemies, the loot of
 > bodies and chests (the host decides), the host's quest progress and a friend's pause menu are shared between your copies; Candidate enemy movement/ownership is now implemented; independent peer combat targeting and animation remain unproved.
 > The details, with what is proved and what is not, are in `CAPABILITIES.md`.
 

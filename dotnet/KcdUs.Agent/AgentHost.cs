@@ -188,6 +188,8 @@ public sealed class AgentHost : IAsyncDisposable
         StartWorlds();
         if (Config.Idle) { _log("idle: host or join from the game's Multiplayer tab"); return; }
         await SwitchAsync(Config.Role == "host" ? HostMode : GuestMode).ConfigureAwait(false);
+        // started to join (the launcher's Join, or --role guest): joining means playing in the host's game, so it is asked for at once
+        if (Mode == GuestMode) _world?.Join(string.Equals(Config.HenryMode, "mine", StringComparison.OrdinalIgnoreCase));
     }
 
     private void StartWorlds()
@@ -202,7 +204,7 @@ public sealed class AgentHost : IAsyncDisposable
         string? list = WorldListPath ?? (Config.WorldsFile.Length > 0 ? Config.WorldsFile : null);
         try
         {
-            _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, Title) { SavePath = SavePath };
+            _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, WorldStatus) { SavePath = SavePath };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -229,8 +231,29 @@ public sealed class AgentHost : IAsyncDisposable
         {
             case "page": TitleLine(); break;
             case "status": Session.Notify(Describe()); TitleLine(); break;
-            case "host": await SwitchAsync(HostMode).ConfigureAwait(false); break;
-            case "join": await SwitchAsync(GuestMode).ConfigureAwait(false); break;
+            case "help": Session.Alert(HelpText); Status("How to play: read the box"); break;
+            case "confirm" when arg == "yes": _world?.Confirm(); break;
+            case "host":
+                // pressing Host again must not restart the relay: that dropped every friend who had joined (seen live)
+                if (Mode == HostMode && _server is not null) { Session.Notify(Describe()); TitleLine(); break; }
+                await SwitchAsync(HostMode).ConfigureAwait(false);
+                break;
+            case "join" or "joinmine":
+                {
+                    // already joined (or joining) the same host: only ask for the game again, do not drop the connection
+                    if (Mode != GuestMode || Session.GetStatus().Refused.Length > 0)
+                    {
+                        await SwitchAsync(GuestMode).ConfigureAwait(false);
+                        if (Mode != GuestMode) break;   // no address yet: the settings page was opened
+                    }
+                    if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); break; }   // connected, but no game can be moved here
+                    _world.Join(arg == "mine" || verb == "joinmine" || string.Equals(Config.HenryMode, "mine", StringComparison.OrdinalIgnoreCase));
+                    break;
+                }
+            case "save":
+                if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); }
+                else _world.Menu("world", "save");
+                break;
             case "leave": await SwitchAsync(Idle).ConfigureAwait(false); break;
             case "settings":
                 OpenUrl(SettingsUrl);
@@ -238,7 +261,8 @@ public sealed class AgentHost : IAsyncDisposable
                 Title(Ui.MenuUi.Title.Settings);
                 break;
             case "world" or "henry" or "resolve":
-                if (_world is null) { Session.Notify("Shared worlds are off: the game's save folder was not found."); Title(Ui.MenuUi.Title.NoWorld); }
+                if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); }
+                else if (verb == "world" && arg is "join" or "joinmine") await HandleAsync(arg, verb == "world" && arg == "joinmine" ? "mine" : "").ConfigureAwait(false);
                 else _world.Menu(verb, arg);
                 break;
             case "pref":
@@ -306,14 +330,15 @@ public sealed class AgentHost : IAsyncDisposable
                 relay = mode == Idle ? new NullRelay()
                     : new RelayClient(new RelayEndpoint { Host = relayHost, Port = Config.RelayPort, Name = Config.PlayerName, Role = role, Password = Config.Password, Release = _release, HandshakeProvider = Handshake, Identity = Identity() });
             }
+            _world?.SessionChanged();
             var session = NewSession(role, relay, transient: mode == Idle);
             session.WorldEvent += (from, f) => _world?.OnPeerEvent(from, f);
             lock (_gate) { _session = session; _relay = relay; _server = server; Mode = mode; _refusalSaid = ""; }
             relay.Start(_ct);
             string where = mode == HostMode ? $"hosting \"{Config.ServerName}\" on port {Config.RelayPort}" : mode == GuestMode ? $"joining {Config.RelayHost}:{Config.RelayPort}" : "not in a session";
             _log("mode: " + where);
-            session.Notify("Multiplayer: " + where + ".");
-            if (portBusy) Title(Ui.MenuUi.Title.PortBusy); else TitleLine();
+            if (portBusy) Title(Ui.MenuUi.Title.PortBusy);
+            else { session.Notify(SessionDetail(mode)); TitleLine(); }
         }
         finally { _switch.Release(); }
     }
@@ -332,8 +357,48 @@ public sealed class AgentHost : IAsyncDisposable
         };
     }
 
-    private void Title(Ui.MenuUi.Title t) => _game.Send("MENUTEXT|" + (int)t);
-    private void TitleLine() => Title(CurrentTitle());
+    /// <summary>"How to play together", in one box.</summary>
+    public const string HelpText =
+        "Host: load your game or start a New Game, then Host: share my game. " +
+        "Friend: put the host's address in Settings, then Join my friend's game: the host's game loads by itself. " +
+        "Join again any time for the host's newest; you keep your own Henry.";
+
+    private const string WorldsOff = "Shared worlds are off: the game's save folder was not found. Start the game once and save, or set the saves folder in the settings.";
+
+    /// <summary>The line under the page's heading: the code (a fixed graph per code, for an older pak) and the words (MP_Text shows any text).</summary>
+    private void Title(Ui.MenuUi.Title t) => _game.Send("MENUTEXT|" + (int)t + "|" + Ui.MenuUi.TitleText(t));
+    private void Status(string text) => _game.Send("MENUTEXT|-1|" + Ui.MenuUi.TitleLineText(text));
+    /// <summary>What the world is doing (receiving, sending, waiting for the host) while there is a session; the session's own state otherwise.</summary>
+    private void TitleLine()
+    {
+        if (Mode != Idle && _world is { Status.Length: > 0 } w) Status(w.Status);
+        else Status(SessionText(Mode));
+    }
+    private void WorldStatus(string text) { if (Mode != Idle || text.Length > 0) Status(text.Length > 0 ? text : SessionText(Mode)); }
+
+    /// <summary>The session in one line, saying what to press next.</summary>
+    public string SessionText(string mode)
+    {
+        var s = Session.GetStatus();
+        int friends = Session.Peers.Count(p => p.Id != Session.MyId);
+        return mode switch
+        {
+            Idle => "Not in a session",
+            HostMode when !Session.InWorld => "Hosting: load or start a game",
+            HostMode => friends == 0 ? $"Hosting on port {Config.RelayPort}" : $"Hosting: {friends} friend(s) here",
+            _ when s.Refused.Length > 0 => "The host refused you",
+            _ when s.RelayConnected => $"Connected to {s.ServerName}",
+            _ => $"Connecting to {Config.RelayHost}...",
+        };
+    }
+
+    /// <summary>The same, said in the world when the session starts: what to do next.</summary>
+    public string SessionDetail(string mode) => mode switch
+    {
+        Idle => "Multiplayer: not in a session.",
+        HostMode => $"Hosting on port {Config.RelayPort}. Friends press Join my friend's game and get the game you are playing.",
+        _ => $"Joining {Config.RelayHost}:{Config.RelayPort}...",
+    };
 
     /// <summary>One line for the player: what the agent is doing and who is here.</summary>
     public string Describe()
@@ -409,7 +474,7 @@ public sealed class AgentHost : IAsyncDisposable
         if (r is RelayClient { Refused: { Length: > 0 } why } && why != _refusalSaid)
         {
             _refusalSaid = why;
-            s.Notify("The host refused you: " + why.Split('|').Last());
+            s.Alert("The host refused you: " + why.Split('|').Last()); Status("The host refused you");
         }
     }
 

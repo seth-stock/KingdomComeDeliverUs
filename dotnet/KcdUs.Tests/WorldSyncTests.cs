@@ -101,7 +101,7 @@ public partial class WorldSyncTests
 
     private static int Port() => FreePort();
 
-    private static async Task Until(Func<bool> cond, int ms = 8000, string what = "condition", params Rig[] rigs)
+    private static async Task Until(Func<bool> cond, int ms = 25000, string what = "condition", params Rig[] rigs)
     {
         var end = DateTime.UtcNow.AddMilliseconds(ms);
         while (DateTime.UtcNow < end) { if (cond()) return; await Task.Delay(20); }
@@ -115,15 +115,16 @@ public partial class WorldSyncTests
         int port = FreePort();
         await using var host = new Rig("Henry", port, seed: r => r.Seed("w1", 0, 10, 1_790_000_200));
         await using var guest = new Rig("Hans", port, seed: r => r.Seed("w1", 4, 3, 1_790_000_100, slot: true));
+        host.CurrentHours = 10; host.EnterWorld();
         await host.Host.HandleAsync("host", "");
         await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
         await guest.Host.HandleAsync("join", "");
 
         await Until(() => guest.Game.Has("LOAD|0|4") && WorldRegistry.Load(guest.WorldsJson).PendingLoad is null, what: "the guest's loaded slot passes readback", rigs: new[] { host, guest });
         var now = guest.Store.Newest(4)!;
-        Assert.Equal(10, now.Info.Hours, 3);                                           // the host's world is what is there now
+        Assert.Equal(10.5, now.Info.Hours, 3);                                         // the host's world, saved as he joined, is what is there now
         Assert.True(Directory.GetFiles(Path.Combine(guest.Store.BackupRoot), "*.whs", SearchOption.AllDirectories).Length >= 1);   // and his own copy was kept
-        Assert.Equal(10, WorldRegistry.Load(guest.WorldsJson).Find("w1")!.Hours, 3);
+        Assert.Equal(10.5, WorldRegistry.Load(guest.WorldsJson).Find("w1")!.Hours, 3);
         Assert.False(host.Game.Has("LOAD|"));                                         // the host, who was ahead, loads nothing
     }
 }

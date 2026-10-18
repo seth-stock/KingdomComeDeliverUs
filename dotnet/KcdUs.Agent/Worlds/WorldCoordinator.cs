@@ -5,22 +5,33 @@ using System.Globalization;
 using System.Text;
 using System.Security.Cryptography;
 using System.Threading.Channels;
-using KcdUs.Agent.Ui;
+using Coop.Contract;
 using KcdUs.Wire;
 
 namespace KcdUs.Agent.Worlds;
 
-/// <summary>
-/// Shared worlds (docs/SHARED-WORLDS.md). Each player holds their OWN copy of the world (a playline folder) and plays it alone or with friends; the mod
-/// never merges two saves. When two players meet again, each side compares how far its copy has got and the one that is behind receives the other's
-/// save (kept as a backup, never deleted) and loads it. Personal native core/inventory snapshots are staged before loading;
-/// world-owned state stays in the destination. One worker serializes disk operations; native readback acknowledges acceptance.
+//// <summary>
+/// Shared worlds (docs/SHARED-WORLDS.md). The HOST's game is the shared world: whatever game the host is playing (a long-running one, or a New Game
+/// started a minute ago) is what a friend gets when they press Join. Each player still holds their OWN copy (a playline folder) and the mod never
+/// merges two saves: a joining player receives the host's save, freshly written, into a playline of their own (what was there is backed up, never
+/// deleted) and loads it. The first time, the joining player plays a copy of the host's Henry; when they come back to the same world they keep
+/// their own Henry from their last save of it, or bring the Henry of the game they have loaded ("Join with my own Henry"). Personal native
+/// core/inventory snapshots are staged before loading; world-owned state stays the host's. One worker serializes disk operations; native readback
+/// acknowledges acceptance.
 /// </summary>
 public sealed class WorldCoordinator : IDisposable
 {
     public const int ReceiveStallMs = 20_000;
     public const int SaveWaitMs = 25_000;
     public const int LoadingGraceMs = 120_000;
+    /// <summary>How long a joining player waits for the host's answer before asking again.</summary>
+    public const int OfferWaitMs = 30_000;
+    /// <summary>The pause between two requests while the host cannot send yet (in the main menu, or the game will not save this moment).</summary>
+    public const int AskRetryMs = 15_000;
+    /// <summary>A transfer that has not moved for this long is dropped and asked for again.</summary>
+    public const int ReceiveGiveUpMs = 90_000;
+    /// <summary>How long a second press of Join counts as "yes, use that playline of mine".</summary>
+    public const int ConsentMs = 120_000;
 
     private readonly AgentConfig _cfg;
     private readonly IGameLink _game;
@@ -30,7 +41,7 @@ public sealed class WorldCoordinator : IDisposable
     private readonly WorldRegistry _reg;
     private readonly string? _regPath;
     private readonly Action<string> _log;
-    private readonly Action<MenuUi.Title> _title;
+    private readonly Action<string> _status;
     private readonly Func<DateTime> _utc;
     private readonly Channel<Func<Task>> _work = Channel.CreateUnbounded<Func<Task>>();
     private readonly CancellationTokenSource _cts = new();
@@ -39,10 +50,10 @@ public sealed class WorldCoordinator : IDisposable
     private WorldTransfer.Receiver? _rx;
     private int _rxFrom;
     private long _rxLastMs;
+    private int _rxShownPct = -1;
     private bool _expectLoad;
     private bool _loadStarted;
     private int _requestedFrom;
-    private string _requestedWorld = "";
     private bool _requestedMine;
     private long _requestStartedMs;
     private readonly Dictionary<string, (int Total, string?[] Parts)> _cardIn = new();
@@ -51,22 +62,38 @@ public sealed class WorldCoordinator : IDisposable
     private TaskCompletionSource<bool>? _saveWait;
     private int _announcedFor = -1;         // my relay id when the stamp was last announced
     private string _announcedRoster = "";
-    private long _lastCardMs, _lastBindCheckMs, _lastTickMs;
+    private long _lastCardMs, _lastBindCheckMs, _lastTickMs, _lastFollowMs;
     private bool _inWorldFlag;
+    private long _readyAtMs;
+    /// <summary>Right after a load the engine's save call returns without writing (seen: a 25 s wait for nothing); the host waits this long first.</summary>
+    public const int SettleAfterLoadMs = 6000;
     /// <summary>The player is in the open world: from the game's READY lines, or from the session (which also sees the position samples, so it is right after an agent restart).</summary>
     private bool InWorld => _inWorldFlag || _session().InWorld;
-    private (int From, WorldStamp Stamp)? _behind;
+
+    // the joining player's side: Join was pressed and the host's game has not loaded yet
+    private volatile bool _wantJoin;
+    private bool _wantMine;
+    private long _nextAskMs;
+    private int _asks;
+    private (int Playline, long AtMs)? _consentOffer;   // all five playlines are full: this one may be used if Join is pressed again
+    private int _consentGiven = -1;
+    // the host's side: saves written since the world was last bound show which game the host is playing now
+    private DateTime _followSinceUtc = DateTime.MinValue;
 
     /// <summary>The id of the shared world this player has loaded (the registry's active world, once it is bound to a playline); "" when none.</summary>
     public string ActiveWorldId => _reg.ActiveWorld is { Playline: >= 0 } w ? w.Id : "";
+    /// <summary>The line the Multiplayer page shows about the world ("" when there is nothing to say).</summary>
+    public string Status { get; private set; } = "";
+    /// <summary>Join was pressed and the host's game is not loaded yet.</summary>
+    public bool Joining => _wantJoin;
     private int _sending;
 
     public WorldRegistry Registry => _reg;
 
     public WorldCoordinator(AgentConfig cfg, IGameLink game, Func<Session> session, SaveStore store, WorldRegistry reg, string? regPath, Action<string> log,
-        Action<MenuUi.Title> title, Func<DateTime>? utcNow = null)
+        Action<string> status, Func<DateTime>? utcNow = null)
     {
-        _cfg = cfg; _game = game; _session = session; _store = store; _reg = reg; _regPath = regPath; _log = log; _title = title; _utc = utcNow ?? (() => DateTime.UtcNow);
+        _cfg = cfg; _game = game; _session = session; _store = store; _reg = reg; _regPath = regPath; _log = log; _status = status; _utc = utcNow ?? (() => DateTime.UtcNow);
         _characters = new CharacterCheckpoint(store.BackupRoot);
         _store.RecoverPendingInstalls();
         if (_reg.PendingLoad is { Phase: "Prepared" } pending)
@@ -95,15 +122,22 @@ public sealed class WorldCoordinator : IDisposable
             if (_cts.IsCancellationRequested) break;
             try { await job().ConfigureAwait(false); }
             catch (OperationCanceledException) { }
-            catch (Exception e) { _log("world: " + e.Message); Say("World operation stopped: " + e.Message); }
+            catch (Exception e) { _log("world: " + e.Message); Alert("Stopped: read the message", "World operation stopped: " + e.Message); }
         }
     }
 
     private void Enqueue(Func<Task> job) => _work.Writer.TryWrite(job);
     private void Persist() { try { _reg.Save(_regPath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log("warning: the world list could not be saved"); } }
-    private void Say(string t) => _session().Notify(t);
-    private ResolvePolicy Policy => WorldResolve.ParsePolicy(_cfg.ResolvePolicy) ?? ResolvePolicy.Furthest;
+    /// <summary>A message on screen in the world (and in the log: a player can only report what the log shows).</summary>
+    private void Say(string t) { _session().Notify(t); _log("world: " + t); }
+    /// <summary>The page's status line: SHORT, the title box shows about 40 characters (seen in the game).</summary>
+    private void SetStatus(string t) { Status = t; _status(t); _log("world: " + t); }
+    /// <summary>The status line, and the longer words on screen in the world.</summary>
+    private void Show(string status, string? detail = null) { SetStatus(status); _session().Notify(detail ?? status); }
+    /// <summary>Something the player must read: a box with OK in the Multiplayer page (the centred line in the world), and the status line.</summary>
+    private void Alert(string status, string detail) { SetStatus(status); _session().Alert(detail); _log("world: " + detail); }
     private bool MineMode => string.Equals(_cfg.HenryMode, "mine", StringComparison.OrdinalIgnoreCase);
+    private string HostName => PeerName(_session().HostId);
 
     // ================================================================ the menu's buttons
 
@@ -111,25 +145,53 @@ public sealed class WorldCoordinator : IDisposable
     {
         switch (verb, arg)
         {
-            case ("world", "save"): Enqueue(SaveAndShareAsync); break;
+            case ("world", "save"): Enqueue(SaveAsync); break;
             case ("world", "play"): Enqueue(PlayAsync); break;
-            case ("world", "join"): Enqueue(RequestAsync); break;
-            case ("world", "new"): Enqueue(NewWorldAsync); break;
+            case ("world", "join"): Join(MineMode); break;
+            case ("world", "joinmine"): Join(true); break;
+            case ("world", "new"):
+                Alert("New game together", _session().IsHost
+                    ? "New game together: start a New Game from the main menu. Your friend presses Join my friend's game and gets it as soon as it has begun."
+                    : "New game together: your host starts a New Game, and you press Join my friend's game.");
+                break;
             case ("henry", "home"): Enqueue(HenryHomeAsync); break;
             case ("henry", "host" or "mine"):
                 _cfg.HenryMode = arg; PersistConfig();
-                _title(arg == "mine" ? MenuUi.Title.HenryMine : MenuUi.Title.HenryHost);
+                SetStatus(arg == "mine" ? "Join brings your own Henry" : "Join: host's Henry, then your own");
                 break;
             case ("resolve", _) when WorldResolve.ParsePolicy(arg) is { } p:
                 _cfg.ResolvePolicy = WorldResolve.PolicyName(p); PersistConfig();
-                _title(p == ResolvePolicy.Host ? MenuUi.Title.ResolveHost : p == ResolvePolicy.Newest ? MenuUi.Title.ResolveNewest : MenuUi.Title.ResolveFurthest);
-                Enqueue(AnnounceAsync);   // the answer may change
+                SetStatus("The host's game is the one played");
                 break;
         }
     }
 
     private void PersistConfig() { try { _cfg.Save(SavePath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
     public string? SavePath { get; set; }
+
+    /// <summary>
+    /// Join: get the host's game and load it. Asks as soon as the session is up, and again until it is loaded (the host may still be in the main
+    /// menu, or the game may refuse to save for a moment). <paramref name="mine"/> brings the Henry of the game loaded here.
+    /// </summary>
+    public void Join(bool mine) => Enqueue(() =>
+    {
+        if (_consentOffer is { } c && Environment.TickCount64 - c.AtMs < ConsentMs) { _consentGiven = c.Playline; _consentOffer = null; }
+        _wantJoin = true; _wantMine = mine; _nextAskMs = 0; _asks = 0;
+        if (_rx is null && !_expectLoad && _reg.PendingLoad is null) _requestedFrom = 0;   // a request left over from before never blocks a new one
+        var s = _session();
+        if (_rx is not null) SetStatus($"Receiving {PeerName(_rxFrom)}'s game...");
+        else if (s.MyId == 0) SetStatus("Connecting to the host...");
+        else SetStatus($"Asking {HostName} for the game...");
+        return Task.CompletedTask;
+    });
+
+    /// <summary>The session was replaced (host, join, leave): whatever was asked of the old one is over.</summary>
+    public void SessionChanged() => Enqueue(() =>
+    {
+        _wantJoin = false; _requestedFrom = 0; _rx = null; _announcedFor = -1; _announcedRoster = "";
+        Status = "";
+        return Task.CompletedTask;
+    });
 
     // ================================================================ the game's side
 
@@ -174,7 +236,12 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task OnReadyAsync(bool inWorld)
     {
+        bool was = _inWorldFlag;
         _inWorldFlag = inWorld;
+        if (inWorld && !was) _readyAtMs = Environment.TickCount64;
+        var s = _session();
+        // the host tells waiting friends when a game is running (a New Game too): they ask for it then, not 15 s later
+        if (s.IsHost && s.MyId != 0 && was != inWorld) s.SendEvent("whost|" + (inWorld ? "game" : "menu"));
         if (!inWorld) return;
         if (_expectLoad || _reg.PendingLoad is not null) return;
         _lastBindCheckMs = 0;
@@ -200,7 +267,7 @@ public sealed class WorldCoordinator : IDisposable
     {
         if (!_expectLoad || !_loadStarted) return;
         _inWorldFlag = true;
-        if (_reg.PendingLoad is not { } pending) { _expectLoad = false; await AnnounceAsync(); return; }
+        if (_reg.PendingLoad is not { } pending) { _expectLoad = false; SetStatus("Loaded."); await AnnounceAsync(); return; }
         try
         {
             // The UI event precedes the end of native loading. SaveViaResting
@@ -208,8 +275,13 @@ public sealed class WorldCoordinator : IDisposable
             await Task.Delay(2000, _cts.Token).ConfigureAwait(false);
             // A generic READY/UI notification is not acceptance. A native save must
             // come from the installed playline and retain the staged personal state.
-            var saved = await SaveNowAsync(pending.Playline).ConfigureAwait(false)
-                ?? throw new IOException("The engine did not save the loaded world; acceptance remains pending.");
+            var saved = await SaveNowAsync(pending.Playline).ConfigureAwait(false);
+            if (saved is null)
+            {
+                await Task.Delay(4000, _cts.Token).ConfigureAwait(false);   // still settling after the load (seen): once more
+                saved = await SaveNowAsync(pending.Playline).ConfigureAwait(false)
+                    ?? throw new IOException("The engine did not save the loaded world; acceptance remains pending.");
+            }
             if (pending.CharacterSha256.Length > 0 && !ExactTraitsSave.SameProgressionAndInventory(
                 _characters.Read(pending.CharacterSha256), ExactTraitsSave.CaptureCharacter(File.ReadAllBytes(saved.Path))))
                 throw new InvalidDataException("Native character readback differs; acceptance remains pending.");
@@ -217,6 +289,8 @@ public sealed class WorldCoordinator : IDisposable
             {
                 var w = _reg.Upsert(pending.WorldId, pending.Name);
                 if (w.Playline >= 0 && w.Playline != pending.Playline && !w.Slot) w.HomePlayline = w.Playline;
+                // the slot belongs to this world now: no other record may claim it
+                foreach (var other in _reg.Worlds.Where(o => o != w && o.Playline == pending.Playline)) other.Playline = -1;
                 w.Playline = pending.Playline; w.Slot = true; Remember(w, saved); _reg.Active = w.Id;
                 // The readback save verifies acceptance; it is not a new shared
                 // checkpoint. Preserve the sender's stamp to prevent resync loops.
@@ -226,16 +300,16 @@ public sealed class WorldCoordinator : IDisposable
             else _reg.Active = _reg.Worlds.FirstOrDefault(w => w.Playline == pending.Playline)?.Id ?? "";
             _reg.PendingLoad = null;
             _reg.Save(_regPath);
-            _expectLoad = false; _loadStarted = false; _behind = null;
+            _expectLoad = false; _loadStarted = false; _wantJoin = false; _consentGiven = -1;
             if (pending.From > 0) _session().SendEvent($"wdone|{pending.From}|{pending.TransferId}|1");
-            Say("The shared world loaded and passed native save readback.");
+            Show(pending.Home ? "Your Henry is home" : $"In {PeerName(pending.From)}'s game", pending.Home ? "Your Henry is home." : $"You are in {PeerName(pending.From)}'s game. Have fun!");
             await AnnounceAsync();
         }
         catch (Exception e) when (e is IOException or InvalidDataException)
-        { _reg.PendingLoad = pending; _log("world: " + e.Message); Say(e.Message + " Your character snapshot and previous saves are preserved."); }
+        { _reg.PendingLoad = pending; _log("world: " + e.Message); Alert("Load not confirmed", e.Message + " Your character snapshot and previous saves are preserved."); }
     }
 
-    // ================================================================ saving and sharing
+    // ================================================================ saving
 
     /// <summary>Asks the game to save now and waits for the file. Null when nothing was written (the prologue and some scenes refuse to save).</summary>
     private string _saveWaitId = "";
@@ -279,7 +353,7 @@ public sealed class WorldCoordinator : IDisposable
             await Task.Delay(2000, _cts.Token).ConfigureAwait(false);
             saved = await SaveNowAsync(character: true).ConfigureAwait(false);
         }
-        if (saved is null) throw new IOException("Henry could not be saved. Finish the prologue/cutscene before moving him.");
+        if (saved is null) throw new IOException("Henry could not be saved. Put weapons away and finish any fight, ride, dialogue or cutscene, then press Join again.");
         _reg.MyCharacterSha256 = _characters.Capture(await File.ReadAllBytesAsync(saved.Path).ConfigureAwait(false));
         _reg.Save(_regPath); // A failed durable personal snapshot cancels the replacement.
         return saved.Playline;
@@ -293,32 +367,48 @@ public sealed class WorldCoordinator : IDisposable
         return a.AsSpan().SequenceEqual(b) && SaveInfo.Validate(b, out _);
     }
 
-    /// <summary>"Save the world for everyone": save, make this game the shared world if there is none yet, and tell the friends how far it has got.</summary>
-    private async Task SaveAndShareAsync()
+    /// <summary>
+    /// "Save now": the game saves. The host's save is also what the shared world is from then on (the game the host plays IS the shared world),
+    /// and friends hear how far it has got. A friend's save keeps their own copy, and their Henry for the next time they join.
+    /// </summary>
+    private async Task SaveAsync()
     {
-        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before publishing a checkpoint."); return; }
+        if (_reg.PendingLoad is not null || _expectLoad) { Show("Wait for the load to finish"); return; }
+        if (!InWorld) { Show("Load a game first, then save"); return; }
         var f = await SaveNowAsync().ConfigureAwait(false);
-        if (f is null) { Say("The game would not save just now (a cutscene or the prologue). Try again in a moment."); _title(MenuUi.Title.WorldBusy); return; }
-        var w = _reg.ActiveWorld;
+        if (f is null) { Show("The game cannot save just now", "The game would not save just now (a cutscene, a fight, a dialogue or riding). Try again in a moment."); return; }
+        var s = _session();
+        if (s.IsHost || _reg.ActiveWorld is null)
+        {
+            var w = BindHostGame(f);
+            await CaptureCardAsync().ConfigureAwait(false);
+            Persist();
+            Show("Saved", s.IsHost && s.Peers.Any(p => p.Id != s.MyId) ? "Saved. Friends who press Join get your game as it is now." : "Saved.");
+        }
+        else
+        {
+            if (_reg.ActiveWorld is { } w && w.Playline == f.Playline) Remember(w, f);
+            await CaptureCardAsync().ConfigureAwait(false);
+            Persist();
+            Show("Saved", "Saved. Your Henry is kept for the next time you join this world.");
+        }
+        await AnnounceAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>The host's game (the playline the newest save went to) is the shared world: its record, made the active one (a new record for a new game).</summary>
+    private WorldRecord BindHostGame(SaveFile f)
+    {
+        var w = _reg.Worlds.Where(x => x.Playline == f.Playline).OrderByDescending(x => x.Id == _reg.Active).FirstOrDefault();
         if (w is null)
         {
             w = _reg.Upsert(WorldRegistry.NewId(), _cfg.WorldName);
-            w.Playline = f.Playline; _reg.Active = w.Id;
-            Say($"This game is now your shared world \"{w.Name}\".");
-        }
-        else if (w.Playline < 0) w.Playline = f.Playline;
-        else if (w.Playline != f.Playline)
-        {
-            Say("This is not your shared world. Use Game world > Play my shared world to load it.");
-            _title(MenuUi.Title.NoWorld);
-            return;
+            w.Playline = f.Playline;
+            _log($"world: playline {f.Playline} is the shared world \"{w.Name}\"");
         }
         Remember(w, f);
-        await CaptureCardAsync().ConfigureAwait(false);
-        Persist();
-        Say("World saved.");
-        _title(MenuUi.Title.WorldSaved);
-        await AnnounceAsync().ConfigureAwait(false);
+        _reg.Active = w.Id;
+        _followSinceUtc = f.ModifiedUtc;
+        return w;
     }
 
     private void Remember(WorldRecord w, SaveFile f) { w.Hours = f.Info.Hours; w.SavedUnix = f.Info.SavedUnix; }
@@ -335,7 +425,7 @@ public sealed class WorldCoordinator : IDisposable
             LoadPlayline(pending.Playline); return;
         }
         var w = _reg.ActiveWorld;
-        if (w is null || w.Playline < 0 || _store.Newest(w.Playline) is null) { Say("There is no shared world to play yet."); _title(MenuUi.Title.NoWorld); return; }
+        if (w is null || w.Playline < 0 || _store.Newest(w.Playline) is null) { Alert("No shared game here yet", "You have no shared game here yet. Press Join my friend's game to get your host's game."); return; }
         if (InWorld) await CaptureCardAsync().ConfigureAwait(false);
         LoadPlayline(w.Playline);
     }
@@ -344,23 +434,9 @@ public sealed class WorldCoordinator : IDisposable
     {
         _expectLoad = true;
         _loadStarted = false;
-        _title(MenuUi.Title.WorldLoading);
+        SetStatus("Loading the shared game...");
         _game.Send($"LOAD|0|{folder}");   // the load graph takes the playline's folder number (seen in the retail game)
         _log($"world: loading the newest save of playline {folder}");
-    }
-
-    private async Task NewWorldAsync()
-    {
-        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before starting another world."); return; }
-        var s = _session();
-        if (s.MyId == 0) { Say("Host or join a game first."); _title(MenuUi.Title.NeedHost); return; }
-        if (!s.IsHost) { Say("Only the host starts a new shared world; ask them to."); return; }
-        var w = _reg.Upsert(WorldRegistry.NewId(), _cfg.WorldName);
-        w.Playline = -1; w.Hours = 0; w.SavedUnix = 0; _reg.Active = w.Id; Persist();
-        s.SendEvent($"wnew|{w.Id}|{Safe.Clean(w.Name, 40)}");
-        Say("New shared world: you both start a New Game now, with new characters.");
-        _title(MenuUi.Title.WorldNew);
-        await Task.CompletedTask;
     }
 
     // ================================================================ talking about it
@@ -372,6 +448,7 @@ public sealed class WorldCoordinator : IDisposable
         if (s.MyId == 0) return;
         _announcedFor = s.MyId;
         _announcedRoster = string.Join(',', s.Peers.Select(p => p.Id).OrderBy(id => id));
+        if (s.IsHost) s.SendEvent("whost|" + (InWorld ? "game" : "menu"));
         var w = _reg.ActiveWorld;
         if (w is null || w.Playline < 0) return;
         var f = _store.Newest(w.Playline);
@@ -382,7 +459,11 @@ public sealed class WorldCoordinator : IDisposable
     }
 
     /// <summary>A shared-world message from the relay (queued; runs on the worker).</summary>
-    public void OnPeerEvent(int from, string[] f) => Enqueue(() => HandleEventAsync(from, f));
+    public void OnPeerEvent(int from, string[] f)
+    {
+        if (f.Length > 0 && f[0] is "wreq" or "woffer" or "wdone" or "wmiss" or "wnew" or "whost") _log($"world: {f[0]} from #{from} ({string.Join('|', f.Skip(1).Take(3))})");
+        Enqueue(() => HandleEventAsync(from, f));
+    }
 
     private async Task HandleEventAsync(int from, string[] f)
     {
@@ -395,145 +476,206 @@ public sealed class WorldCoordinator : IDisposable
             case "wstamp":
                 if (WorldStamp.Decode(f, 1) is { } st) OnStamp(from, st);
                 break;
-            case "wnew" when f.Length >= 3 && !s.IsHost && from == s.HostId:
-                {
-                    var w = _reg.Upsert(Safe.Clean(f[1], 40), Safe.Clean(f[2], 40));
-                    w.Playline = -1; w.Hours = 0; w.SavedUnix = 0; _reg.Active = w.Id; Persist();
-                    Say($"The host is starting a new shared world \"{w.Name}\". Start a New Game now.");
-                    _title(MenuUi.Title.WorldNew);
-                    break;
-                }
-            case "wreq" when Mine(1): await ServeAsync(from, f.Length > 2 ? f[2] : "-").ConfigureAwait(false); break;
+            case "whost" when f.Length >= 2 && !s.IsHost && from == s.HostId:
+                if (_wantJoin && _requestedFrom == 0 && _rx is null && f[1] == "game") _nextAskMs = 0;   // the host's game is running now: ask at once
+                else if (_wantJoin && f[1] == "menu" && _rx is null) SetStatus(WaitingFor(HostName));
+                break;
+            case "wreq" when Mine(1): await ServeAsync(from).ConfigureAwait(false); break;
+            case "wreq": _log($"world: a request from #{from} for #{(f.Length > 1 ? f[1] : "?")} is not for me (#{me})"); break;
             case "woffer" when Mine(1) && f.Length >= 8: OnOffer(from, f); break;
             case "wchunk" when Mine(1) && f.Length >= 5 && _rx is not null && from == _rxFrom && _rx.Offer.TransferId == f[2] && int.TryParse(f[3], out int idx):
-                _rx.Add(idx, f[4]); _rxLastMs = Environment.TickCount64;
+                if (_rx.Add(idx, f[4])) _rxLastMs = Environment.TickCount64;
+                ShowProgress();
                 if (_rx.Complete) await FinishReceiveAsync().ConfigureAwait(false);
                 break;
             case "wmiss" when Mine(1) && f.Length >= 4: await ResendAsync(from, f[2], f[3]).ConfigureAwait(false); break;
             case "wdone" when Mine(1) && f.Length >= 4:
-                _log($"world: {PeerName(from)} {(f[3] == "1" ? "has your world" : "could not use it: " + (f.Length > 4 ? f[4] : "?"))}");
-                if (f[3] != "1")
-                {
-                    if (_requestedFrom == from) { _requestedFrom = 0; _rx = null; }
-                    Say("World transfer refused: " + (f.Length > 4 ? f[4] : "?"));
-                }
+                if (f[3] == "1") { Show($"{PeerName(from)} joined your game", $"{PeerName(from)} is in your game now."); break; }
+                OnRefused(from, f.Length > 4 ? f[4] : "?");
                 break;
         }
     }
 
-    private string PeerName(int id) => _session().Peers.FirstOrDefault(p => p.Id == id)?.Name ?? ("#" + id);
+    private string PeerName(int id) => _session().Peers.FirstOrDefault(p => p.Id == id)?.Name ?? (id == _session().HostId ? "the host" : "#" + id);
+
+    /// <summary>The host could not send its game. Some reasons pass by themselves (the host is in the menu, the game is busy): Join keeps asking.</summary>
+    private void OnRefused(int from, string why)
+    {
+        if (_requestedFrom == from) { _requestedFrom = 0; _rx = null; }
+        string who = PeerName(from);
+        switch (why)
+        {
+            case "menu":
+                _nextAskMs = Environment.TickCount64 + AskRetryMs;   // the host's "whost|game" asks again at once
+                if (Status != WaitingFor(who)) SetStatus(WaitingFor(who));
+                break;
+            case "wait" or "busy":
+                _nextAskMs = Environment.TickCount64 + AskRetryMs;
+                SetStatus(why == "busy" ? $"{who} is busy: you are next" : $"{who}'s game can't save yet: retrying");
+                break;
+            case "different mods":
+                _wantJoin = false; Alert("Different mods: cannot join", ContentRefusal); break;
+            default:
+                _wantJoin = false;
+                if (why.StartsWith("you lack DLC", StringComparison.Ordinal))
+                {
+                    var names = why[(why.IndexOf('(') + 1)..].TrimEnd(')').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    Alert("Missing DLC: cannot join", DlcRefusal(names));
+                }
+                else Alert($"{who} could not send the game", $"{who} could not send their game: {why}.");
+                break;
+        }
+    }
+
+    private void ShowProgress()
+    {
+        if (_rx is not { } rx) return;
+        int pct = rx.Offer.Chunks == 0 ? 100 : rx.Have * 100 / rx.Offer.Chunks;
+        if (pct / 10 == _rxShownPct / 10 && _rxShownPct >= 0) return;
+        _rxShownPct = pct;
+        SetStatus($"Receiving: {pct}% of {rx.Offer.Bytes / 1024 / 1024.0:0.0} MB");
+    }
 
     private void OnStamp(int from, WorldStamp theirs)
     {
         var s = _session();
-        var mine = _reg.Find(theirs.WorldId);
-        if (mine is null || mine.Playline < 0)
+        if (s.IsHost || from != s.HostId) return;   // the host's game is the one that is played: other copies say nothing about it
+        if (_wantJoin)
         {
-            if (_reg.ActiveWorld is null || s.IsHost == false)
-            {
-                _behind = (from, theirs);
-                Say($"{PeerName(from)} has the shared world \"{theirs.Name}\". Game world > Join the host's world gets you into it.");
-                _title(MenuUi.Title.NoWorld);
-            }
+            if (_requestedFrom == 0 && _rx is null) _nextAskMs = Math.Min(_nextAskMs, Environment.TickCount64 + 1000);
             return;
         }
-        var verdict = WorldResolve.Decide(mine.Stamp, theirs, Policy, s.IsHost);
-        switch (verdict)
-        {
-            case Winner.Same:
-                _behind = null;
-                _title(MenuUi.Title.InSync);
-                break;
-            case Winner.Remote:
-                _behind = (from, theirs);
-                if (!InWorld && _cfg.AutoSync)
-                {
-                    Say($"{PeerName(from)}'s copy of \"{theirs.Name}\" is further along: taking it.");
-                    Enqueue(RequestAsync);
-                }
-                else Say($"{PeerName(from)}'s copy of \"{theirs.Name}\" is further along ({theirs.Hours:0.0} h against your {mine.Hours:0.0} h). Game world > Join the host's world takes it; yours is kept as a backup.");
-                break;
-            case Winner.Local:
-                _behind = null;   // they will ask for ours if they want it
-                break;
-        }
+        var mine = _reg.Find(theirs.WorldId);
+        if (mine is { Playline: >= 0 } && _reg.Active == mine.Id && InWorld && WorldResolve.Decide(mine.Stamp, theirs, ResolvePolicy.Host, false) == Winner.Same)
+            SetStatus($"In {PeerName(from)}'s game");
     }
 
     // ================================================================ taking a world
 
+    private static string WaitingFor(string who) => $"Waiting for {who}'s game";
+
+    /// <summary>No playline for the world: the question (Join again says yes) when one of the player's own may be used, otherwise the reason.</summary>
+    private void NoRoom(string why)
+    {
+        // a Yes/No box was tried: the game shows it, but never told the page which answer was chosen (seen), so the answer is a second press of Join
+        Alert(_consentOffer is not null ? "Full: press Join again to say yes" : "No room for the game", why);
+    }
+
+    /// <summary>The answer Yes to <see cref="NoRoom"/>'s question (menu verb "confirm"): the same as pressing Join again.</summary>
+    public void Confirm() => Join(_wantMine);
+
     private const string ContentRefusal = "Your game has other mods than your friend's, so a world or a Henry cannot be moved between you safely. Install the same mods on both, or play without sharing a world.";
 
     private static string DlcRefusal(IReadOnlyList<string> lacks) =>
-        $"Your host's game has DLC you do not have ({string.Join(", ", lacks)}), and their saved world needs it. Get that DLC, or ask your host to play without it.";
+        $"Your host's game uses DLC you do not have ({DlcLog.Friendly(lacks)}), and their saves need it. Get it on Steam, or your host turns it off in Steam (Properties > DLC) and starts a game without it.";
 
+    /// <summary>Asks the host for their game (Join's worker, again and again until it has loaded).</summary>
     private async Task RequestAsync()
     {
-        if (_reg.PendingLoad is not null || _expectLoad) { Say("Finish the pending world load before receiving another world."); return; }
-        if (_requestedFrom != 0 || _rx is not null) { Say("A world transfer is already pending."); return; }
+        if (!_wantJoin) return;
+        if (_reg.PendingLoad is not null || _expectLoad || _rx is not null || _requestedFrom != 0) return;
         var s = _session();
-        if (s.MyId == 0) { Say("Join a game first."); _title(MenuUi.Title.NeedHost); return; }
-        if (!s.ContentMatches) { Say(ContentRefusal); _title(MenuUi.Title.WorldBusy); return; }
-        int target = _behind?.From ?? (s.IsHost ? s.Peers.FirstOrDefault(p => p.Id != s.MyId)?.Id ?? 0 : s.HostId);
-        if (!s.IsHost && target == s.HostId && s.DlcLacks.Count > 0) { Say(DlcRefusal(s.DlcLacks)); _title(MenuUi.Title.WorldBusy); return; }
-        if (target == 0) { Say("Nobody to take a world from."); _title(MenuUi.Title.NeedHost); return; }
-        string id = _behind?.Stamp.WorldId ?? "-";
-        var known = id == "-" ? _reg.ActiveWorld : _reg.Find(id);
-        if (known is not { Slot: true } && _store.FreePlayline(_reg.SlotsInUse()) is null)
-        {
-            Say("All five playlines are in use. Delete one you do not need in the game's Load Game screen, then try again: the world needs a free slot (none of yours is touched).");
-            _title(MenuUi.Title.WorldBusy);
-            return;
-        }
-        _requestedMine = MineMode;
+        if (s.MyId == 0) { SetStatus("Connecting to the host..."); return; }
+        if (s.IsHost) { _wantJoin = false; Alert("You are the host", "You are the host: friends join your game. Join my friend's game is for the friend who joins."); return; }
+        if (!s.ContentMatches) { _wantJoin = false; Alert("Different mods: cannot join", ContentRefusal); return; }
+        if (s.DlcLacks.Count > 0) { _wantJoin = false; Alert("Missing DLC: cannot join", DlcRefusal(s.DlcLacks)); return; }
+        int target = s.HostId;
+        if (target == 0) { SetStatus("Connecting to the host..."); return; }
+        if (PickSlot(null, out string? why) is null) { _wantJoin = false; NoRoom(why!); return; }
+        _requestedMine = _wantMine;
         if (_requestedMine)
         {
-            int? source = InWorld ? await CaptureCharacterAsync().ConfigureAwait(false) : null;
-            if (_reg.MyCharacterSha256.Length == 0) { Say("Load and save your Henry first, then join the world with Bring my Henry."); return; }
+            int? source = InWorld && _asks == 0 ? await CaptureCharacterAsync().ConfigureAwait(false) : null;   // once per Join, not at every retry
+            if (_reg.MyCharacterSha256.Length == 0) { _wantJoin = false; Alert("Load your own game first", "Load your own game (with your Henry) first, then press Join with my own Henry."); return; }
             _ = _characters.Read(_reg.MyCharacterSha256);
             if (source is { } home && _reg.HomePlayline < 0 && !_reg.SlotsInUse().Contains(home))
             { _reg.HomePlayline = home; _reg.Save(_regPath); }
         }
-        else if (InWorld && _reg.HomePlayline < 0 && _reg.HomeLeaseId.Length == 0)
+        else if (_asks == 0 && InWorld && _reg.HomePlayline < 0 && _reg.HomeLeaseId.Length == 0 && _reg.ActiveWorld is not { Slot: true })
         {
             // Establish home from the engine's fresh save, never another
             // playline's unrelated newest file.
             if (await SaveNowAsync().ConfigureAwait(false) is { } home && !_reg.SlotsInUse().Contains(home.Playline))
             { _reg.HomePlayline = home.Playline; _reg.Save(_regPath); }
         }
-        _requestedFrom = target; _requestedWorld = id;
+        if (!_wantJoin) return;
+        _requestedFrom = target;
         _requestStartedMs = Environment.TickCount64;
-        if (!s.SendEvent($"wreq|{target}|{id}")) { _requestedFrom = 0; Say("Reconnect to the relay and request the world again."); return; }
+        _asks++;
+        if (!s.SendEvent($"wreq|{target}|-")) { _requestedFrom = 0; SetStatus("Connecting to the host..."); return; }
         _rx = null;
-        Say("Asking for the world...");
-        _title(MenuUi.Title.WorldAsked);
+        if (_asks == 1 || !Status.StartsWith("Waiting for ", StringComparison.Ordinal)) SetStatus($"Asking {PeerName(target)} for the game...");   // waiting stays waiting: no flicker at each retry
         _rxLastMs = Environment.TickCount64;
     }
 
-    private async Task ServeAsync(int to, string worldId)
+    /// <summary>
+    /// Where the host's world goes: its own slot from last time, else an empty playline, else the slot of another shared world (backed up first),
+    /// else (only when the player said yes by pressing Join twice) the playline of their own that was played longest ago, backed up first.
+    /// </summary>
+    private int? PickSlot(string? worldId, out string? why)
     {
-        if (!_session().ContentMatches) { _session().SendEvent($"wdone|{to}|-|0|different mods"); return; }
-        if (_session().PeerLacksDlc(to) is { Count: > 0 } lacks) { _session().SendEvent($"wdone|{to}|-|0|you lack DLC the world needs ({string.Join(", ", lacks)})"); return; }
-        if (Interlocked.Exchange(ref _sending, 1) == 1) { _session().SendEvent($"wdone|{to}|-|0|busy"); return; }
+        why = null;
+        if (worldId is not null && _reg.Find(worldId) is { Slot: true, Playline: >= 0 } known) return known.Playline;
+        if (_store.FreePlayline(_reg.SlotsInUse()) is { } free) return free;
+        var slots = _reg.Worlds.Where(w => w.Slot && w.Playline >= 0 && w.Playline < SaveStore.MaxPlaylines && w.Id != _reg.Active).ToList();
+        if (slots.Count > 0) return slots.OrderBy(w => _store.Newest(w.Playline)?.Info.SavedUnix ?? 0).First().Playline;
+        if (_reg.ActiveWorld is { Slot: true, Playline: >= 0 } current) return current.Playline;   // the shared world this player has now
+        if (_consentGiven is >= 0 and < SaveStore.MaxPlaylines) return _consentGiven;
+        var oldest = Enumerable.Range(0, SaveStore.MaxPlaylines).Where(p => p != _reg.HomePlayline || _reg.HomePlayline < 0)
+            .Select(p => (P: p, Last: _store.Newest(p))).Where(x => x.Last is not null).OrderBy(x => x.Last!.Info.SavedUnix).FirstOrDefault();
+        if (oldest.Last is null) { why = "There is no playline the world could go into."; return null; }
+        _consentOffer = (oldest.P, Environment.TickCount64);
+        var when = DateTimeOffset.FromUnixTimeSeconds(oldest.Last.Info.SavedUnix).ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+        why = $"All five playlines are full. Put the host's game into Playline {oldest.P + 1} (last played {when})? Its saves are moved to the mod's backup folder, not deleted. To say yes, press Join again.";
+        return null;
+    }
+
+    /// <summary>The host sends the game it is playing now, saved this moment. In the main menu there is no game to send yet: the friend is told to wait.</summary>
+    private async Task ServeAsync(int to)
+    {
+        var s = _session();
+        string who = PeerName(to);
+        _log($"world: {who} (#{to}) asks for the game");
+        void Refuse(string why, string reason) { _log("world: not sent to " + who + ": " + why); s.SendEvent($"wdone|{to}|-|0|{reason}"); }
+        if (!s.ContentMatches) { Refuse("different mods", "different mods"); return; }
+        if (s.PeerLacksDlc(to) is { Count: > 0 } lacks) { Refuse("DLC", $"you lack DLC the world needs ({string.Join(", ", lacks)})"); return; }
+        if (!s.IsHost) { Refuse("not the host", "ask the host"); return; }
+        if (!InWorld)
+        {
+            Refuse("in the main menu", "menu");
+            string wait = $"{who} waits: load or start a game";
+            if (Status != wait) Show(wait, $"{who} is waiting to join: load your game or start a New Game.");   // once, not at every one of the friend's retries
+            return;
+        }
+        if (Interlocked.Exchange(ref _sending, 1) == 1) { Refuse("already sending", "busy"); return; }
         try
         {
-            var w = (worldId != "-" ? _reg.Find(worldId) : null) ?? _reg.ActiveWorld;
-            if (w is null || w.Playline < 0) { _session().SendEvent($"wdone|{to}|-|0|no world here"); return; }
-            SaveFile? f = null;
-            if (InWorld && _store.Newest(w.Playline) is { } cur) f = await SaveNowAsync().ConfigureAwait(false) is { } fresh && fresh.Playline == w.Playline ? fresh : cur;
-            f ??= _store.Newest(w.Playline);
-            if (f is null) { _session().SendEvent($"wdone|{to}|-|0|no save"); return; }
-            Remember(w, f); Persist();
+            SetStatus($"Saving your game for {who}...");
+            long settle = SettleAfterLoadMs - (Environment.TickCount64 - _readyAtMs);
+            if (_readyAtMs != 0 && settle > 0) await Task.Delay((int)settle, _cts.Token).ConfigureAwait(false);
+            var f = await SaveNowAsync().ConfigureAwait(false);
+            if (f is null)
+            {
+                Refuse("the game would not save", "wait");
+                if (!Status.StartsWith(who + " waits", StringComparison.Ordinal)) Say($"{who} wants to join: your game could not save just now (cutscene, fight, dialogue). It tries again shortly.");
+                SetStatus($"{who} waits: game can't save yet");
+                return;
+            }
+            var w = BindHostGame(f); Persist();
             var bytes = await File.ReadAllBytesAsync(f.Path).ConfigureAwait(false);
             var offer = WorldTransfer.MakeOffer(Guid.NewGuid().ToString("N")[..6], w.Id, bytes);
-            _session().SendEvent($"woffer|{to}|{offer.TransferId}|{offer.WorldId}|{offer.Bytes}|{offer.Chunks}|{offer.Sha256}|{w.Stamp.Encode().Split('|', 2)[1]}|{Safe.Clean(w.Name, 40)}");
-            _title(MenuUi.Title.WorldSent);
-            Say($"Sending your world ({bytes.Length / 1024 / 1024.0:0.0} MB)...");
+            s.SendEvent($"woffer|{to}|{offer.TransferId}|{offer.WorldId}|{offer.Bytes}|{offer.Chunks}|{offer.Sha256}|{w.Stamp.Encode().Split('|', 2)[1]}|{Safe.Clean(w.Name, 40)}");
             _sentFile = (offer.TransferId, bytes, to);
+            int shown = -1;
             foreach (var (i, b64) in WorldTransfer.Pieces(bytes))
             {
-                _session().SendEvent($"wchunk|{to}|{offer.TransferId}|{i}|{b64}");
+                s.SendEvent($"wchunk|{to}|{offer.TransferId}|{i}|{b64}");
+                int pct = (i + 1) * 100 / Math.Max(1, offer.Chunks);
+                if (pct / 20 != shown / 20) { shown = pct; SetStatus($"Sending to {who}: {pct}%"); }
                 if (i % 8 == 7) await Task.Delay(40, _cts.Token).ConfigureAwait(false);   // the relay's queue is bounded; do not flood it
             }
+            SetStatus($"Sent to {who}: they are loading it");
+            await AnnounceAsync().ConfigureAwait(false);
         }
         finally { Interlocked.Exchange(ref _sending, 0); }
     }
@@ -557,14 +699,13 @@ public sealed class WorldCoordinator : IDisposable
         // woffer|to|xid|worldId|bytes|chunks|sha|hours|unix|name
         try
         {
-            if (from != _requestedFrom || _requestedFrom == 0 || _rx is not null
-                || (_requestedWorld != "-" && f[3] != _requestedWorld)) return;
+            if (from != _requestedFrom || _requestedFrom == 0 || _rx is not null) return;
             if (f.Length < 10 || !int.TryParse(f[4], out int bytes) || !int.TryParse(f[5], out int chunks)) return;
             _rx = new WorldTransfer.Receiver(new WorldTransfer.Offer(f[2], Safe.Clean(f[3], 40), bytes, chunks, f[6].ToLowerInvariant()));
-            _rxFrom = from; _rxLastMs = Environment.TickCount64;
+            _rxFrom = from; _rxLastMs = Environment.TickCount64; _rxShownPct = -1;
             _offerName = Safe.Clean(f[9], 40);
             _log($"world: receiving \"{_offerName}\" ({bytes / 1024 / 1024.0:0.0} MB)");
-            _title(MenuUi.Title.WorldReceiving);
+            ShowProgress();
         }
         catch (InvalidDataException) { _rx = null; }
     }
@@ -584,36 +725,55 @@ public sealed class WorldCoordinator : IDisposable
         {
             _log("world: the received save did not check out" + (bytes is null ? " (checksum)" : ": " + why));
             s.SendEvent($"wdone|{_rxFrom}|{rx.Offer.TransferId}|0|damaged in transit");
-            Say("The world arrived damaged. Ask again.");
+            SetStatus("Arrived damaged: asking again");
+            _nextAskMs = Environment.TickCount64 + 2000;
             return;
         }
         var info = SaveInfo.Read(bytes);
         var w = _reg.Find(rx.Offer.WorldId);
-        int playline; bool replace;
-        if (w is { Slot: true, Playline: >= 0 }) { playline = w.Playline; replace = true; }
-        else
+        if (PickSlot(rx.Offer.WorldId, out string? noSlot) is not { } playline)
         {
-            if (_store.FreePlayline(_reg.SlotsInUse()) is not { } free)
-            {
-                s.SendEvent($"wdone|{_rxFrom}|{rx.Offer.TransferId}|0|no free playline");
-                Say("All five playlines are in use, so the world cannot be put anywhere. Delete one you do not need and ask again.");
-                return;
-            }
-            playline = free; replace = false;
+            s.SendEvent($"wdone|{_rxFrom}|{rx.Offer.TransferId}|0|no free playline");
+            _wantJoin = false; NoRoom(noSlot!);
+            return;
         }
+        bool replace = _store.Newest(playline) is not null || (w is { Slot: true } && w.Playline == playline);
+        string characterSha = "";
         if (_requestedMine)
         {
             if (InWorld) await CaptureCharacterAsync().ConfigureAwait(false); // Include play during the transfer.
             bytes = ExactTraitsSave.PrepareCharacter(bytes, _characters.Read(_reg.MyCharacterSha256));
+            characterSha = _reg.MyCharacterSha256;
+        }
+        else if (w is { Slot: true, Playline: >= 0 } && _store.Newest(w.Playline) is { } last)
+        {
+            // back in a world this player has played before: they keep their own Henry from their last save of it
+            var raw = await File.ReadAllBytesAsync(last.Path).ConfigureAwait(false);
+            bool played = Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant() != w.VerificationSaveSha256;
+            if (played)
+            {
+                try
+                {
+                    var prepared = ExactTraitsSave.PrepareCharacter(bytes, ExactTraitsSave.CaptureCharacter(raw));
+                    characterSha = _characters.Capture(raw);
+                    bytes = prepared;
+                }
+                catch (Exception e) when (e is InvalidDataException or IOException)
+                {
+                    _log("world: own Henry not carried over: " + e.Message);
+                    Say("Your Henry from last time could not be carried into the host's newer game, so you play a copy of the host's Henry this time.");
+                }
+            }
         }
         var pending = new PendingWorldLoad(rx.Offer.WorldId, _offerName, playline,
-            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), _requestedMine ? _reg.MyCharacterSha256 : "",
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), characterSha,
             _rxFrom, rx.Offer.TransferId, info?.Hours ?? 0, info?.SavedUnix ?? 0, "Prepared");
         _reg.PendingLoad = pending; _reg.Save(_regPath);
         _store.InstallWorld(playline, rx.Offer.WorldId, bytes, _utc().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), replace);
+        if (_reg.HomePlayline == playline) _reg.HomePlayline = -1;
         _reg.PendingLoad = pending with { Phase = "Installed" }; _reg.Save(_regPath);
-        _requestedFrom = 0;
-        Say(_requestedMine ? "World received. Loading your saved Henry." : "World received. Loading it.");
+        _requestedFrom = 0; _consentGiven = -1;
+        Say(characterSha.Length > 0 ? $"Got {PeerName(_rxFrom)}'s game. Loading it with your own Henry..." : $"Got {PeerName(_rxFrom)}'s game. Loading it...");
         LoadPlayline(playline);
     }
 
@@ -621,19 +781,18 @@ public sealed class WorldCoordinator : IDisposable
 
     private async Task HenryHomeAsync()
     {
-        if (_reg.PendingLoad is not null || _expectLoad || _requestedFrom != 0) { Say("Finish the pending world operation before sending Henry home."); return; }
+        if (_reg.PendingLoad is not null || _expectLoad || _requestedFrom != 0) { Show("Finish the current load first"); return; }
         if (_reg.HomeLeaseId.Length > 0)
         {
-            Say("Your home world is archived. Close the game and restore it with KcdUsAgent --slot-restore " + _reg.HomeLeaseId + " --cloud-sync-paused before sending Henry home.");
+            Alert("Home world is archived", "Your home world is archived. Close the game and restore it with KcdUsAgent --slot-restore " + _reg.HomeLeaseId + " --cloud-sync-paused before sending Henry home.");
             return;
         }
         if (_reg.HomePlayline < 0 || _store.Newest(_reg.HomePlayline) is not { } home)
         {
-            Say("No home world is known: it is the game you played before joining a shared world.");
-            _title(MenuUi.Title.NoWorld);
+            Alert("No home world known", "No home world is known: it is the game you played before joining a shared world.");
             return;
         }
-        if (!InWorld) { Say("Load your current Henry before sending him home."); return; }
+        if (!InWorld) { Show("Load your Henry first", "Load your current Henry before sending him home."); return; }
         await CaptureCharacterAsync().ConfigureAwait(false);
         var prepared = ExactTraitsSave.PrepareCharacter(File.ReadAllBytes(home.Path), _characters.Read(_reg.MyCharacterSha256));
         var pending = new PendingWorldLoad("home-" + Guid.NewGuid().ToString("N"), "Home", home.Playline,
@@ -642,8 +801,7 @@ public sealed class WorldCoordinator : IDisposable
         _reg.PendingLoad = pending; _reg.Save(_regPath);
         _store.InstallWorld(home.Playline, pending.WorldId, prepared, "home", true);
         _reg.PendingLoad = pending with { Phase = "Installed" }; _reg.Save(_regPath);
-        _title(MenuUi.Title.HenryHome);
-        Say("Taking your Henry home. A copy of your home save is kept first.");
+        Show("Taking your Henry home...", "Taking your Henry home. A copy of your home save is kept first.");
         LoadPlayline(_reg.HomePlayline);
     }
 
@@ -658,20 +816,40 @@ public sealed class WorldCoordinator : IDisposable
         var s = _session();
         if (s.MyId == 0) { _announcedFor = -1; _announcedRoster = ""; }
         else if (s.MyId != _announcedFor || _announcedRoster != string.Join(',', s.Peers.Select(p => p.Id).OrderBy(id => id))) Enqueue(AnnounceAsync);
-        if (_requestedFrom != 0 && (s.MyId == 0 || now - _requestStartedMs > LoadingGraceMs))
+        // Join: ask until the host's game is here; a request nobody answered is asked again, never left blocking
+        if (_wantJoin && s.MyId != 0 && !s.IsHost && s.HostId != 0 && _requestedFrom == 0 && _rx is null && !_expectLoad && _reg.PendingLoad is null && now >= _nextAskMs)
+        {
+            _nextAskMs = now + AskRetryMs;
+            Enqueue(RequestAsync);
+        }
+        if (_requestedFrom != 0 && _rx is null && (s.MyId == 0 || now - _requestStartedMs > OfferWaitMs))
         {
             long requestStarted = _requestStartedMs;
-            Enqueue(() => {
-                if (_requestedFrom != 0 && _requestStartedMs == requestStarted)
-                { _requestedFrom = 0; _rx = null; Say("The world request expired. Your saves are unchanged; request it again after reconnecting."); }
+            Enqueue(() =>
+            {
+                if (_requestedFrom != 0 && _rx is null && _requestStartedMs == requestStarted)
+                {
+                    _requestedFrom = 0; _nextAskMs = Environment.TickCount64 + 1000;
+                    if (_wantJoin) SetStatus($"{HostName} did not answer: asking again");
+                }
                 return Task.CompletedTask;
             });
         }
         if (_rx is { } rx && now - _rxLastMs > ReceiveStallMs)
         {
-            _rxLastMs = now;
-            var miss = string.Join(',', rx.Missing().Take(150));
-            s.SendEvent($"wmiss|{_rxFrom}|{rx.Offer.TransferId}|{miss}");
+            if (now - _rxLastMs > ReceiveGiveUpMs || s.MyId == 0)
+            {
+                Enqueue(() =>
+                {
+                    if (_rx == rx) { _rx = null; _requestedFrom = 0; _nextAskMs = Environment.TickCount64 + 1000; SetStatus("Transfer stopped: asking again"); }
+                    return Task.CompletedTask;
+                });
+            }
+            else if (now - _rxLastMs > ReceiveStallMs && (now - _rxLastMs) % ReceiveStallMs < 1100)
+            {
+                var miss = string.Join(',', rx.Missing().Take(150));
+                s.SendEvent($"wmiss|{_rxFrom}|{rx.Offer.TransferId}|{miss}");
+            }
         }
         if (InWorld && now - _lastCardMs > 120_000) { _lastCardMs = now; Enqueue(async () => { await CaptureCardAsync().ConfigureAwait(false); }); }
         if (InWorld && _reg.ActiveWorld is { Playline: < 0 } unbound && now - _lastBindCheckMs > 30_000)
@@ -679,9 +857,24 @@ public sealed class WorldCoordinator : IDisposable
             _lastBindCheckMs = now;
             Enqueue(() => BindAsync(unbound));
         }
+        // the host plays on: a save the game wrote by itself (sleeping, a story autosave, a load of another game) shows which game is the shared one now
+        if (s.IsHost && s.MyId != 0 && InWorld && now - _lastFollowMs > 20_000)
+        {
+            _lastFollowMs = now;
+            Enqueue(FollowHostGameAsync);
+        }
     }
 
-    /// <summary>A "new world together" has no playline until the game writes its first save; then that playline is the world.</summary>
+    private async Task FollowHostGameAsync()
+    {
+        if (_expectLoad || _reg.PendingLoad is not null || _sending != 0) return;
+        if (_store.NewestSince(_followSinceUtc) is not { } f || f.ModifiedUtc <= _followSinceUtc) return;
+        string before = _reg.Active;
+        var w = BindHostGame(f); Persist();
+        if (w.Id != before) { _log($"world: the host now plays \"{w.Name}\" (playline {f.Playline})"); await AnnounceAsync().ConfigureAwait(false); }
+    }
+
+    /// <summary>A "new world together" from an older agent has no playline until the game writes its first save; then that playline is the world.</summary>
     private async Task BindAsync(WorldRecord w)
     {
         if (w.Playline >= 0) return;
@@ -689,7 +882,6 @@ public sealed class WorldCoordinator : IDisposable
         {
             w.Playline = f.Playline; Remember(w, f); Persist();
             _log($"world: \"{w.Name}\" is playline {f.Playline}");
-            Say($"Your new shared world \"{w.Name}\" has its first save.");
             await AnnounceAsync().ConfigureAwait(false);
         }
     }

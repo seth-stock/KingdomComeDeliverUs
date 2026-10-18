@@ -449,10 +449,31 @@ public class LuaModTests
     {
         var m = new LuaMod();
         m.Send("1~MENUTEXT|1");
+        Assert.Equal(0, m.Num("#__actions"));                     // no Multiplayer page is open: nothing is drawn over the game's own menu
+        m.Do("KCDUS_Menu('page','')");
+        m.Send("2~MENUTEXT|1");
         Assert.Equal("MP_Title1", m.Str("__actions[1]"));
         m.Do("__world.actionFails = true");
-        m.Send("2~MENUTEXT|2");   // a game without the page (not installed) is no error
+        m.Send("3~MENUTEXT|2");   // a game without the page (not installed) is no error
         Assert.Empty(m.Lines("KCDUS|ERR"));
+    }
+
+    [Fact]
+    public void A_status_line_goes_to_the_main_page_only_and_a_message_is_a_box_in_a_page_or_the_centred_line_in_the_world()
+    {
+        var m = new LuaMod();
+        m.Do("KCDUS_PageOpened('sub')");
+        m.Send("1~MENUTEXT|-1|Waiting for Henry's game");
+        Assert.Equal(0, m.Num("#__actions"));                     // a sub-page keeps its own heading
+        m.Do("KCDUS_PageClosed() KCDUS_Menu('page','')");
+        m.Send("2~MENUTEXT|-1|Waiting for Henry's game");
+        Assert.Equal("MP_Text", m.Str("__actions[1]"));
+        m.Send("3~MSG|All five playlines are full");
+        Assert.Equal("MP_Msg", m.Str("__actions[2]"));
+        m.Do("KCDUS_PageClosed()");
+        m.Send("4~MSG|Something long the player must read in the world");
+        Assert.Equal(2, m.Num("#__actions"));                      // no page: not a box
+        Assert.Contains("Something long the player must read", m.Str("__infos[#__infos].text"));
     }
 
     [Fact]

@@ -4,16 +4,62 @@
 -- and the agent can ask the game to load a save by sending  LOAD|<list index>|<playline>  (the stock LoadSavedGame node, via the MP_Load graph).
 local K = KCDUS
 
+-- Which Multiplayer page is open: "main", "sub" or nil. The agent's status lines go into the main page's title only (elsewhere they were drawn over the
+-- game's own main menu: seen); answers and boxes go to any open page, and with no page open a message is the centred line in the world instead.
+K.MenuPage = { page = nil }
+function K.MenuPage.close() K.MenuPage.page = nil end
+
 -- the menu page's buttons call this global; anything the player cannot see should be safe to repeat
 function KCDUS_Menu(verb, arg)
-    K.out("MENU", K.clean(verb), K.clean(arg))
+    verb = K.clean(verb)
+    if verb == "page" then K.MenuPage.page = "main" elseif K.MenuPage.page == nil then K.MenuPage.page = "sub" end
+    K.out("MENU", verb, K.clean(arg))
 end
 
--- agent -> game: MENUTEXT|<code>  the line at the top of the open page (what the agent is doing). A flow-graph variable is a number only, so
--- the agent sends a code and the pak holds one tiny graph per code, MP_Title<code> (MenuUi.Title).
+-- a sub-page opened (More options, Story and keys, ...) / any page's Back was pressed
+function KCDUS_PageOpened(which) K.MenuPage.page = which or "sub" end
+function KCDUS_PageClosed() K.MenuPage.page = nil end
+
+local function seconds(text) return math.min(15, math.max(6, math.floor(#text / 12))) end
+
+-- agent -> game: MSG|<text>  something the player must read: a box with OK in the open page, the centred line in the world
+K.handlers["MSG"] = function(f)
+    local text = K.clean(f[2] or "")
+    if K.MenuPage.page ~= nil then
+        local ok, started = pcall(UIAction.StartAction, "MP_Msg", { text })
+        if ok and started ~= false then return end
+    end
+    if K.UI then K.UI.info(text, seconds(text)) end
+end
+
+-- agent -> game: ASK|<text>  a yes/no question in the open page; Yes runs KCDUS_Menu('confirm','yes'). With no page open it is said, and Join again answers it.
+K.handlers["ASK"] = function(f)
+    local text = K.clean(f[2] or "")
+    if K.MenuPage.page ~= nil then
+        local ok, started = pcall(UIAction.StartAction, "MP_Msg", { text })   -- a Yes/No box never reported its answer: Join again says yes
+        if ok and started ~= false then return end
+    end
+    if K.UI then K.UI.info(text, seconds(text)) end
+end
+
+-- agent -> game: MENUTEXT|<code>|<text>  the line at the top of the open page (what the agent is doing). MP_Text takes the words as the action's
+-- argument (the Start node's Args port, as the game's own help screen takes its page); a pak built before MP_Text has one graph per code, MP_Title<code>.
 K.handlers["MENUTEXT"] = function(f)
-    local code = math.floor(K.num(f[2], 0))
-    pcall(UIAction.StartAction, "MP_Title" .. code, {})
+    local code = math.floor(K.num(f[2], -1))
+    local text = f[3]
+    -- a status line (code -1) belongs to the main page; an answer to a button (a code) to the page that is open; nothing without a page
+    if K.MenuPage.page == nil or (code < 0 and K.MenuPage.page ~= "main") then
+        return
+    end
+    if text ~= nil and text ~= "" then
+        local ok, started = pcall(UIAction.StartAction, "MP_Text", { text })
+        if ok and started ~= false then
+            return
+        end
+    end
+    if code >= 0 then
+        pcall(UIAction.StartAction, "MP_Title" .. code, {})
+    end
 end
 
 -- agent -> game: LOAD|<index in the playline's list, 0 = newest>|<playline number>

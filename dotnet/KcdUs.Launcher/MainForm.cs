@@ -134,7 +134,7 @@ public sealed class MainForm : Form
     {
         bool host = _host.Checked;
         _address.Enabled = _join.Checked; _serverName.Enabled = host;
-        _address2.Text = _tab.Checked ? "In the game: Multiplayer > Host a game / Join a game. Friends use: " + string.Join("  or  ", MyAddresses())
+        _address2.Text = _tab.Checked ? "In the game: Multiplayer > Host: share my game (host) or Join my friend's game (friend). Friends use: " + string.Join("  or  ", MyAddresses())
             : host ? "Tell your friends: " + string.Join("  or  ", MyAddresses()) : "Ask your host for their address and port.";
     }
 

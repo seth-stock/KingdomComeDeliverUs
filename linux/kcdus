@@ -136,7 +136,7 @@ cmd_start_game() {
 # play: start the game and run the agent that the game's Multiplayer tab talks to (Ctrl-C stops it)
 cmd_play() {
   cmd_start_game
-  echo "In the game: Multiplayer > Host a game / Join a game / Game world. Keep this window open while you play."
+  echo "In the game: Multiplayer > Host: share my game (the host) / Join my friend's game (the friend). Keep this window open while you play."
   run_agent idle - "${1:-}"
 }
 

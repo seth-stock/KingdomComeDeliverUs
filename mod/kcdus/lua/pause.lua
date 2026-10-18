@@ -64,6 +64,7 @@ end
 function KCDUS_MenuEvent(n)
     n = tonumber(n) or -1
     if n == 1 then P.menuOpen = true elseif n == 0 then P.menuOpen = false end
+    if n == 0 and K.MenuPage then K.MenuPage.close() end   -- the pause menu closed: no Multiplayer page is open
     K.out("PAUSE", "menu", n)
 end
 

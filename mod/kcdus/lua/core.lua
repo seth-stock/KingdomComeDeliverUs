@@ -156,6 +156,7 @@ function K.step(now)
     local w = K.inWorld()
     if w ~= K.inWorldNow then
         K.inWorldNow = w
+        if w and K.MenuPage then K.MenuPage.close() end   -- a game just loaded: the menus are gone
         K.out("READY", w and 1 or 0)
     end
     for i = 1, #K.tasks do

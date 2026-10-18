@@ -81,9 +81,10 @@ public class AgentHostTests
     {
         await using var r = new Rig();
         r.Game.Emit("KCDUS|MENU|page|");
-        await Until(() => r.Game.Has("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.Idle));
+        await Until(() => r.Game.Has("MENUTEXT|-1|Not in a session"));
         await r.Host.HandleAsync("host", "");
-        Assert.Equal("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.Hosting, r.Game.Last("MENUTEXT|"));
+        Assert.StartsWith("MENUTEXT|-1|Hosting", r.Game.Last("MENUTEXT|"));
+        Assert.All(r.Game.Snapshot().Where(l => l.StartsWith("MENUTEXT|")), l => Assert.True(l.Split('|')[2].Length <= KcdUs.Agent.Ui.MenuUi.TitleMax, l));   // the title box holds one short line
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public class AgentHostTests
         Assert.True(r.Host.Session.IsHost);
         await Until(() => r.Host.Session.GetStatus().RelayConnected);
         Assert.Contains("hosting", r.Host.Describe());
-        Assert.True(r.Game.Has("NOTE|Multiplayer: hosting"));
+        Assert.True(r.Game.Has("NOTE|Hosting on port"));
 
         await r.Host.HandleAsync("leave", "");
         Assert.Equal(AgentHost.Idle, r.Host.Mode);
@@ -271,7 +272,8 @@ public class AgentHostTests
             await Until(() => !host.Host.Session.ContentMatches);                            // the host is told as well
             await guest.Host.HandleAsync("world", "join");
             await Until(() => guest.Game.Has("NOTE|Your game has other mods"));
-            Assert.False(guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // no request was sent
+            await Task.Delay(1000);
+            Assert.False(guest.Game.Has("LOAD|"));                                          // nothing was moved (the host refuses too)
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }
@@ -311,7 +313,7 @@ public class AgentHostTests
             Assert.Contains("turn that DLC off in Steam", string.Join("\n", guest.Game.Snapshot()));
             await Until(() => host.Host.Session.GetStatus().RoomNote.Contains("partly shared"));   // honestly partial, never "shared"
             await guest.Host.HandleAsync("world", "join");
-            await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));   // the request IS sent
+            await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|-1|Asking")));   // the request IS sent
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }
@@ -336,8 +338,10 @@ public class AgentHostTests
             int guestId = guest.Host.Session.MyId;
             await Until(() => host.Host.Session.PeerLacksDlc(guestId).Count == 1);                  // the host knows too, and will not serve a world to them
             await guest.Host.HandleAsync("world", "join");
-            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have"));
-            Assert.False(guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|" + (int)KcdUs.Agent.Ui.MenuUi.Title.WorldAsked)));
+            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have (NewHomes)"));
+            Assert.Contains("That is From the Ashes", string.Join("\n", guest.Game.Snapshot()));   // said by name, as the store calls it
+            await Task.Delay(1000);
+            Assert.False(guest.Game.Has("LOAD|"));                                                   // and nothing was moved
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }

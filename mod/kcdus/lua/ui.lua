@@ -11,8 +11,16 @@ function U.info(text, seconds)
     K.try("ui:info", function() Game.SendInfoText(text, true, nil, seconds or 6) end)
 end
 
+-- A notification box holds a short line and queues the rest (long ones were cut off, and a burst of them came in late); a longer message is the
+-- centred info line instead, up long enough to read, and the newest replaces the one before.
+U.SHORT = 60
 K.handlers["NOTE"] = function(f)
-    U.notify(K.clean(f[2] or ""))
+    local text = K.clean(f[2] or "")
+    if #text <= U.SHORT then
+        U.notify(text)
+    else
+        U.info(text, math.min(15, math.max(6, math.floor(#text / 12))))
+    end
 end
 
 K.handlers["CHAT"] = function(f)

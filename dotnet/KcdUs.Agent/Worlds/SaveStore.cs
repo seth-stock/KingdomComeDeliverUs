@@ -23,39 +23,107 @@ public sealed class SaveStore
 
     public SaveStore(string root, string backupRoot) { Root = root; BackupRoot = backupRoot; }
 
-    /// <summary>Windows: Saved Games under the profile. Linux: the same folder inside the game's Proton prefix.</summary>
-    public static string? FindRoot(string? configured, string? steamLibraryOfGame = null)
+    /// <summary>
+    /// Windows: Saved Games under the profile. Linux: the same folder inside the game's Proton prefix, in whichever Steam library holds it. The game
+    /// names its folder "KingdomCome" and Windows ignores case, but a Linux file system does not: an exact-case lookup missed the folder the game made
+    /// (seen with a Linux player: shared worlds off, or a second empty folder the game never read). Every step of the path is matched ignoring case.
+    /// </summary>
+    public static string? FindRoot(string? configured, string? steamLibraryOfGame = null, IEnumerable<string>? libraries = null)
     {
         if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured)) return configured;
         if (OperatingSystem.IsWindows())
+            return InProfile(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        var prefixes = new List<string>();
+        void Add(string steamapps)
         {
-            string p = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "kingdomcome", "saves");
-            return Existing(p);
+            string user = System.IO.Path.Combine(steamapps, "compatdata", GameLocator.SteamAppId, "pfx", "drive_c", "users", "steamuser");
+            if (Directory.Exists(user) && !prefixes.Contains(user)) prefixes.Add(user);
         }
-        // <library>/steamapps/common/KingdomComeDeliverance  ->  <library>/steamapps/compatdata/379430/pfx/drive_c/users/steamuser/Saved Games/kingdomcome/saves
-        if (steamLibraryOfGame is { Length: > 0 })
-        {
-            var steamapps = System.IO.Path.GetFullPath(System.IO.Path.Combine(steamLibraryOfGame, "..", ".."));
-            string p = System.IO.Path.Combine(steamapps, "compatdata", GameLocator.SteamAppId, "pfx", "drive_c", "users", "steamuser", "Saved Games", "kingdomcome", "saves");
-            if (Existing(p) is { } found) return found;
-        }
+        // <library>/steamapps/common/KingdomComeDeliverance  ->  <library>/steamapps/compatdata/379430/pfx/drive_c/users/steamuser/Saved Games/KingdomCome/saves
+        if (steamLibraryOfGame is { Length: > 0 }) Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(steamLibraryOfGame, "..", "..")));
+        foreach (var lib in libraries ?? SafeLibraries()) Add(System.IO.Path.Combine(lib, "steamapps"));
+        // the prefix that already has the game's own folder wins; a prefix with none gets one
+        foreach (var user in prefixes)
+            if (ResolveIgnoringCase(System.IO.Path.Combine(user, "Saved Games", "kingdomcome")) is not null) return InProfile(user);
+        foreach (var user in prefixes)
+            if (InProfile(user) is { } made) return made;
         return null;
     }
 
+    private static IEnumerable<string> SafeLibraries()
+    {
+        try { return GameLocator.Libraries().ToList(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return Array.Empty<string>(); }
+    }
+
     /// <summary>
-    /// The saves folder, created when the game's own user folder exists but has no saves yet: the game makes "saves" only at its first save, so a
-    /// player who never saved (a fresh Proton prefix, found with a Linux player) had shared worlds switched off and could not even RECEIVE a world.
-    /// The folder is created only inside the game's existing user folder (Windows: Saved Games\kingdomcome; Proton: the prefix's steamuser profile).
+    /// <c>&lt;profile&gt;/Saved Games/kingdomcome/saves</c> as it is on disk (any case). Where two folders differ only in case (an older agent made the second),
+    /// the one holding the game's files is used and an EMPTY stray one is removed. The saves folder is created when the game's user folder (or at least
+    /// "Saved Games") exists but holds none yet: the game makes "saves" only at its first save, so a player who never saved could not receive a world.
     /// </summary>
+    public static string? InProfile(string profile)
+    {
+        if (!Directory.Exists(profile)) return null;
+        string? savedGames = ResolveIgnoringCase(System.IO.Path.Combine(profile, "Saved Games"));
+        if (savedGames is null) return null;
+        var users = Matches(savedGames, "kingdomcome");
+        string? user = users.OrderByDescending(Weight).FirstOrDefault();
+        foreach (var stray in users.Where(u => u != user && IsEmptyTree(u)))
+            try { Directory.Delete(stray, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        user ??= System.IO.Path.Combine(savedGames, "KingdomCome");
+        string saves = Matches(user, "saves").OrderByDescending(Weight).FirstOrDefault() ?? System.IO.Path.Combine(user, "saves");
+        if (Directory.Exists(saves)) return saves;
+        try { Directory.CreateDirectory(saves); return saves; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>The kept name for the tests and older callers: the saves folder at this exact path, made when its profile exists.</summary>
     public static string? Existing(string saves)
     {
         if (Directory.Exists(saves)) return saves;
-        var user = System.IO.Path.GetDirectoryName(saves);            // ...\kingdomcome
-        var profile = user is null ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(user)!);   // the user profile ("steamuser" / the Windows profile)
-        if (user is null || profile is null || !Directory.Exists(profile)) return null;
-        if (!Directory.Exists(user) && !Directory.Exists(System.IO.Path.GetDirectoryName(user)!)) return null;   // no "Saved Games" either: not this game's prefix yet
-        try { Directory.CreateDirectory(saves); return saves; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+        var user = System.IO.Path.GetDirectoryName(saves);
+        var profile = user is null ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(user)!);
+        return profile is null ? null : InProfile(profile);
+    }
+
+    /// <summary>The path as it is on disk, each part matched ignoring case (the first match that exists); null when some part is missing.</summary>
+    public static string? ResolveIgnoringCase(string path)
+    {
+        if (Directory.Exists(path)) return path;
+        string full = System.IO.Path.GetFullPath(path);
+        string? root = System.IO.Path.GetPathRoot(full);
+        if (root is null) return null;
+        string cur = root;
+        foreach (var part in full[root.Length..].Split(System.IO.Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string next = System.IO.Path.Combine(cur, part);
+            if (!Directory.Exists(next))
+            {
+                var m = Matches(cur, part).OrderByDescending(Weight).FirstOrDefault();
+                if (m is null) return null;
+                next = m;
+            }
+            cur = next;
+        }
+        return cur;
+    }
+
+    private static List<string> Matches(string dir, string name)
+    {
+        try { return Directory.Exists(dir) ? Directory.EnumerateDirectories(dir).Where(d => string.Equals(System.IO.Path.GetFileName(d), name, StringComparison.OrdinalIgnoreCase)).ToList() : new(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return new(); }
+    }
+
+    /// <summary>How much of the game is in a folder: files count, a save counts most (the folder the game itself writes to).</summary>
+    private static long Weight(string dir)
+    {
+        try { return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Sum(f => f.EndsWith(".whs", StringComparison.OrdinalIgnoreCase) ? 1000L : 1L); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return 0; }
+    }
+
+    private static bool IsEmptyTree(string dir)
+    {
+        try { return !Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
     public static string DefaultBackupRoot() =>

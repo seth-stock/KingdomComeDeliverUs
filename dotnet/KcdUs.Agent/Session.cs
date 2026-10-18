@@ -203,7 +203,7 @@ public sealed class Session : IDisposable
     public event Action<int, string[]>? WorldEvent;
 
     /// <summary>Kinds the shared-world code sends; any other event kind is not passed on.</summary>
-    public static bool IsWorldKind(string kind) => kind is "wstamp" or "wnew" or "wreq" or "woffer" or "wchunk" or "wdone" or "wmiss";
+    public static bool IsWorldKind(string kind) => kind is "wstamp" or "wnew" or "whost" or "wreq" or "woffer" or "wchunk" or "wdone" or "wmiss";
 
     /// <summary>Sends an event to the other players (false when not connected).</summary>
     public bool SendEvent(string text)
@@ -852,7 +852,11 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>A line of text on the player's screen in the game.</summary>
-    public void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 160));
+    public void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 300));
+    /// <summary>Something the player must read: a box with OK while a Multiplayer page is open, the centred line in the world (menu.lua MSG).</summary>
+    public void Alert(string text) => _game.Send("MSG|" + Safe.Clean(text, Ui.MenuUi.BoxMax));
+    /// <summary>A yes/no question in the Multiplayer page (menu.lua ASK); Yes comes back as the menu verb "confirm".</summary>
+    public void Ask(string text) => _game.Send("ASK|" + Safe.Clean(text, Ui.MenuUi.BoxMax));
 
     // ================================================================ the clock
 
@@ -1000,7 +1004,7 @@ public sealed class Session : IDisposable
         _dlcLacks = FlagNames(flags, "dlc-host-extra");
         _dlcExtra = FlagNames(flags, "dlc-peer-extra");
         if (_dlcExtra.Count > 0) { Notify($"Your game has DLC your host's does not ({string.Join(", ", _dlcExtra)}): it stays out of what you share."); Notify(SteamDlcHint); }
-        if (_dlcLacks.Count > 0) { Notify($"Your host's game has DLC you do not have ({string.Join(", ", _dlcLacks)}): their world needs it."); Notify("Get that DLC, or ask your host to play without it. Their world cannot be moved to you."); }
+        if (_dlcLacks.Count > 0) { Notify($"Your host's game has DLC you do not have ({string.Join(", ", _dlcLacks)}): their world needs it. That is {DlcLog.Friendly(_dlcLacks)}."); Notify("Get that DLC, or ask your host to play without it. Their world cannot be moved to you."); }
         if (_contentDiffers) Notify("Your game has other mods than your host's: worlds and characters will not be moved between you.");
     }
 
