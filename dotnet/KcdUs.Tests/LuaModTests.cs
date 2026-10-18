@@ -274,13 +274,41 @@ public class LuaModTests
     }
 
     [Fact]
+    public void Long_notes_wait_their_turn_wait_for_a_closed_menu_and_a_stale_one_is_dropped()
+    {
+        var m = new LuaMod();
+        m.InWorld();
+        m.Send("1~NOTE|The first long message that has to be read, longer than one notification line holds.");
+        m.Send("2~NOTE|The second long message, which must not replace the first one before it was read.");
+        Assert.Equal(1, m.Num("#__infos"));
+        m.Advance(8.0);
+        Assert.Equal(2, m.Num("#__infos"));                         // the second, after the first
+        m.Advance(10.0);
+        int shown = (int)m.Num("#__infos");
+        m.Do("KCDUS_MenuEvent(1)");
+        m.Send("3~NOTE|Said while the pause menu is open");
+        m.Advance(2.0);
+        Assert.Equal(0, m.Num("#__notes"));                         // held while the menu is open
+        m.Do("KCDUS_MenuEvent(0)");
+        m.Advance(1.0);
+        Assert.Equal("Said while the pause menu is open", m.Str("__notes[1]"));
+        m.Advance(5.0);
+        m.Do("KCDUS_MenuEvent(1)");
+        m.Send("4~NOTE|Old news");
+        m.Advance(30.0);
+        m.Do("KCDUS_MenuEvent(0)");
+        m.Advance(1.0);
+        Assert.Equal(1, m.Num("#__notes"));                         // too old by the time it could be seen: dropped
+    }
+
+    [Fact]
     public void Notifications_chat_and_prompts_reach_the_player()
     {
         var m = new LuaMod();
         m.InWorld();
         m.Send("1~NOTE|Hans joined");
         m.Send("2~CHAT|Hans|hello there");
-        Assert.Equal("Hans joined", m.Str("__notes[1]"));
+        Assert.Equal("Hans joined", m.Str("__notes[1]"));                // short: the game's banner
         Assert.Equal("Hans: hello there", m.Str("__notes[2]"));
         m.Send("3~PROMPT|Your host is on rails. F11 join, F12 stay.|30");
         Assert.Equal(1, m.Num("#__infos"));
@@ -471,7 +499,10 @@ public class LuaModTests
         m.Send("3~MSG|All five playlines are full");
         Assert.Equal("MP_Msg", m.Str("__actions[2]"));
         m.Do("KCDUS_PageClosed()");
-        m.Send("4~MSG|Something long the player must read in the world");
+        m.Send("4~MSG|Something long the player must read in the world, longer than a notification line");
+        Assert.Equal(0, m.Num("#__infos"));                        // at the main menu nothing on the HUD can be seen: it waits
+        m.InWorld();
+        m.Advance(1.0);
         Assert.Equal(2, m.Num("#__actions"));                      // no page: not a box
         Assert.Contains("Something long the player must read", m.Str("__infos[#__infos].text"));
     }

@@ -217,6 +217,17 @@ public class MenuUiTests
     }
 
     [Fact]
+    public void Each_page_has_a_back_button_of_its_own_so_back_closes_only_that_page()
+    {
+        var backs = MenuUi.Pages().Where(kv => Parse(kv.Value).Descendants("Node").Any(n => (string)n.Attribute("Class")! == "UI:Action:End" && (string)n.Element("Inputs")!.Attribute("UseAsState")! == "1"))
+            .Select(kv => Parse(kv.Value).Descendants("Node").Single(n => (string)n.Attribute("Class")! == "UI:Functions:MainMenu:AddButton" && (string)n.Element("Inputs")!.Attribute("actionType")! == "back"))
+            .Select(n => (string)n.Element("Inputs")!.Attribute("id")!).ToList();
+        Assert.True(backs.Count >= 5);
+        Assert.Equal(backs.Count, backs.Distinct().Count());
+        Assert.DoesNotContain("IDD_Back", backs);   // the game's own pages use it; one press of ours would close them too
+    }
+
+    [Fact]
     public void Any_text_reaches_the_title_box_through_the_start_nodes_argument()
     {
         // MP_Text: Lua starts it with the words as its one argument; the Start node's Args port feeds the title box (as the game's help screen feeds its page)

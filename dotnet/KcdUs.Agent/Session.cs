@@ -522,7 +522,7 @@ public sealed class Session : IDisposable
                     ApplyMyFlags(f.Length > 7 ? f[7] : "");
                     _peerModes[_myId] = f.Length > 5 ? f[5] : "presence";
                     _log($"welcome: I am #{_myId}, the host is #{_hostId}, \"{_serverName}\", room: {RoomWord()}");
-                    Notify($"Connected to {_serverName}. {RoomSentence()}");
+                    Notify($"Connected to {_serverName}.");
                     if (_inWorld) { _relay.Send(MessageType.Event, "world|1"); _game.Send("QSNAP"); _awaitingBaseline = true; _seedPending = true; _baselineUntilMs = now + BaselineMs; }
                     if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
                     break;
@@ -752,7 +752,7 @@ public sealed class Session : IDisposable
         switch (step.Act)
         {
             case RailsJoiner.Act.Ask:
-                _game.Send($"PROMPT|{Safe.Clean(RailsRules.Ask(_hostWhy), 150)} F11 join, F12 stay.|{RailsRules.PromptSeconds}");
+                _game.Send($"PROMPT|{Safe.Clean(RailsRules.Ask(_hostWhy), 150)} {KeyHint}|{RailsRules.PromptSeconds}");
                 _log($"asked: join the host in \"{_hostWhy}\"?");
                 break;
 
@@ -790,7 +790,7 @@ public sealed class Session : IDisposable
         }
         else
         {
-            Notify("You stay in the open world. F11 joins your host at any time.");
+            Notify(KeyHint.StartsWith("F", StringComparison.Ordinal) ? $"You stay in the open world. {KeyHint.Split(' ')[0]} joins your host at any time." : "You stay in the open world. Multiplayer > More options > Story joins your host at any time.");
         }
         _log($"answer: {RailsRules.ChoiceName(c)}{(why.Length > 0 ? " (" + why + ")" : "")}");
     }
@@ -801,7 +801,14 @@ public sealed class Session : IDisposable
         lock (_gate)
         {
             long now = _now();
-            if (IsHost || !_joiner.Open || !_joiner.Decide(c, now)) return false;
+            if (IsHost) return false;
+            if (!_joiner.Open)
+            {
+                // a key or button with no question open: say so, rather than nothing at all
+                if (_myId != 0) Notify(c == RailsChoice.Join ? "Nothing to join: your host is not in a story stretch." : "Nothing to answer: your host is not in a story stretch.");
+                return false;
+            }
+            if (!_joiner.Decide(c, now)) return false;
             string code = _joiner.Period ?? "";
             Announce(c, code, source);
             return true;
@@ -853,6 +860,10 @@ public sealed class Session : IDisposable
 
     /// <summary>A line of text on the player's screen in the game.</summary>
     public void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 300));
+
+    /// <summary>How this player answers the host's story question, in the words of the prompt: "F11 join, F12 stay." or the menu (keys off, or none can be read).</summary>
+    public string KeyHint { get; set; } = "F11 join, F12 stay.";
+    public const string MenuAnswerHint = "Answer in Multiplayer > More options > Story.";
     /// <summary>Something the player must read: a box with OK while a Multiplayer page is open, the centred line in the world (menu.lua MSG).</summary>
     public void Alert(string text) => _game.Send("MSG|" + Safe.Clean(text, Ui.MenuUi.BoxMax));
     /// <summary>A yes/no question in the Multiplayer page (menu.lua ASK); Yes comes back as the menu verb "confirm".</summary>
@@ -995,7 +1006,7 @@ public sealed class Session : IDisposable
         return Array.Empty<string>();
     }
 
-    private const string SteamDlcHint = "To play exactly like your host, turn that DLC off in Steam (Properties, DLC) and restart the game.";
+    private const string SteamDlcHint = "To play exactly like your host, turn it off in Steam (Properties, DLC).";
 
     /// <summary>What the Welcome says about me against the host.</summary>
     private void ApplyMyFlags(string flags)
@@ -1003,8 +1014,8 @@ public sealed class Session : IDisposable
         _contentDiffers = flags.Split(',').Contains("content");
         _dlcLacks = FlagNames(flags, "dlc-host-extra");
         _dlcExtra = FlagNames(flags, "dlc-peer-extra");
-        if (_dlcExtra.Count > 0) { Notify($"Your game has DLC your host's does not ({string.Join(", ", _dlcExtra)}): it stays out of what you share."); Notify(SteamDlcHint); }
-        if (_dlcLacks.Count > 0) { Notify($"Your host's game has DLC you do not have ({string.Join(", ", _dlcLacks)}): their world needs it. That is {DlcLog.Friendly(_dlcLacks)}."); Notify("Get that DLC, or ask your host to play without it. Their world cannot be moved to you."); }
+        if (_dlcExtra.Count > 0) Notify($"Your game has DLC your host's does not ({DlcLog.Friendly(_dlcExtra)}): it stays out of what you share. {SteamDlcHint}");
+        if (_dlcLacks.Count > 0) Notify($"Your host's game has DLC you do not have ({DlcLog.Friendly(_dlcLacks)}): their world needs it. Get it on Steam, or your host plays without it.");
         if (_contentDiffers) Notify("Your game has other mods than your host's: worlds and characters will not be moved between you.");
     }
 
@@ -1013,9 +1024,9 @@ public sealed class Session : IDisposable
     {
         if (flags.Split(',').Contains("content")) { _contentDiffers = true; Notify($"{name}'s game has other mods: worlds and characters will not be moved between you."); }
         var lacks = FlagNames(flags, "dlc-host-extra");
-        if (lacks.Count > 0) { _peerLacksDlc[id] = lacks; Notify($"{name} lacks DLC the host has ({string.Join(", ", lacks)}): your world cannot be moved to them."); }
+        if (lacks.Count > 0) { _peerLacksDlc[id] = lacks; Notify($"{name} lacks DLC you have ({DlcLog.Friendly(lacks)}): your game cannot be moved to them."); }
         var extra = FlagNames(flags, "dlc-peer-extra");
-        if (extra.Count > 0) Notify($"{name} has DLC your game does not ({string.Join(", ", extra)}); it stays out of what you share.");
+        if (extra.Count > 0) Notify($"{name} has DLC your game does not ({DlcLog.Friendly(extra)}); it stays out of what you share.");
     }
 
     /// <summary>The room's mode: the weakest negotiated mode among the players (presence, partial or shared).</summary>

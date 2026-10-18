@@ -65,7 +65,7 @@ public class AgentHostTests
     {
         await using var r = new Rig();
         Assert.Equal(AgentHost.Idle, r.Host.Mode);
-        Assert.Contains("not in a session", r.Host.Describe());
+        Assert.Contains("Not in a session", r.Host.Describe());
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class AgentHostTests
     {
         await using var r = new Rig();
         r.Game.Emit("KCDUS|MENU|status|");
-        await Until(() => r.Game.Has("NOTE|Multiplayer: not in a session"));
+        await Until(() => r.Game.Has("MSG|Not in a session"));   // pressed in a menu: a box, not a late notification
     }
 
     [Fact]
@@ -121,8 +121,8 @@ public class AgentHostTests
         Assert.Equal(AgentHost.HostMode, r.Host.Mode);
         Assert.True(r.Host.Session.IsHost);
         await Until(() => r.Host.Session.GetStatus().RelayConnected);
-        Assert.Contains("hosting", r.Host.Describe());
-        Assert.True(r.Game.Has("NOTE|Hosting on port"));
+        Assert.Contains("Hosting", r.Host.Describe());
+        Assert.StartsWith("MENUTEXT|-1|Hosting", r.Game.Last("MENUTEXT|"));
 
         await r.Host.HandleAsync("leave", "");
         Assert.Equal(AgentHost.Idle, r.Host.Mode);
@@ -137,7 +137,7 @@ public class AgentHostTests
         await using var r = new Rig();
         await r.Host.HandleAsync("join", "");
         Assert.Equal(AgentHost.Idle, r.Host.Mode);
-        Assert.True(r.Game.Has("NOTE|Enter your host's address"));
+        Assert.True(r.Game.Has("MSG|Put your host's address"));
         Assert.Single(r.Opened);
         Assert.Contains("/settings?t=" + r.Host.SettingsToken, r.Opened[0]);
     }
@@ -310,7 +310,7 @@ public class AgentHostTests
             Assert.Empty(guest.Host.Session.DlcLacks);
             Assert.True(guest.Host.Session.ContentMatches);                                // DLC is not a mod difference: the world may move
             Assert.True(guest.Game.Has("NOTE|Your game has DLC your host's does not"));
-            Assert.Contains("turn that DLC off in Steam", string.Join("\n", guest.Game.Snapshot()));
+            Assert.Contains("turn it off in Steam", string.Join("\n", guest.Game.Snapshot()));
             await Until(() => host.Host.Session.GetStatus().RoomNote.Contains("partly shared"));   // honestly partial, never "shared"
             await guest.Host.HandleAsync("world", "join");
             await Until(() => guest.Game.Snapshot().Any(s => s.StartsWith("MENUTEXT|-1|Asking")));   // the request IS sent
@@ -334,12 +334,11 @@ public class AgentHostTests
             await Until(() => guest.Host.Session.GetStatus().RelayConnected);
             await Until(() => guest.Host.Session.DlcLacks.Count == 1);
             Assert.Equal(new[] { "NewHomes" }, guest.Host.Session.DlcLacks);
-            Assert.True(guest.Game.Has("NOTE|Your host's game has DLC you do not have (NewHomes)"));
+            Assert.True(guest.Game.Has("NOTE|Your host's game has DLC you do not have (From the Ashes)"));
             int guestId = guest.Host.Session.MyId;
             await Until(() => host.Host.Session.PeerLacksDlc(guestId).Count == 1);                  // the host knows too, and will not serve a world to them
             await guest.Host.HandleAsync("world", "join");
-            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have (NewHomes)"));
-            Assert.Contains("That is From the Ashes", string.Join("\n", guest.Game.Snapshot()));   // said by name, as the store calls it
+            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have (From the Ashes)"));
             await Task.Delay(1000);
             Assert.False(guest.Game.Has("LOAD|"));                                                   // and nothing was moved
         }

@@ -79,6 +79,8 @@ public static class MenuUi
             "  </Nodes>\n  <Edges>\n" + _edges + "  </Edges>\n</Graph>\n";
     }
 
+    public static string BackId(string title) => "MP_Back_" + new string(title.Where(char.IsLetterOrDigit).ToArray());
+
     private static string Esc(string s) => s.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("'", "&apos;");
 
     /// <summary>A button on a page: what it says and what it does.</summary>
@@ -124,9 +126,11 @@ public static class MenuUi
                 g.Wire(ev, "onEvent", run, "Call");
             }
         }
-        int back = g.Add("UI:Functions:MainMenu:AddButton", ("instanceID", "-1"), ("id", "IDD_Back"), ("containerIndex", "1"), ("uiText", "@ui_back"), ("actionType", "back"), ("tooltip", ""), ("disable", "0"), ("sound", ""));
+        // each page's Back has an id of its own: with one shared id every open page heard the press, so Back on a sub-page closed the whole tab (seen)
+        string backId = BackId(title);
+        int back = g.Add("UI:Functions:MainMenu:AddButton", ("instanceID", "-1"), ("id", backId), ("containerIndex", "1"), ("uiText", "@ui_back"), ("actionType", "back"), ("tooltip", ""), ("disable", "0"), ("sound", ""));
         g.Wire(prev, "OnCall", back, "Call");
-        int backEv = g.Add("UI:Events:MainMenu:OnButton", ("instanceID", "-1"), ("Port", "0"), ("Idx", "IDD_Back"));
+        int backEv = g.Add("UI:Events:MainMenu:OnButton", ("instanceID", "-1"), ("Port", "0"), ("Idx", backId));
         int end = g.Add("UI:Action:End", ("UseAsState", "1"), ("Args", ""));
         g.Wire(backEv, "onEvent", end, "EndAction");
         int closed = g.Add("System:ExecuteScript", ("Script", "KCDUS_PageClosed()"));
@@ -177,7 +181,7 @@ public static class MenuUi
         Title.Settings => "Settings: opened in your browser",
         Title.StoryAsk => "Story: you are asked each time",
         Title.StoryJoin => "Story: you always join the host",
-        Title.StoryFree => "Story: you always stay free",
+        Title.StoryFree => "Story: you always stay in the open",
         Title.KeysDefault => "Keys: join F11, stay F12",
         Title.KeysAlt => "Keys: join F9, stay F10",
         Title.KeysOff => "Keys: none (answer in the menu)",
@@ -224,31 +228,33 @@ public static class MenuUi
         [ActionsDir + PageMore + ".xml"] = Page("More options", new Button[]
         {
             new("MP_Help", "How to play together", Menu("help"), Tooltip: "The steps, for the host and the friend"),
-            new("MP_Status", "Who is here", Menu("status"), Tooltip: "Who is connected, and what the mod is doing"),
+            new("MP_Status", "Who is here", Menu("status"), Tooltip: "Who is connected, and what is shared"),
+            new("MP_StoryPage", "Story: join or stay", Opens: PageStory, Tooltip: "Answer the host's story question, or give a standing answer"),
+            new("MP_KeysPage", "Keys", Opens: PageKeys, Tooltip: "The keys that answer the host's story question"),
+            new("MP_PausePage", "Pausing, fights and loot", Opens: PagePause, Tooltip: "Whether a pause menu pauses everyone, and whether enemies and items are shared with friends in the same game"),
             new("MP_WorldPlay", "Load my copy of the shared game", Menu("world", "play"), Tooltip: "Load your own copy of the last shared game, to play it alone"),
             new("MP_HenryHome", "Send my Henry home", Menu("henry", "home"), Tooltip: "Back into the game you played before joining, with what he gained here"),
-            new("MP_StoryPage", "Story and keys", Opens: PageStory, Tooltip: "What to do when the host's story goes on rails, and the keys that answer"),
-            new("MP_PausePage", "Pausing", Opens: PagePause, Tooltip: "Whether the pause menu pauses: your own, and a friend's"),
-            new("MP_SharedPage", "Shared fights and loot", Opens: PageShared, Tooltip: "Whether enemies (where they go, whom they fight, their health) and items are shared with friends in the same game"),
         }),
-        [ActionsDir + PageStory + ".xml"] = Page("Story and keys", new Button[]
+        [ActionsDir + PageStory + ".xml"] = Page("Story: join or stay", new Button[]
         {
-            new("MP_StoryAsk", "Ask me each time", Menu("pref", "ask"), Tooltip: "When the host's story goes on rails you are asked: join them, or stay in the open world"),
+            new("MP_AnswerJoin", "Join my host now", Menu("answer", "join"), Tooltip: "Your host's story asked: you go to them and follow their quest"),
+            new("MP_AnswerStay", "Stay in the open world", Menu("answer", "stay"), Tooltip: "Your host's story asked: you stay where you are (Join my host now joins later)"),
+            new("MP_StoryAsk", "Always ask me", Menu("pref", "ask"), Tooltip: "Each time the host's story goes on rails you are asked"),
             new("MP_StoryJoin", "Always join the host", Menu("pref", "join")),
             new("MP_StoryFree", "Always stay in the open world", Menu("pref", "free")),
-            new("MP_KeysDefault", "Answer keys: F11 join, F12 stay", Menu("keys", "f11f12")),
-            new("MP_KeysAlt", "Answer keys: F9 join, F10 stay", Menu("keys", "f9f10")),
-            new("MP_KeysOff", "No answer keys", Menu("keys", "off"), Tooltip: "Answer from this menu or the console"),
         }),
-        [ActionsDir + PageShared + ".xml"] = Page("Shared fights and loot", new Button[]
+        [ActionsDir + PageKeys + ".xml"] = Page("Keys", new Button[]
         {
-            new("MP_SharedOn", "On: enemies and items are shared in my shared world", Menu("shared", "on"), Tooltip: "Each enemy is run by the nearest player's game and follows it in the others; both your blows count; an item is only kept when the host says it is yours"),
-            new("MP_SharedOff", "Off: my copy of the world stays my own", Menu("shared", "off")),
+            new("MP_KeysDefault", "F11 join, F12 stay (default)", Menu("keys", "f11f12")),
+            new("MP_KeysAlt", "F9 join, F10 stay", Menu("keys", "f9f10")),
+            new("MP_KeysOff", "No keys", Menu("keys", "off"), Tooltip: "Answer in More options > Story: join or stay"),
         }),
-        [ActionsDir + PagePause + ".xml"] = Page("Pausing", new Button[]
+        [ActionsDir + PagePause + ".xml"] = Page("Pausing, fights and loot", new Button[]
         {
-            new("MP_PauseShared", "Shared: any player's pause menu pauses everyone", Menu("pause", "shared"), Tooltip: "Your menu pauses your game as usual; while a friend's pause menu is open your game is held too, and lets go by itself if they vanish"),
-            new("MP_PauseOff", "Off: the pause menu pauses nobody", Menu("pause", "off"), Tooltip: "With a friend in the world your own pause menu opens without pausing your game (needs the launcher's engine adapter), your inventory does not slow time, and a friend's menu never holds you"),
+            new("MP_PauseShared", "Pause: any pause menu pauses everyone", Menu("pause", "shared"), Tooltip: "Your menu pauses your game as usual; while a friend's pause menu is open your game is held too"),
+            new("MP_PauseOff", "Pause: nobody is paused by a menu", Menu("pause", "off"), Tooltip: "With a friend in the world your own pause menu does not pause your game (Windows), and a friend's never holds you"),
+            new("MP_SharedOn", "Shared fights and loot: on", Menu("shared", "on"), Tooltip: "Each enemy is run by the nearest player's game and follows it in the others; both your blows count; the host says whose an item is"),
+            new("MP_SharedOff", "Shared fights and loot: off", Menu("shared", "off"), Tooltip: "Your copy of the world stays your own"),
         }),
         [GraphLoad] = LoadGraph(),
         [GraphText] = TextGraph(),
@@ -396,7 +402,7 @@ public static class MenuUi
     }
 
     /// <summary>Bump when the pages change, so an agent that is newer than the pak on disk rebuilds it.</summary>
-    public const int Revision = 12;
+    public const int Revision = 14;
     public const string StampFile = "kcdus-ui-version.txt";
     public static string Stamp => KcdUs.Wire.Release.Current + "/ui" + Revision;
 

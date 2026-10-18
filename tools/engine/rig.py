@@ -127,6 +127,8 @@ def agents():
                 '--no-hotkeys', '--idle', '--name', 'Henry' + side.upper(), '--relay', '127.0.0.1']
         if side == 'b':
             args.append('--allow-loopback-join')
+            if os.environ.get('RIG_HOTKEYS_B') == '1':
+                args.remove('--no-hotkeys')   # B reads F11/F12 (only while B's game window is in front)
         env = dict(os.environ, KCDUS_DATA_DIR=str(data))
         logs = [q for q in (Path(r['gameRoot']) / 'kcd.log', Path(r['gameRoot']) / 'kcd(1).log') if q.exists()]
         if logs:

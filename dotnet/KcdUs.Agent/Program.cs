@@ -71,11 +71,11 @@ public static class Program
             // Windows: GetAsyncKeyState while the game window is in front. Linux: the kernel's input devices (LinuxKeys).
             LinuxKeys? lk = null;
             Hotkeys hk;
-            if (OperatingSystem.IsWindows()) hk = new Hotkeys();
+            if (OperatingSystem.IsWindows()) { hk = new Hotkeys(); host.KeysWork = true; }
             else
             {
                 lk = new LinuxKeys();
-                lk.Start(Log);
+                host.KeysWork = lk.Start(Log) > 0;   // no readable input device: the prompt points to the menu instead
                 hk = new Hotkeys(() => true) { IsDown = lk.IsDownVk };
             }
             hk.Join += () => host.Session.Choose(RailsChoice.Join, hk.JoinName);

@@ -20,8 +20,6 @@ end
 function KCDUS_PageOpened(which) K.MenuPage.page = which or "sub" end
 function KCDUS_PageClosed() K.MenuPage.page = nil end
 
-local function seconds(text) return math.min(15, math.max(6, math.floor(#text / 12))) end
-
 -- agent -> game: MSG|<text>  something the player must read: a box with OK in the open page, the centred line in the world
 K.handlers["MSG"] = function(f)
     local text = K.clean(f[2] or "")
@@ -29,7 +27,7 @@ K.handlers["MSG"] = function(f)
         local ok, started = pcall(UIAction.StartAction, "MP_Msg", { text })
         if ok and started ~= false then return end
     end
-    if K.UI then K.UI.info(text, seconds(text)) end
+    if K.UI then K.UI.say(text) end   -- the world's queue: shown in order, when no menu is open
 end
 
 -- agent -> game: ASK|<text>  a yes/no question in the open page; Yes runs KCDUS_Menu('confirm','yes'). With no page open it is said, and Join again answers it.
@@ -39,7 +37,7 @@ K.handlers["ASK"] = function(f)
         local ok, started = pcall(UIAction.StartAction, "MP_Msg", { text })   -- a Yes/No box never reported its answer: Join again says yes
         if ok and started ~= false then return end
     end
-    if K.UI then K.UI.info(text, seconds(text)) end
+    if K.UI then K.UI.say(text) end   -- the world's queue: shown in order, when no menu is open
 end
 
 -- agent -> game: MENUTEXT|<code>|<text>  the line at the top of the open page (what the agent is doing). MP_Text takes the words as the action's

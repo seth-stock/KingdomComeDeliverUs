@@ -3,24 +3,53 @@ local K = KCDUS
 K.UI = { prompt = nil }
 local U = K.UI
 
-function U.notify(text)
+-- the game's notification banner (top centre, upper case): about 45 characters fit, a longer text is cut (seen in the retail game)
+function U.banner(text)
     K.try("ui:notify", function() Game.ShowNotification(text) end)
 end
+function U.notify(text) U.say(text) end
 
 function U.info(text, seconds)
     K.try("ui:info", function() Game.SendInfoText(text, true, nil, seconds or 6) end)
 end
 
--- A notification box holds a short line and queues the rest (long ones were cut off, and a burst of them came in late); a longer message is the
--- centred info line instead, up long enough to read, and the newest replaces the one before.
-U.SHORT = 60
-K.handlers["NOTE"] = function(f)
-    local text = K.clean(f[2] or "")
-    if #text <= U.SHORT then
-        U.notify(text)
-    else
-        U.info(text, math.min(15, math.max(6, math.floor(#text / 12))))
+-- A short message is the game's notification banner; a longer one is the centred info line (the banner cuts it off). Both only draw while the
+-- game window is in front (an unfocused game drops them: seen).
+-- Messages wait in a queue, in order: while a menu is open nothing on the HUD can be seen, so they are held, and one that has waited longer
+-- than MAX_AGE is dropped (they used to pop up long after the moment they were about, and two long ones in a row replaced each other).
+U.SHORT = 44
+U.MAX_AGE = 20
+U.queue = {}
+U.busyUntil = 0
+
+function U.seconds(text) return math.min(15, math.max(6, math.floor(#text / 12))) end
+
+function U.say(text)
+    if text == "" then return end
+    U.queue[#U.queue + 1] = { text = text, t = K.now() }
+    U.pump(K.now())
+end
+
+function U.pump(now)
+    while #U.queue > 0 and now - U.queue[1].t > U.MAX_AGE do table.remove(U.queue, 1) end
+    if #U.queue == 0 or not K.inWorld() or (K.Pause and K.Pause.menuOpen) then return end
+    local m = U.queue[1]
+    if #m.text <= U.SHORT then
+        table.remove(U.queue, 1)
+        U.banner(m.text)
+        return U.pump(now)   -- the game lines banners up itself
     end
+    if U.prompt ~= nil or now < U.busyUntil then return end   -- the join-or-stay question holds the centre; one long line at a time
+    table.remove(U.queue, 1)
+    local secs = U.seconds(m.text)
+    U.info(m.text, secs)
+    U.busyUntil = now + secs
+end
+
+K.every(0.5, "notes", U.pump)
+
+K.handlers["NOTE"] = function(f)
+    U.say(K.clean(f[2] or ""))
 end
 
 K.handlers["CHAT"] = function(f)
@@ -28,7 +57,7 @@ K.handlers["CHAT"] = function(f)
     if #text > 160 then
         text = string.sub(text, 1, 160)
     end
-    U.notify((f[2] or "?") .. ": " .. text)
+    U.say(K.clean((f[2] or "?") .. ": " .. text))
 end
 
 -- INFO|text|seconds : a centred line. A prompt is re-sent every 2 s until INFOCLEAR so it stays up.
@@ -64,7 +93,7 @@ function KCDUS_Say(text)
         return
     end
     K.out("CHAT", text)
-    U.notify("You: " .. text)
+    U.say("You: " .. text)
 end
 
 function KCDUS_Status()

@@ -141,6 +141,7 @@ public sealed class AgentHost : IAsyncDisposable
     private Session NewSession(string role, IRelayLink relay, bool transient = false)
     {
         var s = NewSessionCore(role, relay, transient);
+        s.KeyHint = KeyHint();
         s.ScopeProvider = () => _world?.ActiveWorldId;       // the shared world this player has loaded: friends in the same one share fights and loot
         return s;
     }
@@ -230,12 +231,17 @@ public sealed class AgentHost : IAsyncDisposable
         switch (verb)
         {
             case "page": TitleLine(); break;
-            case "status": Session.Notify(Describe()); TitleLine(); break;
+            case "status": Session.Alert(Describe()); TitleLine(); break;
+            case "answer" when arg is "join" or "stay":
+                if (Session.IsHost) { Session.Alert("These two buttons are for the friends who join you: they answer the question your story asks them."); break; }
+                if (!Session.Choose(arg == "join" ? RailsChoice.Join : RailsChoice.Free, "menu")) Status(Mode == GuestMode ? "No story question to answer now" : "Join a host first");
+                else Status(arg == "join" ? "You joined your host" : "You stay in the open world");
+                break;
             case "help": Session.Alert(HelpText); Status("How to play: read the box"); break;
             case "confirm" when arg == "yes": _world?.Confirm(); break;
             case "host":
                 // pressing Host again must not restart the relay: that dropped every friend who had joined (seen live)
-                if (Mode == HostMode && _server is not null) { Session.Notify(Describe()); TitleLine(); break; }
+                if (Mode == HostMode && _server is not null) { Session.Alert(Describe()); TitleLine(); break; }
                 await SwitchAsync(HostMode).ConfigureAwait(false);
                 break;
             case "join" or "joinmine":
@@ -246,44 +252,43 @@ public sealed class AgentHost : IAsyncDisposable
                         await SwitchAsync(GuestMode).ConfigureAwait(false);
                         if (Mode != GuestMode) break;   // no address yet: the settings page was opened
                     }
-                    if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); break; }   // connected, but no game can be moved here
+                    if (_world is null) { Session.Alert(WorldsOff); Status("Shared games are off: see the box"); break; }   // connected, but no game can be moved here
                     _world.Join(arg == "mine" || verb == "joinmine" || string.Equals(Config.HenryMode, "mine", StringComparison.OrdinalIgnoreCase));
                     break;
                 }
             case "save":
-                if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); }
+                if (_world is null) { Session.Alert(WorldsOff); Status("Shared games are off: see the box"); }
                 else _world.Menu("world", "save");
                 break;
             case "leave": await SwitchAsync(Idle).ConfigureAwait(false); break;
             case "settings":
                 OpenUrl(SettingsUrl);
-                Session.Notify("Settings: opened in your browser (" + $"http://127.0.0.1:{_statusPort}/settings" + ")");
                 Title(Ui.MenuUi.Title.Settings);
                 break;
             case "world" or "henry" or "resolve":
-                if (_world is null) { Session.Notify(WorldsOff); Status(WorldsOff); }
+                if (_world is null) { Session.Alert(WorldsOff); Status("Shared games are off: see the box"); }
                 else if (verb == "world" && arg is "join" or "joinmine") await HandleAsync(arg, verb == "world" && arg == "joinmine" ? "mine" : "").ConfigureAwait(false);
                 else _world.Menu(verb, arg);
                 break;
             case "pref":
-                if (RailsRules.ParsePref(arg) is { } p) { Config.RailsPref = arg; Session.SetPref(p); Persist(); Session.Notify("When the host's story goes on rails: " + RailsRules.PrefText(p)); Title(p == RailsPref.Join ? Ui.MenuUi.Title.StoryJoin : p == RailsPref.Free ? Ui.MenuUi.Title.StoryFree : Ui.MenuUi.Title.StoryAsk); }
+                if (RailsRules.ParsePref(arg) is { } p) { Config.RailsPref = arg; Session.SetPref(p); Persist(); Title(p == RailsPref.Join ? Ui.MenuUi.Title.StoryJoin : p == RailsPref.Free ? Ui.MenuUi.Title.StoryFree : Ui.MenuUi.Title.StoryAsk); }
                 break;
             case "shared":
                 if (arg is "on" or "off")
                 {
                     Config.SharedOutcomes = arg == "on"; Session.Outcomes.SetEnabled(Config.SharedOutcomes); Persist();
-                    Session.Notify(Config.SharedOutcomes ? "Shared fights and loot: on (with friends in the same shared world)." : "Shared fights and loot: off. Every copy of the world stays its own.");
+                    Status(Config.SharedOutcomes ? "Shared fights and loot: on" : "Shared fights and loot: off");
                 }
                 break;
             case "pause":
                 if (arg is "shared" or "off")
                 {
                     Config.SharedPause = arg == "shared"; Session.Pause.SetShared(Config.SharedPause); Persist();
-                    Session.Notify(Config.SharedPause ? "Pausing is shared: any player's pause menu pauses everyone." : "Pausing is off: with a friend here your pause menu does not pause your game, and a friend's never holds it.");
+                    Status(Config.SharedPause ? "Pausing: shared with everyone" : "Pausing: off");
                 }
                 break;
             case "keys":
-                if (KeyPreset.IsKnown(arg)) { Config.KeyPreset = arg.ToLowerInvariant(); ApplyKeys(); Persist(); Session.Notify("Keys: " + KeyPreset.Describe(Config.KeyPreset)); Title(Config.KeyPreset == "f9f10" ? Ui.MenuUi.Title.KeysAlt : Config.KeyPreset == "off" ? Ui.MenuUi.Title.KeysOff : Ui.MenuUi.Title.KeysDefault); }
+                if (KeyPreset.IsKnown(arg)) { Config.KeyPreset = arg.ToLowerInvariant(); ApplyKeys(); Persist(); Title(Config.KeyPreset == "f9f10" ? Ui.MenuUi.Title.KeysAlt : Config.KeyPreset == "off" ? Ui.MenuUi.Title.KeysOff : Ui.MenuUi.Title.KeysDefault); }
                 break;
         }
     }
@@ -298,7 +303,7 @@ public sealed class AgentHost : IAsyncDisposable
             {
                 // nothing to join yet: the host's address goes into the settings page
                 _log("join: no host address set");
-                Session.Notify("Enter your host's address in the Multiplayer settings first.");
+                Session.Alert("Put your host's address into the settings first: they just opened in your browser. Save, then press Join again.");
                 Title(Ui.MenuUi.Title.NeedAddress);
                 OpenUrl(SettingsUrl);
                 return;
@@ -322,7 +327,7 @@ public sealed class AgentHost : IAsyncDisposable
                     {
                         _log($"ERROR: the relay cannot listen on port {Config.RelayPort}: {e.Message}");
                         mode = Idle; relay = new NullRelay(); server = null; role = GuestMode;
-                        _game.Send("NOTE|Port " + Config.RelayPort + " is in use. Close the other agent, or change the port in the settings.");
+                        _game.Send("MSG|Port " + Config.RelayPort + " is in use: another program (or a second Deliver Us agent) has it. Close it, or change the port in the settings.");
                         portBusy = true;
                     }
                     relayHost = "127.0.0.1";
@@ -338,7 +343,7 @@ public sealed class AgentHost : IAsyncDisposable
             string where = mode == HostMode ? $"hosting \"{Config.ServerName}\" on port {Config.RelayPort}" : mode == GuestMode ? $"joining {Config.RelayHost}:{Config.RelayPort}" : "not in a session";
             _log("mode: " + where);
             if (portBusy) Title(Ui.MenuUi.Title.PortBusy);
-            else { session.Notify(SessionDetail(mode)); TitleLine(); }
+            else TitleLine();   // pressed in a menu: the title says it (a notification would only show, late, after the menu closes)
         }
         finally { _switch.Release(); }
     }
@@ -400,25 +405,39 @@ public sealed class AgentHost : IAsyncDisposable
         _ => $"Joining {Config.RelayHost}:{Config.RelayPort}...",
     };
 
-    /// <summary>One line for the player: what the agent is doing and who is here.</summary>
+    /// <summary>Who is here, for the box (about 250 characters): the session, the players, and what is shared.</summary>
     public string Describe()
     {
         var s = Session.GetStatus();
+        string names = string.Join(", ", new[] { Config.PlayerName + " (you)" }.Concat(Session.Peers.Where(p => p.Id != Session.MyId).Select(p => p.Name)));
+        string shared = Config.SharedOutcomes ? "Fights and loot are shared with friends in the same game." : "Fights and loot are not shared.";
+        string keys = "Story answers: " + (KeyHint().StartsWith("F", StringComparison.Ordinal) ? KeyHint().TrimEnd('.') : "in the menu") + ".";
         return Mode switch
         {
-            Idle => "Multiplayer: not in a session. Use Host a game or Join a game.",
-            HostMode => $"Multiplayer: hosting on port {Config.RelayPort}, {s.Players.Count + 1} player(s). {s.RoomNote} Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
+            Idle => "Not in a session. Host: share my game, or Join my friend's game.",
+            HostMode => $"Hosting on port {Config.RelayPort}. Here: {names}. {shared} {keys}",
             _ when s.Refused.Length > 0 => "The host refused you: " + s.Refused.Split('|').Last(),
-            _ when s.RelayConnected => $"Multiplayer: joined {s.ServerName}, {s.Players.Count + 1} player(s). {s.RoomNote} Keys: {KeyPreset.Describe(Config.KeyPreset)}.",
-            _ => $"Multiplayer: trying to reach {Config.RelayHost}:{Config.RelayPort}...",
+            _ when s.RelayConnected => $"Joined {s.ServerName}. Here: {names}. {shared} {keys}",
+            _ => $"Trying to reach {Config.RelayHost}:{Config.RelayPort}...",
         };
     }
 
     public void ApplyKeys()
     {
+        Session.KeyHint = KeyHint();
         if (Keys is null) return;
         var (j, st) = KeyPreset.Parse(Config.KeyPreset);
         Keys.JoinVk = j; Keys.StayVk = st;
+    }
+
+    /// <summary>The keys can be read (Windows: always; Linux: an input device could be opened). False: the prompt points to the menu.</summary>
+    public bool KeysWork { get; set; }
+
+    /// <summary>What the story prompt tells this player to press.</summary>
+    public string KeyHint()
+    {
+        var (j, st) = KeyPreset.Parse(Config.KeyPreset);
+        return Keys is not null && KeysWork && j != 0 ? $"{KeyPreset.Name(j)} join, {KeyPreset.Name(st)} stay." : Session.MenuAnswerHint;
     }
 
     private void Persist()
