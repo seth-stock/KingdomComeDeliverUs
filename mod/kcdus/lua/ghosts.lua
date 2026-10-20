@@ -7,7 +7,9 @@ G.SNAP_DISTANCE = 8.0      -- farther than this from where it should be: jump, d
 G.EXTRAPOLATE_MAX = 0.4    -- seconds of velocity carried past the last update
 G.SMOOTH_RATE = 12.0
 G.RESPAWN_BACKOFF = 1.0
-G.CLOTHES = "40f91af6-8aa6-fa06-c171-785c048b0893"   -- Henry's own clothing preset in the base game
+G.SWING_DROP = 6.0         -- stamina lost in one sample that counts as a swing
+G.SWING_LEN = 0.9          -- seconds a swing is shown before walking/idling resumes
+G.CLOTHES ="40f91af6-8aa6-fa06-c171-785c048b0893"   -- Henry's own clothing preset in the base game
 
 local function entityOf(g)
     if g.id == nil then
@@ -95,6 +97,12 @@ K.handlers["P"] = function(f)
     g.flags = K.num(f[7])
     g.hp = K.num(f[8])
     g.anim = f[10] or ""
+    -- a swing costs the swinger a chunk of stamina in one 10 Hz step; with the sword out and the feet nearly still that drop is shown as a swing on the body
+    local stam = K.num(f[9], 0)
+    if g.stam and g.stamp and now - g.stamp <= G.EXTRAPOLATE_MAX and g.flags % 2 >= 1 and g.stam - stam >= G.SWING_DROP and math.sqrt(g.vx ^ 2 + g.vy ^ 2) < 3 and now - (g.swingAt or -10) > G.SWING_LEN then
+        g.swingAt = now
+    end
+    g.stam = stam
     g.stamp = now
 end
 

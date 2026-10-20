@@ -34,6 +34,38 @@ public class LocomotionTests
         m.Advance(0.15);Assert.Equal(1,m.Num("__spawned[1].animationStarts"));
     }
     [Fact]
+    public void AStaminaDropWithTheSwordOutIsShownAsOneSwingThenWalkingResumes()
+    {
+        var m=new LuaMod();m.InWorld();
+        m.Send("1~P|2|Hans|10,20,30|0|0,0,0|1|100|100|MotionIdle");m.Advance(0.3);
+        m.Send("2~P|2|Hans|10,20,30|0|0,0,0|1|100|88|MotionIdle");m.Advance(0.4);
+        Assert.Equal("combat_lg_z0_natksw_lngsw",m.Str("__spawned[1].animation.clip"));
+        Assert.False(m.Bool("__spawned[1].animation.loop"));
+        Assert.Single(m.Lines("KCDUS|SWING|2|1"));
+        m.Send("3~P|2|Hans|10,20,30|0|0,0,0|1|100|88|MotionIdle");m.Advance(0.3);
+        Assert.Equal("combat_lg_z0_natksw_lngsw",m.Str("__spawned[1].animation.clip"));   // still the same swing, not restarted
+        m.Send("4~P|2|Hans|10,20,30|0|0,0,0|1|100|88|MotionIdle");m.Advance(0.8);
+        Assert.Equal("relaxed_idle_both",m.Str("__spawned[1].animation.clip"));
+    }
+    [Fact]
+    public void NoSwingWithTheSwordAwayOrOnASmallStaminaStep()
+    {
+        var m=new LuaMod();m.InWorld();
+        m.Send("1~P|2|Hans|10,20,30|0|0,0,0|0|100|100|MotionIdle");m.Advance(0.3);
+        m.Send("2~P|2|Hans|10,20,30|0|0,0,0|0|100|80|MotionIdle");m.Advance(0.2);
+        m.Send("3~P|2|Hans|10,20,30|0|0,0,0|1|100|79|MotionIdle");m.Advance(0.2);
+        m.Send("4~P|2|Hans|10,20,30|0|0,0,0|1|100|77|MotionIdle");m.Advance(0.2);
+        Assert.Empty(m.Lines("KCDUS|SWING"));
+    }
+    [Fact]
+    public void AStaminaChangeAcrossALongPacketGapIsNotAnAttack()
+    {
+        var m=new LuaMod();m.InWorld();
+        m.Send("1~P|2|Hans|10,20,30|0|0,0,0|1|100|100|MotionIdle");m.Advance(1.2);
+        m.Send("2~P|2|Hans|10,20,30|0|0,0,0|1|100|50|MotionIdle");m.Advance(0.2);
+        Assert.Empty(m.Lines("KCDUS|SWING"));
+    }
+    [Fact]
     public void StaleMovementReturnsToIdleBeforePeerTimeout()
     {
         var m=Walking();m.Advance(0.6);Assert.Equal("relaxed_idle_both",m.Str("__spawned[1].animation.clip"));

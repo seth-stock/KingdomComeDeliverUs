@@ -1,6 +1,7 @@
 2026-10-11 DEVELOPMENT CONTINUATION: the four requested engine features remain incomplete.
 Read CONTINUATION-RESULTS.md and CAPABILITIES.md for the current implementation and limits.
-Use matching payloads: KCD1 wire protocol 4; KCD2 wire protocol 16.
+Use matching current payloads on both PCs: KCD1 wire protocol 4; KCD2 wire protocol 17.
+2026-10-20 continuation: read PLAYTEST-20261021.md for the torch pickup fix and cosmetic swing evidence.
 
 
 KINGDOM COME: DELIVER US 0.1.0 -- co-op for Kingdom Come: Deliverance (the FIRST game)
@@ -10,14 +11,14 @@ An unofficial, free community mod. Not affiliated with or endorsed by Warhorse S
 A modified port of Kingdom Come: Together (https://github.com/DeepFriedDepp/KingdomCome-Together). GPL-3.0.
 You and your host must all run THIS version (0.1.0): a different version is refused.
 
-PLAYTEST BUILD (2026-10-08). This is a development build for testing, not a finished release; nobody has played it with two people yet. The room tells you what it is:
+PLAYTEST BUILD (2026-10-20). This is a development build for testing, not a finished release; nobody has played it with two people yet. The room tells you what it is:
 "partly shared". When you BOTH play the same shared world (the host's world, loaded with Game world > Join the host's world), enemies lose health and die in both copies, loot of
 bodies and chests is decided by the host (an item you took that the host did not confirm is taken back), the host's quests follow, and a friend's pause menu holds your game.
 Session 4 adds Candidate enemy ownership/movement, ground pickup/drop, saddlebags, shop stock, puts and inventory quest rewards.
-Limits: no mirrored sword swings, full remote AI targeting proof, shared shop wallets/crime, XP rewards, durable complete economy or two-person acceptance.
+Limits: sword swings are a cosmetic stamina-based approximation. Independent native combat, full remote AI targeting proof, shared shop wallets/crime, complete causal quest effects, durable complete economy and two-computer acceptance remain unfinished.
 Pausing Off prevents your own ESC pause only through the supported Windows launcher/adapter; Linux has no proved equivalent. Read SESSION4-RESULTS.md. If the launcher says "shared simulation", that is a bug: report it.
 Everyone in the room needs THIS installer (a different mod build is refused with a sentence saying why). Different other mods cap the room at presence and block world/character moves. A richer-DLC guest may join a lower-DLC host; extra DLC stays out.
-A poorer-DLC guest cannot receive a richer host save: host without that DLC instead. Disable extra DLC in Steam and restart as instructed. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
+A guest with fewer DLC can receive a host save with its DLC header adjusted for that guest; this does not supply missing DLC assets or prove every DLC quest safe. Tests to try, step by step: HUMAN-ACCEPTANCE-TESTS.md (in this download, next to this file); what is proved and what is not: CAPABILITIES.md.
 
 WHAT IT IS (and is not)
   Each of you plays your OWN copy of the world. You see each other as figures that follow each other around, you can chat, your time of day follows the host's (forward only: the game cannot turn its clock back),

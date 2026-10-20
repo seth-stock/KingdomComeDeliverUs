@@ -46,6 +46,56 @@ public class SharedItemsLuaTests
     }
 
     [Fact]
+    public void Native_pickup_is_reported_once_while_its_ground_entity_is_still_visible()
+    {
+        var m = World(host: false);
+        m.Do("__pickedGround = __world_ents[1]; __pickedGround.rec.kcdusBridge = 1; " +
+             "__pickedGround.rec.kcdusPersistent = '11111111111111111111111111111111'");
+        m.Advance(0.6);
+        m.ClearLog();
+
+        // The engine moved this exact native item to Henry before retiring its entity.
+        m.Do("__henry.items[#__henry.items + 1] = __pickedGround.rec");
+        m.Advance(0.6);
+        var ask = Assert.Single(m.Lines("KCDUS|LOOT|ask|"));
+        Assert.Contains("|g@120_200_300|" + Apple + "|3|", ask);
+        Assert.True(m.Bool("__world_ents[1] == __pickedGround"));
+        Assert.Equal(0, m.Num("#__removed")); // observation must not delete the still-visible engine entity
+
+        m.Advance(1.2);
+        Assert.Single(m.Lines("KCDUS|LOOT|ask|"));
+        m.Do("System.RemoveEntity(__pickedGround.id)");
+        m.Advance(1.2);
+        Assert.Single(m.Lines("KCDUS|LOOT|ask|")); // retirement must not produce another claim
+        Assert.Equal(3, HenryHas(m, Apple));
+    }
+
+    [Fact]
+    public void A_different_native_instance_of_the_same_class_does_not_hide_or_claim_the_ground_item()
+    {
+        var m = World(host: false);
+        m.Do("__stillGround = __world_ents[1]; __stillGround.rec.kcdusBridge = 1; " +
+             "__stillGround.rec.kcdusPersistent = '11111111111111111111111111111111'");
+        m.Advance(0.6);
+        m.ClearLog();
+
+        m.Do("local it = __item('" + Apple + "', 3); it.kcdusBridge = 1; " +
+             "it.kcdusPersistent = '22222222222222222222222222222222'; " +
+             "__henry.items[#__henry.items + 1] = it");
+        m.Advance(1.2);
+        Assert.Empty(m.Lines("KCDUS|LOOT|ask|"));
+        Assert.Empty(m.Lines("KCDUS|LOOT|took|"));
+        Assert.True(m.Bool("__world_ents[1] == __stillGround"));
+        Assert.Equal(0, m.Num("#__removed"));
+
+        // When that unrelated ground object later disappears, the earlier gain is not reused.
+        m.Do("System.RemoveEntity(__stillGround.id)");
+        m.Advance(0.6);
+        Assert.Empty(m.Lines("KCDUS|LOOT|ask|"));
+        Assert.Equal(3, HenryHas(m, Apple));
+    }
+
+    [Fact]
     public void Something_that_rolls_out_of_sight_without_reaching_the_pack_is_not_a_pick_up()
     {
         var m = World(host: false);

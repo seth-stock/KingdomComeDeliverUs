@@ -25,6 +25,20 @@ $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 function Step($m) { Write-Host "== $m" -ForegroundColor Cyan }
 function Fail($m) { Write-Host "FAILED: $m" -ForegroundColor Red; exit 1 }
+function Stop-OwnedSmokeProcess([System.Diagnostics.Process] $Owned, [string] $Executable) {
+    if (-not $Owned -or $Owned.HasExited) { return }
+    $observed = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $Owned.Id)
+    if (-not $observed) { return }
+    $expected = [IO.Path]::GetFullPath($Executable)
+    $commandPattern = '^(?:"' + [regex]::Escape($expected) + '"|' + [regex]::Escape($expected) + ')(?:\s|$)'
+    if ($observed.ExecutablePath -ine $expected -or $observed.CommandLine -notmatch $commandPattern -or
+        [math]::Abs(($observed.CreationDate.ToUniversalTime() - $Owned.StartTime.ToUniversalTime()).TotalSeconds) -gt 1) {
+        throw "Refusing smoke cleanup: PID $($Owned.Id) no longer matches the executable, command line and start time we started."
+    }
+    # Kill through the retained process handle, after checking its PID and command line.
+    $Owned.Kill()
+    $null = $Owned.WaitForExit(5000)
+}
 
 Step '1. version'
 $version = (Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
@@ -98,6 +112,7 @@ Step '8. payload smoke (the published programs, not the build tree)'
 $relayExe = Join-Path $pub 'KcdUsRelay.exe'
 $port = 17788
 $rp = Start-Process $relayExe -ArgumentList '--port', $port -PassThru -WindowStyle Hidden
+$null = $rp.Handle
 try {
     Start-Sleep -Seconds 2
     $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', $port)
@@ -116,7 +131,7 @@ try {
     if (-not $found -or $text -notmatch "\|$([regex]::Escape($version))\|") { Fail "the relay's Info answer was wrong: '$text'" }
     Write-Host "   relay answers: $text"
     $c.Close()
-} finally { if ($rp -and -not $rp.HasExited) { $rp.Kill() } }
+} finally { Stop-OwnedSmokeProcess $rp $relayExe }
 $h = & (Join-Path $pub 'KcdUsAgent.exe') --help
 if ($LASTEXITCODE -ne 0 -or ($h -join ' ') -notmatch 'KcdUsAgent') { Fail 'the published agent did not start' }
 Write-Host '   agent starts'

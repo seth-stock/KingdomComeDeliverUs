@@ -8,11 +8,21 @@ local idle='relaxed_idle_both'
 local walk='relaxed_walk_medium'
 local run='relaxed_run_medium'
 local sprint='relaxed_sprint_fast'
+M.swing='combat_lg_z0_natksw_lngsw'
 local function clamp(v,a,b) return math.max(a,math.min(b,v)) end
 
 function M.drive(ent,g,now)
     if g.animationReadyAt and now<g.animationReadyAt then return end
     if g.animationRetry and now<g.animationRetry then return end
+    if g.swingAt and now-g.swingAt<K.Ghosts.SWING_LEN then
+        if g.swungAt~=g.swingAt then
+            -- the engine's own long-sword swing (combat_lg_z0_natksw_lngsw, one of the clips of the base game); then the walk/idle clip is started again
+            local ok,result=pcall(function() return ent:StartAnimation(0,M.swing,M.layer,0.1,1,false,true) end)
+            g.swungAt=g.swingAt;g.clip=nil;g.swingOk=ok and result==true
+            K.out('SWING',g.key or '',g.swingOk and 1 or 0)
+        end
+        return
+    end
     local flags=K.num(g.flags,0)
     local stale=now-(g.stamp or now)>0.4
     local speed=math.sqrt(K.num(g.vx,0)^2+K.num(g.vy,0)^2)

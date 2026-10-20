@@ -73,7 +73,13 @@ local function groundItem(e)
         if e.npcOnly or e.item:IsFromShop() or e.item:BelongsToDeadBody() then return nil end
         return ItemManager.GetItem(e.item:GetId())
     end)
-    if ok and type(it) == 'table' and validClass(it.class) then return it end
+    if ok and type(it) == 'table' and validClass(it.class) then
+        -- Native pickup moves the item into the pack before removing its ground
+        -- entity. Treat that exact instance as gone now, while the inventory
+        -- gain is still observable in this scan (not a later class-only guess).
+        if it.kcdusBridge == 1 and L.pack and L.pack[it.kcdusPersistent] then return nil end
+        return it
+    end
     return nil
 end
 
@@ -136,7 +142,21 @@ local function read(e, kind)
     return counts, hp
 end
 
-local function playerCounts() local c = read(player, 'player') return c or {} end
+local function playerCounts()
+    local counts, identities = {}, {}
+    local ok, items = pcall(function() return player.inventory:GetInventoryTable() end)
+    if not ok or type(items) ~= 'table' then L.pack = {}; return counts end
+    for _, handle in pairs(items) do
+        local it = record(handle)
+        if it and it.class then
+            counts[it.class] = (counts[it.class] or 0) + (tonumber(it.amount) or 1)
+            if it.kcdusBridge == 1 and type(it.kcdusPersistent) == 'string' and #it.kcdusPersistent == 32
+                and it.kcdusPersistent ~= string.rep('0', 32) then identities[it.kcdusPersistent] = true end
+        end
+    end
+    L.pack = identities
+    return counts
+end
 
 -- the holder with this id in this copy of the world (a ground id also needs the class)
 local function find(id, class)
@@ -347,6 +367,7 @@ K.handlers['LOOTMODE'] = function(f)
     L.host = f[4] == '1'
     L.snap = {}
     L.pc = nil
+    L.pack = {}
     if not L.enabled then L.settle(0) end
     K.out('LOOTMODE', L.enabled and 'on' or 'off', L.scope, L.host and 'host' or 'guest', L.nonce, string.format('%.0f', L.loadWt or L.worldTime()))
 end
@@ -507,7 +528,7 @@ K.every(0.5, 'loot-shared', function() K.try('loot', L.scan) end)
 K.every(1.0, 'loot-settle', function() K.try('loot-settle', function() L.settle(L.settleS) end) end)
 
 function L.onWorldReset()
-    L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil; L.recovered = {}; L.restores = {}
+    L.snap = {}; L.pending = {}; L.gid = {}; L.spawned = {}; L.pc = nil; L.pack = {}; L.recovered = {}; L.restores = {}
     L.loadWt = L.worldTime()                                                    -- what a reloaded save can contain (Recovery)
     -- a new load is a new nonce: the agent tells this load's takes from the forgotten ones by it
     local hex, s = '0123456789abcdef', ''
