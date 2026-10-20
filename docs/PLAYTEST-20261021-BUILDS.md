@@ -7,7 +7,7 @@ both computers. Copying the pak alone does not update the agent. These are
 development playtest packages; the frame-rate soak was explicitly skipped
 with `-SkipSoakGate`.
 
-The Windows installer build passed all 558 managed/Lua tests, the quest-catalog
+The Windows installer build passed all 567 managed/Lua tests, the quest-catalog
 drift check, native bridge compilation and the published relay/agent payload
 smoke. The native rule executable was run separately and passed all 34 bounded
 stream and effect-record checks; the installer script does not run those tests.
@@ -20,9 +20,9 @@ the Windows pak byte for byte.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `KingdomComeDeliverUs-Setup-0.1.0.exe` | `4c8c1809c4fdee21da959f53e1bd111b8dd370c6bf9f942f9aa08d3dfd84dbd8` |
-| `KingdomComeDeliverUs-Linux-0.1.0.tar.gz` | `eecbff5413bd8f8311599b7b2ae1fd040907aeb64565d06b3c1c8592634c7b1b` |
-| `kcdus.pak` | `61f09c8160134854b41d7404ace41e2724983d55d9ba62cdd7254bd89e24771a` |
+| `KingdomComeDeliverUs-Setup-0.1.0.exe` | `bbe9f37614e43d1876762cf6e70ebed7c7a7bb709a5cd9c59c1be4c35b0928ba` |
+| `KingdomComeDeliverUs-Linux-0.1.0.tar.gz` | `bddb8c5ac18405186eaf69b3bd73831ca6c8045e3460a6fcd38b04335bdac96b` |
+| `kcdus.pak` | `764cb9e4a9dbdfeac04688e51ab4c7cb400e59db0c72efbdfb24f2307a4396cf` |
 
 The friends zip contains this installer and the current readme and findings;
 its SHA-256 is recorded alongside the other downloadable artifacts in
@@ -31,6 +31,15 @@ its SHA-256 is recorded alongside the other downloadable artifacts in
 The private two-game rig on one Windows PC verified the swing animation and a
 torch drop, receipt, native pickup and host confirmation. See
 `PLAYTEST-20261021.md` for exact evidence. This is not two-computer proof.
+The stock type-2 item-handle fallback is limited to the current load's pack
+membership, with persistent UUIDs preferred when the bridge supplies them.
+Synthetic tests cover its pickup and rejection cases. A separate bridge-free
+Windows probe loaded the exact current Lua and verified a stock type-2 handle,
+native torch pickup and exactly one guest request. The final valid evidence
+follows `stock-new-scope` in ignored `_work/stock-pickup-live.log`; earlier
+attempts in that log used a stale installed pak and do not prove this path.
+The probe's 314-save guard passed before owned-process cleanup. This handle
+matching is not durable identity or actual Proton/Bazzite gameplay proof.
 Actual Proton/Bazzite gameplay remains untested. The Linux native adapter and
 Windows-only behaviors remain unproved there. Swings are cosmetic; independent
 native damaging combat, complete quest-state synchronization, durable economy

@@ -56,6 +56,24 @@ local function validClass(c) return type(c) == 'string' and #c >= 8 and #c <= 40
 local function validId(n) return type(n) == 'string' and #n >= 3 and #n <= 80 and not string.find(n, '[^%w_%.%-%:@]') and not string.find(n, 'kcdus_', 1, true) end
 local function fmt(n) return string.format('%.4f', n) end
 
+-- Only for membership in this load's current inventory scan. Stock GetItem
+-- records expose id as a type-2 item WUID (tostring: "userdata: 02..."), even
+-- without the startup adapter. Neither this handle nor this key is sent over
+-- the network or retained across a world reset. Prefer the adapter's UUID.
+local function localItemKey(it)
+    local uuid = it.kcdusPersistent
+    if it.kcdusBridge == 1 and type(uuid) == 'string' and #uuid == 32
+        and not string.find(uuid, '[^0-9a-f]') and uuid ~= string.rep('0', 32) then return 'p:' .. uuid end
+    local id = it.id
+    if type(id) ~= 'userdata' and type(id) ~= 'string' then return nil end
+    local ok, text = pcall(tostring, id)
+    if not ok or #text < 25 or #text > 26 then return nil end
+    local hex = string.match(text, '^userdata: ?([%x]+)$')
+    if not hex or #hex ~= 16 or string.sub(hex, 1, 2) ~= '02'
+        or string.sub(hex, 3) == string.rep('0', 14) then return nil end
+    return 'h:' .. string.lower(hex)
+end
+
 local function posKey(prefix, p) return string.format('%s@%d_%d_%d', prefix, math.floor(p.x * 10), math.floor(p.y * 10), math.floor(p.z * 10)) end
 local function keyPos(id)
     local x, y, z = string.match(id, '^%a@(-?%d+)_(-?%d+)_(-?%d+)$')
@@ -77,7 +95,8 @@ local function groundItem(e)
         -- Native pickup moves the item into the pack before removing its ground
         -- entity. Treat that exact instance as gone now, while the inventory
         -- gain is still observable in this scan (not a later class-only guess).
-        if it.kcdusBridge == 1 and L.pack and L.pack[it.kcdusPersistent] then return nil end
+        local key = localItemKey(it)
+        if key and L.pack and L.pack[key] then return nil end
         return it
     end
     return nil
@@ -150,8 +169,8 @@ local function playerCounts()
         local it = record(handle)
         if it and it.class then
             counts[it.class] = (counts[it.class] or 0) + (tonumber(it.amount) or 1)
-            if it.kcdusBridge == 1 and type(it.kcdusPersistent) == 'string' and #it.kcdusPersistent == 32
-                and it.kcdusPersistent ~= string.rep('0', 32) then identities[it.kcdusPersistent] = true end
+            local key = localItemKey(it)
+            if key then identities[key] = true end
         end
     end
     L.pack = identities

@@ -2,6 +2,10 @@
 Read CONTINUATION-RESULTS.md and CAPABILITIES.md for the current implementation and limits.
 Use matching current payloads on both PCs: KCD1 wire protocol 4; KCD2 wire protocol 17.
 2026-10-20 continuation: read PLAYTEST-20261021.md for the torch pickup fix and cosmetic swing evidence.
+Pickup overlap uses persistent item UUIDs when the Windows bridge supplies them.
+Without that bridge, a strict stock item handle can match the current load's pack scan;
+this fallback passed synthetic tests and a bridge-free Windows pickup probe.
+It is not durable identity or actual Proton/Bazzite gameplay proof.
 
 
 KINGDOM COME: DELIVER US 0.1.0 -- co-op for Kingdom Come: Deliverance (the FIRST game)

@@ -96,6 +96,63 @@ public class SharedItemsLuaTests
     }
 
     [Fact]
+    public void Stock_item_handle_pickup_is_reported_once_before_the_ground_entity_retires()
+    {
+        var m = World(host: false);
+        // The stubs carry tostring(id)'s observed stock binding format; no adapter metadata.
+        m.Do("__stockGround = __world_ents[1]; __stockGround.rec.id = 'userdata: 020000000001763A'");
+        m.Advance(0.6);
+        m.ClearLog();
+        m.Do("local it = __item('" + Apple + "', 3); it.id = 'userdata:020000000001763a'; " +
+             "__henry.items[#__henry.items + 1] = it");
+        m.Advance(0.6);
+        Assert.Contains("|g@120_200_300|" + Apple + "|3|", Assert.Single(m.Lines("KCDUS|LOOT|ask|")));
+        Assert.True(m.Bool("__world_ents[1] == __stockGround"));
+        Assert.Equal(0, m.Num("#__removed"));
+        m.Advance(1.2);
+        m.Do("System.RemoveEntity(__stockGround.id)");
+        m.Advance(1.2);
+        Assert.Single(m.Lines("KCDUS|LOOT|ask|"));
+    }
+
+    [Fact]
+    public void A_different_stock_item_handle_of_the_same_class_is_not_a_pickup()
+    {
+        var m = World(host: false);
+        m.Do("__stockGround = __world_ents[1]; __stockGround.rec.id = 'userdata: 020000000001763A'");
+        m.Advance(0.6);
+        m.ClearLog();
+        m.Do("local it = __item('" + Apple + "', 3); it.id = 'userdata: 020000000001763B'; " +
+             "__henry.items[#__henry.items + 1] = it");
+        m.Advance(1.2);
+        Assert.Empty(m.Lines("KCDUS|LOOT|ask|"));
+        Assert.True(m.Bool("__world_ents[1] == __stockGround"));
+        Assert.Equal(0, m.Num("#__removed"));
+    }
+
+    [Theory]
+    [InlineData("userdata: 0000000000000000")]
+    [InlineData("userdata: 0200000000000000")]
+    [InlineData("userdata: 050000000001763A")]
+    [InlineData("userdata: 020000000001763")]
+    [InlineData("userdata: 020000000001763AZ")]
+    [InlineData("userdata: 020000000001763G")]
+    [InlineData("untrusted-item-handle")]
+    public void Invalid_stock_item_handles_cannot_hide_a_ground_item(string renderedId)
+    {
+        var m = World(host: false);
+        m.Do("__stockGround = __world_ents[1]; __stockGround.rec.id = '" + renderedId + "'");
+        m.Advance(0.6);
+        m.ClearLog();
+        m.Do("local it = __item('" + Apple + "', 3); it.id = '" + renderedId + "'; " +
+             "__henry.items[#__henry.items + 1] = it");
+        m.Advance(0.6);
+        Assert.Empty(m.Lines("KCDUS|LOOT|ask|"));
+        Assert.True(m.Bool("__world_ents[1] == __stockGround"));
+        Assert.Equal(0, m.Num("#__removed"));
+    }
+
+    [Fact]
     public void Something_that_rolls_out_of_sight_without_reaching_the_pack_is_not_a_pick_up()
     {
         var m = World(host: false);
