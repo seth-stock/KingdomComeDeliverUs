@@ -75,6 +75,16 @@ function System.SpawnEntity(params)
                 kcdusBridge=__world.engineBridge and 1 or nil,kcdusEquipped=1}}
         end,
         EquipInventoryItem=function(self,it) it.kcdusEquipped=1 end,
+        MakeLookAsActor=function(self,id,flag) e.flags.lookAs=id end,
+    }
+    -- weapon and horse seat, as the engine's human interface answers them
+    e.human = {
+        IsWeaponDrawn=function() return e.weaponDrawn or false end,
+        DrawWeapon=function() e.weaponDrawn=true end,
+        HolsterWeapon=function() e.weaponDrawn=false end,
+        IsMounted=function() return e.horse~=nil end,
+        ForceMount=function(self,id) e.horse=id; e.mountCalls=(e.mountCalls or 0)+1 end,
+        Dismount=function() e.horse=nil end,
     }
     __entities[e.id] = e
     __spawned[#__spawned + 1] = e
@@ -145,6 +155,7 @@ function __mkNpc(name, hp, x, y, z, class)
     e.human = { IsWeaponDrawn = function() return e.weapon end, DrawWeapon = function() if not e.refuseDraw then e.weapon = true end end, HolsterWeapon = function() e.weapon = false end }
     __inventoryFor(e)
     __world_ents[#__world_ents + 1] = e
+    __entities[e.id] = e
     return e
 end
 __stashN = 0
@@ -201,6 +212,7 @@ Calendar = {
 }
 AIPARAM_INVISIBLE = 77
 ENTITY_FLAG_NO_SAVE=32768
+XGenAIModule = { GetEntityByWUID = function(w) return type(w) == 'table' and w or nil end }
 AI = {
     SetBehaviorTreeEvaluationEnabled = function(id, v) __calls[#__calls + 1] = "bt:" .. tostring(id) .. ":" .. tostring(v) end,
     ChangeParameter = function(id, p, v) __calls[#__calls + 1] = "param:" .. tostring(id) .. ":" .. tostring(p) .. ":" .. tostring(v) end,
@@ -258,6 +270,7 @@ player = {
     human = {
         IsWeaponDrawn = function(self) return __world.weapon end,
         IsMounted = function(self) return __world.mounted end,
+        GetHorse = function(self) return __world.mounted and __world.horse or nil end,
         IsInDialog = function(self) return __world.dialog end,
         -- the engine adapter's XP observation (XpRead.h); nil when no adapter is loaded
         PlayAnim = function(self, fragment, tags)

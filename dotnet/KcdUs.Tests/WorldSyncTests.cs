@@ -29,6 +29,7 @@ public partial class WorldSyncTests
         public bool AutoLoadAck = true;
         public int? SavePlaylineOverride;
         public bool RefuseSaves;
+        public (int, string)[]? SaveDlc;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _pump;
 
@@ -77,9 +78,11 @@ public partial class WorldSyncTests
         {
             var dir = Store.PlaylineDir(playline);
             Directory.CreateDirectory(dir);
-            File.WriteAllBytes(Path.Combine(dir, file), NativeTemplate is not null
+            var bytes = NativeTemplate is not null
                 ? CharacterFixture.WithDescription(NativeTemplate, unix, hours)
-                : WorldTests.FakeSave(WorldTests.Desc(unix, hours), seed: (int)(unix % 1000) + 1));
+                : WorldTests.FakeSave(WorldTests.Desc(unix, hours), seed: (int)(unix % 1000) + 1);
+            if (SaveDlc is { Length: > 0 } && NativeTemplate is not null) bytes = CharacterFixture.WithDlc(bytes, SaveDlc);   // a world made with DLC on
+            File.WriteAllBytes(Path.Combine(dir, file), bytes);
         }
 
         public void Seed(string worldId, int playline, double hours, long unix, string name = "Our world", bool slot = false)

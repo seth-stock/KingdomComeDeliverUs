@@ -27,6 +27,23 @@ public static class HandshakeFactory
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
 
+    /// <summary>The game's index of each DLC, from kcd.log (empty when it is not there yet): how a save names the DLC it used.</summary>
+    public static IReadOnlyDictionary<string, int> ReadDlcIndexes(string? gameDir)
+    {
+        try
+        {
+            if (gameDir is null) return new Dictionary<string, int>();
+            var log = Path.Combine(gameDir, AgentPaths.GameLog);
+            if (!File.Exists(log)) return new Dictionary<string, int>();
+            using var fs = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var rd = new StreamReader(fs, Encoding.UTF8);
+            var lines = new List<string>(); string? line;
+            while ((line = rd.ReadLine()) is not null) lines.Add(line);
+            return DlcLog.Indexes(lines);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return new Dictionary<string, int>(); }
+    }
+
     /// <summary>
     /// The DLC that is active and affects saves, as the game itself logged it at startup (kcd.log, "DLC list:"). null while the game has not logged it yet.
     /// A save names the DLC it needs and the engine refuses to load it without them, so this decides who can load whose world.

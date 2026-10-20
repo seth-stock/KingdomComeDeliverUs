@@ -31,13 +31,15 @@ public sealed record PlayerState(
     double Vx, double Vy, double Vz,
     int Flags, int Health, int Stamina, string Anim, double WorldTime)
 {
-    public const int FlagWeaponDrawn = 1, FlagMounted = 2, FlagDialog = 4, FlagDead = 8, FlagDanger = 16;
+    public const int FlagWeaponDrawn = 1, FlagMounted = 2, FlagDialog = 4, FlagDead = 8, FlagDanger = 16, FlagCinema = 32;
 
     public bool WeaponDrawn => (Flags & FlagWeaponDrawn) != 0;
     public bool Mounted => (Flags & FlagMounted) != 0;
     public bool InDialog => (Flags & FlagDialog) != 0;
     public bool Dead => (Flags & FlagDead) != 0;
     public bool InDanger => (Flags & FlagDanger) != 0;
+    /// <summary>A cutscene is playing for this player (the camera is not on Henry): never moved, never pulled out of it.</summary>
+    public bool InCinematic => (Flags & FlagCinema) != 0;
 
     private static string F(double v, string fmt) => v.ToString(fmt, CultureInfo.InvariantCulture);
 

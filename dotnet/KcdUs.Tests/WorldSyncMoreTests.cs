@@ -190,4 +190,23 @@ public partial class WorldSyncTests
         Assert.True(ExactTraitsSave.SameProgressionAndInventory(his, ExactTraitsSave.CaptureCharacter(now)));   // his Henry, in the host's newer world
         Assert.True(guest.Game.Has("NOTE|Got Henry's game. Loading it with your own Henry"));
     }
+
+    [Fact]
+    public async Task A_friend_without_the_hosts_dlc_gets_the_world_adjusted_instead_of_refused()
+    {
+        int port = FreePort();
+        await using var host = new Rig("Henry", port, seed: r => { r.NativeTemplate = CharacterFixture.Save(1_790_000_200, 10, 9000, 22); r.SaveDlc = new[] { (9, "Band of Bastards") }; r.Seed("w1", 0, 10, 1_790_000_200); });
+        await using var guest = new Rig("Hans", port);
+        // the guest's own game: Band of Bastards is not switched on (its index is 9 in his kcd.log)
+        guest.Host.World!.OwnDlc = () => (new string[0], new Dictionary<string, int> { ["ExpeditionaryRides"] = 9, ["NewHomes"] = 4 });
+        host.CurrentHours = 10; host.EnterWorld();
+        await host.Host.HandleAsync("host", "");
+        await Until(() => host.Host.Session.GetStatus().RelayConnected, what: "host up");
+        Assert.Single(ExactTraitsSave.ReadDlcUse(File.ReadAllBytes(host.Store.Newest(0)!.Path))!);   // the host's world does name the DLC
+        await guest.Host.HandleAsync("join", "");
+        await Until(() => guest.Game.Has("LOAD|0|4") && WorldRegistry.Load(guest.WorldsJson).PendingLoad is null, what: "the guest loads the adjusted world", rigs: new[] { host, guest });
+        Assert.Empty(ExactTraitsSave.ReadDlcUse(File.ReadAllBytes(Path.Combine(guest.Store.PlaylineDir(4), "world.whs")))!);   // no DLC in the copy he was given (the game then wrote its own save beside it)
+        Assert.Single(ExactTraitsSave.ReadDlcUse(File.ReadAllBytes(host.Store.Newest(0)!.Path))!);        // the host's own world is untouched
+        Assert.True(guest.Game.Has("NOTE|Band of Bastards is not on this computer"), string.Join(", ", guest.Game.Snapshot().Where(l => l.StartsWith("NOTE|"))));
+    }
 }

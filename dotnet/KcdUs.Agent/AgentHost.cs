@@ -205,7 +205,11 @@ public sealed class AgentHost : IAsyncDisposable
         string? list = WorldListPath ?? (Config.WorldsFile.Length > 0 ? Config.WorldsFile : null);
         try
         {
-            _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, WorldStatus) { SavePath = SavePath };
+            _world = new WorldCoordinator(Config, _game, () => Session, store, WorldRegistry.Load(list), list, _log, WorldStatus)
+            {
+                SavePath = SavePath,
+                OwnDlc = () => (HandshakeFactory.ReadDlc(GameDir), HandshakeFactory.ReadDlcIndexes(GameDir)),
+            };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

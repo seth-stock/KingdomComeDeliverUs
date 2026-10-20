@@ -39,6 +39,8 @@ public sealed class PauseCoordinator
 
     /// <summary>The ESC menu of THIS player does not pause this game right now (option off, a friend in the world, the adapter's gate is on).</summary>
     public bool OwnMenuRuns { get { lock (_gate) return _levers; } }
+    /// <summary>This player's own pause menu is open.</summary>
+    public bool MenuOpen { get { lock (_gate) return _menuOpen; } }
     /// <summary>The engine adapter's gate is loaded in the game (otherwise "off" cannot stop this player's own menu from pausing).</summary>
     public bool OwnGateAvailable => _ownGate?.Available == true;
 

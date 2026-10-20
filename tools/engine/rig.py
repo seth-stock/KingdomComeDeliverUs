@@ -28,7 +28,9 @@ STATUS = {'a': 1415, 'b': 1416}
 
 
 def env_for(side):
-    e = dict(os.environ, KCDUS_PROBE_BRIDGE='1')
+    e = dict(os.environ, KCDUS_PROBE_BRIDGE='1', KCDUS_PROBE_ACTIONS='1')   # the research gate: native attack mirroring is only ever on in these private profiles
+    staged = WORK / 'rig-mod' / 'kcdus'
+    if staged.exists(): e['KCDUS_PROBE_MOD'] = str(staged)       # a build under test instead of the installed mod (the installed game is never touched)
     if SESS[side]:
         e['KCDUS_ENGINE_SESSION'] = SESS[side]
     else:

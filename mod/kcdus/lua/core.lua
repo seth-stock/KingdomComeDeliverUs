@@ -225,6 +225,8 @@ function K.hookPlayer()
                 if K.Ghosts and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Ghosts.onWorldReset() end
                 if K.Pause and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Pause.onWorldReset() end
                 if K.Combat and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Combat.onWorldReset() end
+                if K.Cinema and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Cinema.reset() end
+                if K.Riding and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Riding.onWorldReset() end
                 if K.Loot and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Loot.onWorldReset() end
                 if K.Npcs and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Npcs.onWorldReset() end
                 if K.Rewards and (callbackName=='OnLoad' or callbackName=='OnResetLoad') then K.Rewards.onWorldReset() end

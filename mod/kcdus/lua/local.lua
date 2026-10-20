@@ -16,6 +16,7 @@ L.F_MOUNTED = 2
 L.F_DIALOG = 4
 L.F_DEAD = 8
 L.F_DANGER = 16
+L.F_CINEMA = 32
 
 function L.sample()
     local p = player
@@ -32,6 +33,7 @@ function L.sample()
     end
     if safe(function() return p:IsDead() end, false) then flags = flags + L.F_DEAD end
     if safe(function() return p.soul:IsInCombatDanger() end, false) then flags = flags + L.F_DANGER end
+    if K.Cinema and K.Cinema.on then flags = flags + L.F_CINEMA end
     local hp = safe(function() return p.soul:GetState("health") end, 0)
     local st = safe(function() return p.soul:GetState("stamina") end, 0)
     local anim = safe(function() return p.actor:GetCurrentAnimationState() end, "")

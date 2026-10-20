@@ -85,6 +85,7 @@ public sealed class Session : IDisposable
     private bool _inWorld;
     private string _gameModVersion = "";
     private string? _localOutfit;
+    private string? _localHorse;
     private int _gameFps;
     private int _gameErrors;
 
@@ -282,7 +283,7 @@ public sealed class Session : IDisposable
                         }
                         else
                         {
-                            _localOutfit=null;
+                            _localOutfit=null;_localHorse=null;
                             _local = null;
                             if (_myId != 0) _relay.Send(MessageType.Event, "world|0");
                             _story.Reset();
@@ -302,6 +303,16 @@ public sealed class Session : IDisposable
                         if (_myId != 0) _relay.Send(MessageType.State, s.Encode());
                         break;
                     }
+
+                case "HRS":
+                    // HRS|<name of the horse this player rides, or empty>: the friends seat this player's body on their copy of that horse (riding.lua)
+                    if (_inWorld && f.Length <= 2 && (f.Length < 2 || f[1].Length == 0 || SafeHorseName(f[1])))
+                    {
+                        string name = f.Length == 2 ? f[1] : "";
+                        if (name != _localHorse && _myId != 0) _relay.Send(MessageType.Event, "horse|" + name);
+                        _localHorse = name;
+                    }
+                    break;
 
                 case "OUT":
                     if(_inWorld && f.Length==2 && OutfitSnapshot.Valid(f[1]))
@@ -525,6 +536,7 @@ public sealed class Session : IDisposable
                     Notify($"Connected to {_serverName}.");
                     if (_inWorld) { _relay.Send(MessageType.Event, "world|1"); _game.Send("QSNAP"); _awaitingBaseline = true; _seedPending = true; _baselineUntilMs = now + BaselineMs; }
                     if(_inWorld && _localOutfit!=null)_relay.Send(MessageType.Event,"outfit|"+_localOutfit);
+                    if(_inWorld && !string.IsNullOrEmpty(_localHorse))_relay.Send(MessageType.Event,"horse|"+_localHorse);
                     break;
 
                 case MessageType.Reject:
@@ -584,7 +596,14 @@ public sealed class Session : IDisposable
                         int id = int.Parse(f[0], CultureInfo.InvariantCulture);
                         var s = PlayerState.TryDecode(f, 1);
                         if (s is null || !_peers.TryGetValue(id, out var p)) break;
+                        bool wasCine = p.State?.InCinematic == true;
                         p.State = s; p.StateAtMs = now; p.InWorld = true;
+                        if (!IsHost && id == _hostId && s.InCinematic != wasCine)
+                        {
+                            if (s.InCinematic) Notify($"{p.Name} is in a cutscene. Yours is not pulled away.");
+                            else if (_local is { } me && Math.Sqrt(Math.Pow(s.X - me.X, 2) + Math.Pow(s.Y - me.Y, 2)) > 40)
+                                Notify($"{p.Name}'s scene is over. {(KeyHint.StartsWith("F", StringComparison.Ordinal) ? KeyHint.Split(' ')[0] : "Join my host now")} takes you to them.");
+                        }
                         _game.SendLatest("P" + id, $"P|{id}|{Safe.Name(p.Name)}|{s.Encode()}");
                         break;
                     }
@@ -654,6 +673,9 @@ public sealed class Session : IDisposable
                 break;
             case "outfit" when f.Length==2 && OutfitSnapshot.Valid(f[1]):
                 if(_inWorld)_game.SendLatest("OUT"+from,$"OUT|{from}|{f[1]}");
+                break;
+            case "horse" when f.Length <= 2 && (f.Length < 2 || f[1].Length == 0 || SafeHorseName(f[1])):
+                if (_inWorld) _game.SendLatest("HORSE" + from, $"HORSE|{from}|{(f.Length == 2 ? f[1] : "")}");
                 break;
             case "world":
                 if (f.Length > 1 && f[1] == "0")
@@ -761,7 +783,9 @@ public sealed class Session : IDisposable
                 break;
 
             case RailsJoiner.Act.Backstop:
-                // nobody answered: that is a yes, and it is an ANSWER (the joiner leaves "pending", or this would fire every second)
+                // nobody answered: that is a yes, and it is an ANSWER (the joiner leaves "pending", or this would fire every second). Not while the player is in a scene,
+                // a dialogue or a menu: they could not answer, so the question waits for them
+                if (!ControlNow()) break;
                 if (_joiner.Decide(step.Choice, now)) Announce(step.Choice, code, step.Why);
                 break;
 
@@ -778,15 +802,15 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>Tell the host, tell the player, and bring them along if they joined.</summary>
-    private void Announce(RailsChoice c, string code, string why)
+    private void Announce(RailsChoice c, string code, string why, bool @explicit = false)
     {
         var p = StorySections.PeriodOf(code);
         if (p is not null) _relay.Send(MessageType.Event, "choice|" + RailsRules.ChoiceText(p.Id, c));
         _game.Send("PROMPTCLEAR");
         if (c == RailsChoice.Join)
         {
-            Notify(RailsRules.JoinedText);
-            BringToHost();
+            Notify(ControlNow() ? RailsRules.JoinedText : "You joined your host. You will be taken to them when your scene is over.");
+            BringToHost("joined", @explicit);
         }
         else
         {
@@ -804,21 +828,84 @@ public sealed class Session : IDisposable
             if (IsHost) return false;
             if (!_joiner.Open)
             {
-                // a key or button with no question open: say so, rather than nothing at all
-                if (_myId != 0) Notify(c == RailsChoice.Join ? "Nothing to join: your host is not in a story stretch." : "Nothing to answer: your host is not in a story stretch.");
+                if (_myId == 0) return false;
+                if (c == RailsChoice.Join)
+                {
+                    // no story question is open: Join means "take me to my host" (the player asked: still never in the middle of a scene)
+                    if (!_peers.TryGetValue(_hostId, out var hp) || hp.State is null) { Notify("Your host is not in the world yet."); return false; }
+                    Notify(InControl ? "Going to your host." : "You will be taken to your host when your scene is over.");
+                    BringToHost("key", @explicit: true);
+                    return true;
+                }
+                CancelPendingBring("you chose to stay");
+                Notify("Nothing to answer: your host is not in a story stretch.");
                 return false;
             }
             if (!_joiner.Decide(c, now)) return false;
+            if (c == RailsChoice.Free) CancelPendingBring("you chose to stay");
             string code = _joiner.Period ?? "";
-            Announce(c, code, source);
+            Announce(c, code, source, @explicit: true);
             return true;
         }
     }
 
-    private void BringToHost()
+    // ---- moving a player to the host: only a player who is in control. A teleport used to cut a friend's cutscene off (the join answer, the "nobody answered"
+    // timeout and the leash all moved them at once): now a move waits until the scene, the dialogue, the menu or the loading screen is over, and then a
+    // moment more so the first frame of play is not a jump.
+    private const long BringSettleMs = 2500, BringPatienceMs = 600_000;
+    private long _pendingBringAtMs, _controlSinceMs;
+    private string _pendingBringWhy = "";
+
+    /// <summary>The player is in control of Henry in the open world: no cutscene, no dialogue, no menu, no loading screen, not dead.</summary>
+    public bool InControl { get { lock (_gate) return ControlNow(); } }
+    private bool ControlNow() =>
+        _inWorld && _local is { } l && _now() - _localAtMs <= StateStaleMs && !l.InDialog && !l.InCinematic && !l.Dead && !_pause.MenuOpen;
+
+    /// <summary>Called every tick: since when has the player been in control (0: not now).</summary>
+    private void TrackControl(long now)
+    {
+        if (!ControlNow()) _controlSinceMs = 0;
+        else if (_controlSinceMs == 0) _controlSinceMs = now;
+    }
+    private bool FreeFor(long ms) => _controlSinceMs != 0 && _now() - _controlSinceMs >= ms;
+
+    /// <summary>
+    /// Moves the player beside the host. <paramref name="explicit"/>: the player asked (F11, the menu): at once if they are in control. Anything else (the "nobody answered"
+    /// timeout, a standing answer, the leash) waits until they have been in control for a moment, so the first free frame is never a jump.
+    /// </summary>
+    private void BringToHost(string why, bool @explicit = false)
+    {
+        if (!ControlNow() || !(@explicit || FreeFor(BringSettleMs)))
+        {
+            if (_pendingBringAtMs == 0) _log($"not moving you to your host yet ({why}): you are in a scene, a dialogue, a menu or a loading screen, or have only just come out of one");
+            _pendingBringAtMs = _now(); _pendingBringWhy = why;
+            return;
+        }
+        DoBring();
+    }
+
+    private void CancelPendingBring(string why)
+    {
+        if (_pendingBringAtMs == 0) return;
+        _pendingBringAtMs = 0; _controlSinceMs = 0;
+        _log($"the move to your host is cancelled ({why})");
+    }
+
+    private void TickPendingBring(long now)
+    {
+        if (_pendingBringAtMs == 0) return;
+        if (now - _pendingBringAtMs > BringPatienceMs) { _pendingBringAtMs = 0; return; }
+        if (!FreeFor(BringSettleMs)) return;
+        _pendingBringAtMs = 0;
+        _log($"your scene is over: moving you to your host ({_pendingBringWhy})");
+        DoBring();
+    }
+
+    private void DoBring()
     {
         if (_peers.TryGetValue(_hostId, out var h) && h.State is { } hs && _now() - h.StateAtMs < 10_000)
         {
+            _lastTetherMs = _now();   // the new position takes a moment to arrive: the leash must not answer a move with another move
             var o = (_myId % 4) * 0.8;   // a little apart, so two friends do not stand in each other
             _game.Send(string.Create(CultureInfo.InvariantCulture, $"TP|{hs.X + 1.5 + o:0.00},{hs.Y:0.00},{hs.Z:0.00}|{hs.Yaw:0.000}"));
         }
@@ -840,7 +927,7 @@ public sealed class Session : IDisposable
 
     private void ApplyTime(double hostTime, long now)
     {
-        if (_local is null || !_inWorld || _local.InDialog) return;
+        if (_local is null || !_inWorld || _local.InDialog || _local.InCinematic) return;
         if (now - _lastTimeApplyMs < 20_000) return;
         double forward = ((hostTime - _local.WorldTime) % 86400 + 86400) % 86400;
         if (forward < _o.TimeDriftSeconds || forward > 86400 - _o.TimeDriftSeconds) return;
@@ -859,6 +946,9 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>A line of text on the player's screen in the game.</summary>
+    /// <summary>A horse's entity name as the game spells one: letters, digits and _ . - : @ only (it goes into a console line).</summary>
+    public static bool SafeHorseName(string s) => s.Length is >= 1 and <= 80 && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-' or ':' or '@') && !s.Contains("kcdus_", StringComparison.Ordinal);
+
     public void Notify(string text) => _game.Send("NOTE|" + Safe.Clean(text, 300));
 
     /// <summary>How this player answers the host's story question, in the words of the prompt: "F11 join, F12 stay." or the menu (keys off, or none can be read).</summary>
@@ -941,8 +1031,10 @@ public sealed class Session : IDisposable
                 _log("the host's beat stopped: the period is over");
                 _hostTier = StoryTier.Open;
             }
+            TrackControl(now);
             DoStep(_joiner.Tick(now), _joiner.Period ?? "", now);
             Tether(now);
+            TickPendingBring(now);
         }
     }
 
@@ -950,7 +1042,7 @@ public sealed class Session : IDisposable
     private void Tether(long now)
     {
         if (!_joiner.Open || _joiner.Choice != RailsChoice.Join || _hostTier != StoryTier.Rails) return;
-        if (_local is null || !_inWorld || now - _localAtMs > StateStaleMs) return;
+        if (_local is null || !_inWorld || now - _localAtMs > StateStaleMs || !ControlNow()) return;   // never mid-scene
         if (!_peers.TryGetValue(_hostId, out var h) || h.State is not { } hs || now - h.StateAtMs > StateStaleMs) return;
         double d = Math.Sqrt(Math.Pow(hs.X - _local.X, 2) + Math.Pow(hs.Y - _local.Y, 2) + Math.Pow(hs.Z - _local.Z, 2));
         var (warn, pull) = StoryLock.Tether(650f, 700f, true, _o.TetherMeters);
@@ -958,7 +1050,7 @@ public sealed class Session : IDisposable
         {
             _lastTetherMs = now;
             Notify("Your host is on rails: you were brought back to them");
-            BringToHost();
+            BringToHost("leash");
         }
         else if (d > warn && d <= pull && now - _lastWarnMs >= 20_000)
         {
@@ -1015,7 +1107,7 @@ public sealed class Session : IDisposable
         _dlcLacks = FlagNames(flags, "dlc-host-extra");
         _dlcExtra = FlagNames(flags, "dlc-peer-extra");
         if (_dlcExtra.Count > 0) Notify($"Your game has DLC your host's does not ({DlcLog.Friendly(_dlcExtra)}): it stays out of what you share. {SteamDlcHint}");
-        if (_dlcLacks.Count > 0) Notify($"Your host's game has DLC you do not have ({DlcLog.Friendly(_dlcLacks)}): their world needs it. Get it on Steam, or your host plays without it.");
+        if (_dlcLacks.Count > 0) Notify($"Your host's game uses {DlcLog.Friendly(_dlcLacks)}, which you do not have. Their game is adjusted for you when you join; that DLC's content stays unavailable to you.");
         if (_contentDiffers) Notify("Your game has other mods than your host's: worlds and characters will not be moved between you.");
     }
 
@@ -1024,7 +1116,7 @@ public sealed class Session : IDisposable
     {
         if (flags.Split(',').Contains("content")) { _contentDiffers = true; Notify($"{name}'s game has other mods: worlds and characters will not be moved between you."); }
         var lacks = FlagNames(flags, "dlc-host-extra");
-        if (lacks.Count > 0) { _peerLacksDlc[id] = lacks; Notify($"{name} lacks DLC you have ({DlcLog.Friendly(lacks)}): your game cannot be moved to them."); }
+        if (lacks.Count > 0) { _peerLacksDlc[id] = lacks; Notify($"{name} does not have {DlcLog.Friendly(lacks)}. Your game is adjusted for them when they join; that DLC's content stays unavailable to them."); }
         var extra = FlagNames(flags, "dlc-peer-extra");
         if (extra.Count > 0) Notify($"{name} has DLC your game does not ({DlcLog.Friendly(extra)}); it stays out of what you share.");
     }

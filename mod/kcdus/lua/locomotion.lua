@@ -23,19 +23,15 @@ function M.drive(ent,g,now)
     if speed>4.5 then clip,rate=sprint,clamp(speed/5.5,0.75,1.5)
     elseif speed>2.2 then clip,rate=run,clamp(speed/3.5,0.65,1.5)
     elseif speed>0.15 then clip,rate=walk,clamp(speed/1.5,0.65,1.5) end
-    if g.clip~=clip then
-        if clip==idle then
-            local ok=pcall(function() ent:StopAnimation(0,M.layer) end)
-            if ok then g.clip,g.clipRate=idle,1;g.animationRetry=nil end
-            return
-        end
+    if g.clip~=clip or (clip==idle and now-(g.clipAt or 0)>5) then   -- an idle body is re-told its idle every few seconds: any engine event that drops its animation is healed, invisibly
+        -- idle is a looping clip like the others: stopping the animation altogether leaves a body whose brain is off in its bind pose (arms out, "T-pose")
         local ok,result=pcall(function() return ent:StartAnimation(0,clip,M.layer,0.2,rate,true,true) end)
         if not ok or result~=true then
             M.failN=M.failN+1;g.animationRetry=now+1
             if M.failN<=5 then K.out('ERR','ghost:animation',g.key or '',K.clean(result)) end
             return
         end
-        g.clip,g.clipRate=clip,rate;g.animationRetry=nil
+        g.clip,g.clipRate,g.clipAt=clip,rate,now;g.animationRetry=nil
     elseif math.abs((g.clipRate or 1)-rate)>0.05 then
         local ok=pcall(function() ent:SetAnimationSpeed(0,M.layer,rate) end)
         if ok then g.clipRate=rate end

@@ -225,6 +225,23 @@ public static class DlcLog
     };
     public static string Friendly(IEnumerable<string> names) => string.Join(", ", names.Select(Friendly));
 
+    /// <summary>The game's index of each DLC (the number before its name) from the LAST "DLC list:" block: the number a KCD1 save stores for a DLC it used.</summary>
+    public static IReadOnlyDictionary<string, int> Indexes(IEnumerable<string> lines)
+    {
+        Dictionary<string, int>? last = null, open = null;
+        foreach (var raw in lines)
+        {
+            var line = raw.TrimEnd();
+            if (line.StartsWith("DLC list:", StringComparison.Ordinal)) { open = new Dictionary<string, int>(StringComparer.Ordinal); last = open; continue; }
+            if (open is null) continue;
+            var m = Line.Match(line);
+            if (m.Success) { open[m.Groups["name"].Value] = int.Parse(m.Groups["id"].Value, System.Globalization.CultureInfo.InvariantCulture); continue; }
+            if (line.Length == 0 || line.StartsWith("ERROR", StringComparison.Ordinal) || line.StartsWith("WARNING", StringComparison.Ordinal)) continue;
+            open = null;
+        }
+        return last ?? new Dictionary<string, int>();
+    }
+
     /// <summary>The names of the DLC that are active and affect saves, from the LAST "DLC list:" block of the log; null when the log has no such block (the game has not started far enough).</summary>
     public static IReadOnlyList<string>? ActiveSaveAffecting(IEnumerable<string> lines)
     {

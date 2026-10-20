@@ -319,7 +319,7 @@ public class AgentHostTests
     }
 
     [Fact]
-    public async Task A_friend_with_less_dlc_than_the_host_cannot_be_given_the_hosts_dlc_world_and_is_told_why()
+    public async Task A_friend_with_less_dlc_than_the_host_is_told_the_game_is_adjusted_for_him_not_refused()
     {
         string a = FakeGameWithDlc("build-1", "NewHomes"), b = FakeGameWithDlc("build-1");                   // the host has one; the friend none
         try
@@ -334,13 +334,10 @@ public class AgentHostTests
             await Until(() => guest.Host.Session.GetStatus().RelayConnected);
             await Until(() => guest.Host.Session.DlcLacks.Count == 1);
             Assert.Equal(new[] { "NewHomes" }, guest.Host.Session.DlcLacks);
-            Assert.True(guest.Game.Has("NOTE|Your host's game has DLC you do not have (From the Ashes)"));
+            Assert.True(guest.Game.Has("NOTE|Your host's game uses From the Ashes, which you do not have. Their game is adjusted for you"));   // said by the store's name, and as good news
             int guestId = guest.Host.Session.MyId;
-            await Until(() => host.Host.Session.PeerLacksDlc(guestId).Count == 1);                  // the host knows too, and will not serve a world to them
-            await guest.Host.HandleAsync("world", "join");
-            await Until(() => guest.Game.Has("NOTE|Your host's game has DLC you do not have (From the Ashes)"));
-            await Task.Delay(1000);
-            Assert.False(guest.Game.Has("LOAD|"));                                                   // and nothing was moved
+            await Until(() => host.Host.Session.PeerLacksDlc(guestId).Count == 1);                  // the host knows too
+            Assert.False(guest.Game.Has("MSG|"));                                                    // and nothing is refused: no box
         }
         finally { Directory.Delete(a, true); Directory.Delete(b, true); }
     }

@@ -518,10 +518,7 @@ public sealed class WorldCoordinator : IDisposable
             default:
                 _wantJoin = false;
                 if (why.StartsWith("you lack DLC", StringComparison.Ordinal))
-                {
-                    var names = why[(why.IndexOf('(') + 1)..].TrimEnd(')').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                    Alert("Missing DLC: cannot join", DlcRefusal(names));
-                }
+                    Alert("Host needs the same update", $"{who} runs an older build that cannot adjust their game for a player without their DLC. Ask them to install the same build as you.");
                 else Alert($"{who} could not send the game", $"{who} could not send their game: {why}.");
                 break;
         }
@@ -552,6 +549,8 @@ public sealed class WorldCoordinator : IDisposable
 
     // ================================================================ taking a world
 
+    private static string DlcStatus(IReadOnlyList<string> lacks) => "Host has DLC you lack: adjusting";
+
     private static string WaitingFor(string who) => $"Waiting for {who}'s game";
 
     /// <summary>No playline for the world: the question (Join again says yes) when one of the player's own may be used, otherwise the reason.</summary>
@@ -566,8 +565,26 @@ public sealed class WorldCoordinator : IDisposable
 
     private const string ContentRefusal = "Your game has other mods than your friend's, so a world or a Henry cannot be moved between you safely. Install the same mods on both, or play without sharing a world.";
 
-    private static string DlcRefusal(IReadOnlyList<string> lacks) =>
-        $"Your host's game uses DLC you do not have ({DlcLog.Friendly(lacks)}), and their saves need it. Get it on Steam, or your host turns it off in Steam (Properties > DLC) and starts a game without it.";
+    /// <summary>What this computer has of the game's DLC (set by the agent): the active save-affecting names and the game's index of every DLC. Null: unknown.</summary>
+    public Func<(IReadOnlyList<string>? Active, IReadOnlyDictionary<string, int> Index)>? OwnDlc { get; set; }
+
+    /// <summary>
+    /// A world that was made with a DLC this player does not have is "downgraded" for them as it arrives: the DLC entries are taken out of the save's header,
+    /// so the game's Load screen no longer refuses it (see <see cref="ExactTraitsSave.StripDlc"/>). The DLC's own content in the world stays unavailable to
+    /// this player. Returns the save to install, and what was taken out.
+    /// </summary>
+    private byte[] DowngradeForMe(byte[] save, IReadOnlyList<string> hostExtra, out IReadOnlyList<DlcUse> removed)
+    {
+        removed = Array.Empty<DlcUse>();
+        var own = OwnDlc?.Invoke();
+        HashSet<int> mine = new();
+        if (own is { Active: { } active } o) foreach (var n in active) if (o.Index.TryGetValue(n, out int id)) mine.Add(id);
+        var lacksNames = hostExtra.Select(DlcLog.Friendly).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var lacksIds = own is { } oo ? hostExtra.Where(n => oo.Index.ContainsKey(n)).Select(n => oo.Index[n]).ToHashSet() : new HashSet<int>();
+        bool known = own is { Active: not null } && own.Value.Index.Count > 0;
+        // the save names its DLC by the game's index: anything this game does not have switched on goes; when the game's own list is not known, the host's list does
+        return ExactTraitsSave.StripDlc(save, e => known ? !mine.Contains(e.Id) : lacksIds.Contains(e.Id) || lacksNames.Contains(e.Name), out removed);
+    }
 
     /// <summary>Asks the host for their game (Join's worker, again and again until it has loaded).</summary>
     private async Task RequestAsync()
@@ -578,7 +595,7 @@ public sealed class WorldCoordinator : IDisposable
         if (s.MyId == 0) { SetStatus("Connecting to the host..."); return; }
         if (s.IsHost) { _wantJoin = false; Alert("You are the host", "You are the host: friends join your game. Join my friend's game is for the friend who joins."); return; }
         if (!s.ContentMatches) { _wantJoin = false; Alert("Different mods: cannot join", ContentRefusal); return; }
-        if (s.DlcLacks.Count > 0) { _wantJoin = false; Alert("Missing DLC: cannot join", DlcRefusal(s.DlcLacks)); return; }
+        if (s.DlcLacks.Count > 0 && Status != DlcStatus(s.DlcLacks)) SetStatus(DlcStatus(s.DlcLacks));   // not a refusal: the world is adjusted for this player on arrival
         int target = s.HostId;
         if (target == 0) { SetStatus("Connecting to the host..."); return; }
         if (PickSlot(null, out string? why) is null) { _wantJoin = false; NoRoom(why!); return; }
@@ -638,7 +655,6 @@ public sealed class WorldCoordinator : IDisposable
         _log($"world: {who} (#{to}) asks for the game");
         void Refuse(string why, string reason) { _log("world: not sent to " + who + ": " + why); s.SendEvent($"wdone|{to}|-|0|{reason}"); }
         if (!s.ContentMatches) { Refuse("different mods", "different mods"); return; }
-        if (s.PeerLacksDlc(to) is { Count: > 0 } lacks) { Refuse("DLC", $"you lack DLC the world needs ({string.Join(", ", lacks)})"); return; }
         if (!s.IsHost) { Refuse("not the host", "ask the host"); return; }
         if (!InWorld)
         {
@@ -730,6 +746,14 @@ public sealed class WorldCoordinator : IDisposable
             return;
         }
         var info = SaveInfo.Read(bytes);
+        var downgraded = DowngradeForMe(bytes, s.DlcLacks, out var taken);
+        if (taken.Count > 0)
+        {
+            bytes = downgraded;
+            string names = string.Join(", ", taken.Select(t => t.Name));
+            _log($"world: downgraded the received game: the save's DLC list no longer names {names}");
+            Say($"{names} is not on this computer, so the host's game was adjusted for you: its content stays unavailable to you.");
+        }
         var w = _reg.Find(rx.Offer.WorldId);
         if (PickSlot(rx.Offer.WorldId, out string? noSlot) is not { } playline)
         {

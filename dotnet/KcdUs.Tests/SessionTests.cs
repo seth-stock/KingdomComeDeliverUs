@@ -59,7 +59,10 @@ internal sealed class Player : IAsyncDisposable
         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"KCDUS|ST|{x:0.00},{y:0.00},{z:0.00}|{yaw:0.000}|{vx:0.00},{vy:0.00},0.00|{flags}|100|105|{anim}|{wt:0}");
 
     public void EnterWorld() { Game.Emit("KCDUS|HELLO|0.1.0|1|pak"); Game.Emit("KCDUS|READY|1"); }
-    public void Sample(double x, double y, double z, double wt = 36000, int flags = 0) => Game.Emit(St(x, y, z, wt: wt, flags: flags));
+    private (double X, double Y, double Z, double Wt, int Flags) _last = (0, 0, 0, 36000, 0);
+    public void Sample(double x, double y, double z, double wt = 36000, int flags = 0) { _last = (x, y, z, wt, flags); Game.Emit(St(x, y, z, wt: wt, flags: flags)); }
+    /// <summary>The game samples ten times a second: whatever the fake clock did meanwhile, the last known state is fresh when the player answers.</summary>
+    public void Refresh() => Sample(_last.X, _last.Y, _last.Z, _last.Wt, _last.Flags);
     public void Tick() => Session.Tick();
 
     public async ValueTask DisposeAsync()
@@ -112,6 +115,19 @@ public class SessionTests
         Assert.Equal("OUT|2|"+gear,host.Game.Last("OUT|2|"));
         host.Game.Clear();guest.Game.Emit("KCDUS|OUT|1;invalid,1~PA");
         await Task.Delay(80);Assert.False(host.Game.Has("OUT|"));
+    }
+    [Fact]
+    public async Task TheHorseARiderSitsOnTravelsToTheFriendsAndAnUnsafeNameDoesNot()
+    {
+        var (relay,host,guest,_) = await Pair();
+        await using var _r=relay;await using var _h=host;await using var _g=guest;
+        guest.Game.Emit("KCDUS|HRS|rat_racek_kobylas_horse");
+        await Until(()=>host.Game.Has("HORSE|2|"),what:"guest horse");
+        Assert.Equal("HORSE|2|rat_racek_kobylas_horse",host.Game.Last("HORSE|2|"));
+        guest.Game.Emit("KCDUS|HRS|");
+        await Until(()=>host.Game.Last("HORSE|2|")=="HORSE|2|",what:"horse cleared");
+        host.Game.Clear();guest.Game.Emit("KCDUS|HRS|a;b~PA");guest.Game.Emit("KCDUS|HRS|kcdus_ghost_1");
+        await Task.Delay(80);Assert.False(host.Game.Has("HORSE|"));
     }
     [Fact]
     public async Task Players_see_each_other_and_are_told_who_joined()
@@ -250,7 +266,7 @@ public class SessionTests
         Assert.Contains("F11", guest.Game.Last("PROMPT|")!);
         Assert.Contains("Skalitz", guest.Game.Last("PROMPT|")!);
 
-        guest.Game.Emit("KCDUS|KEY|join");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
         await Until(() => guest.Game.Has("TP|"), what: "being brought");
         Assert.StartsWith("TP|503.10,600.00,40.00", guest.Game.Last("TP|")!);   // beside the host: 1.5 m east, and a little apart per player id
         Assert.Contains("NOTE|You joined your host.", guest.Game.Snapshot());
@@ -280,7 +296,7 @@ public class SessionTests
         await Task.Delay(200);
         Assert.False(guest.Game.Has("TP|"));
         // F11 joins at any time
-        guest.Game.Emit("KCDUS|KEY|join");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
         await Until(() => guest.Game.Has("TP|"), what: "joining late");
     }
 
@@ -294,7 +310,7 @@ public class SessionTests
         clock.Ms += 7000; host.Tick();
         host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
         await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
-        guest.Game.Emit("KCDUS|KEY|join");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
         await Until(() => guest.Game.Has("TP|"), what: "joined");
         guest.Game.Clear();
 
@@ -302,9 +318,9 @@ public class SessionTests
         await Task.Delay(100);
         Assert.Contains("NOTE|You are straying from your host", guest.Game.Snapshot());
         Assert.False(guest.Game.Has("TP|"));
-        clock.Ms += 1500; host.Sample(500, 600, 40); guest.Sample(500 + 150, 600, 40); guest.Tick();   // 150 m: past the tether
+        for (int i = 0; i < 5 && !guest.Game.Has("TP|"); i++) { clock.Ms += 4000; host.Sample(500, 600, 40); guest.Sample(500 + 150, 600, 40); await Task.Delay(80); guest.Tick(); }   // 150 m: past the tether (10 s after the last move, after a moment of control)
         await Task.Delay(100);
-        Assert.True(guest.Game.Has("TP|"));
+        Assert.True(guest.Game.Has("TP|"), string.Join(" || ", guest.Game.Snapshot().Where(l => !l.StartsWith("P|") && !l.StartsWith("PING")).TakeLast(15)));
         Assert.Contains("NOTE|Your host is on rails: you were brought back to them", guest.Game.Snapshot());
     }
 
@@ -318,7 +334,7 @@ public class SessionTests
         clock.Ms += 7000; host.Tick();
         for (int i = 1; i <= 3; i++) host.Game.Emit($"KCDUS|Q|q_massacre|1|0|{string.Join(',', Enumerable.Range(1, i))}");   // The Hunt Begins: mixed, three objectives
         await Until(() => guest.Game.Has("PROMPT|"), what: "the question for a mixed quest");
-        guest.Game.Emit("KCDUS|KEY|join");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
         await Until(() => guest.Game.Has("TP|"), what: "joined");
         guest.Game.Clear();
         clock.Ms += 1500; host.Sample(500, 600, 40); guest.Sample(900, 600, 40); guest.Tick();
@@ -335,8 +351,9 @@ public class SessionTests
         clock.Ms += 7000; host.Tick();
         host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
         await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
-        for (int i = 0; i < 60; i++) { clock.Ms += 1000; host.Sample(500, 600, 40); await Task.Delay(40); guest.Tick(); }   // a minute of silence (the host keeps reporting, inside the relay's 30 per second)
+        for (int i = 0; i < 60; i++) { clock.Ms += 1000; host.Sample(500, 600, 40); if (guest.Game.Has("TP|")) guest.Sample(501.5, 600, 40); else guest.Refresh(); await Task.Delay(40); guest.Tick(); }   // a minute of silence (the host keeps reporting, inside the relay's 30 per second)
         await Until(() => guest.Game.Has("TP|"), what: "the default join");
+        guest.Sample(501.5, 600, 40); host.Sample(500, 600, 40);                                         // he arrived beside the host: nothing pulls him again
         await Task.Delay(300);
         Assert.Equal(1, guest.Game.Count("TP|"));
         Assert.Equal(1, guest.Game.Snapshot().Count(s => s == "NOTE|You joined your host."));
@@ -455,6 +472,85 @@ public class SessionTests
         Assert.Contains(logs, l => l.Contains("WARNING") && l.Contains("0.0.9"));
         Assert.Equal("0.0.9", s.GetStatus().GameModVersion);
     }
+    [Fact]
+    public async Task A_join_answered_in_a_cutscene_waits_until_the_scene_is_over_and_then_a_moment_more()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Sample(500, 600, 40, 36000);
+        guest.Sample(10, 10, 10, flags: 32);                              // the friend is watching a cutscene (the camera is not on Henry)
+        clock.Ms += 7000; host.Tick();
+        host.Game.Emit("KCDUS|Q|q_escapeToTalmberk|1|0|31");
+        await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
+        await Until(() => host.Game.Has("NOTE|Hans joined you"), what: "the host told: the ANSWER counts at once");
+        for (int i = 0; i < 4; i++) { clock.Ms += 2000; host.Sample(500, 600, 40); guest.Sample(10, 10, 10, flags: 32); guest.Tick(); }
+        await Task.Delay(150);
+        Assert.False(guest.Game.Has("TP|"));                               // still in the scene: nobody moves him
+        Assert.Contains("NOTE|You joined your host. You will be taken to them when your scene is over.", guest.Game.Snapshot());
+        clock.Ms += 1000; guest.Sample(10, 10, 10); guest.Tick();           // the scene ended: control is back
+        await Task.Delay(100);
+        Assert.False(guest.Game.Has("TP|"));                               // not on the very first frame
+        clock.Ms += 3000; host.Sample(500, 600, 40); guest.Sample(10, 10, 10); guest.Tick();
+        await Until(() => guest.Game.Has("TP|"), what: "the move after the scene");
+    }
+
+    [Fact]
+    public async Task Nobody_answering_does_not_become_a_join_while_the_friend_is_in_a_scene_or_a_dialogue()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Sample(500, 600, 40);
+        guest.Sample(10, 10, 10);
+        clock.Ms += 7000; host.Tick();
+        host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
+        await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
+        for (int i = 0; i < 6; i++) { clock.Ms += 10_000; host.Sample(500, 600, 40); guest.Sample(10, 10, 10, flags: 32); guest.Tick(); }   // a minute in a cutscene
+        await Task.Delay(150);
+        Assert.False(guest.Game.Has("TP|"));
+        Assert.DoesNotContain("NOTE|You joined your host.", guest.Game.Snapshot());                  // the question is still there for him
+        for (int i = 0; i < 6 && !guest.Game.Has("TP|"); i++) { clock.Ms += 1000; host.Sample(500, 600, 40); guest.Sample(10, 10, 10); await Task.Delay(80); guest.Tick(); }   // the scene is over: the timeout decides after a moment of control
+        await Until(() => guest.Game.Has("TP|"), what: "the timeout, once he is free");
+    }
+
+    [Fact]
+    public async Task The_leash_never_pulls_a_friend_out_of_a_scene()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Sample(500, 600, 40); guest.Sample(500, 600, 40);
+        clock.Ms += 7000; host.Tick();
+        host.Game.Emit("KCDUS|Q|q_pribBattle|1|0|7");
+        await Until(() => guest.Game.Has("PROMPT|"), what: "the question");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");
+        await Until(() => guest.Game.Has("TP|"), what: "joined");
+        guest.Game.Clear();
+        clock.Ms += 1500; host.Sample(500, 600, 40); guest.Sample(500 + 150, 600, 40, flags: 32); guest.Tick();   // far past the tether, but in a scene
+        await Task.Delay(150);
+        Assert.False(guest.Game.Has("TP|"));
+        clock.Ms += 1500; host.Sample(500, 600, 40); guest.Sample(500 + 150, 600, 40, flags: 4); guest.Tick();    // in a dialogue
+        await Task.Delay(100);
+        Assert.False(guest.Game.Has("TP|"));
+        for (int i = 0; i < 6 && !guest.Game.Has("TP|"); i++) { clock.Ms += 4000; host.Sample(500, 600, 40); guest.Sample(500 + 150, 600, 40); await Task.Delay(80); guest.Tick(); }   // free again: pulled after a moment
+        await Until(() => guest.Game.Has("TP|"), what: "the leash once he is free");
+    }
+
+    [Fact]
+    public async Task F11_with_no_question_open_takes_the_friend_to_the_host_and_the_host_cutscene_is_announced()
+    {
+        var (relay, host, guest, clock) = await Pair();
+        await using var _r = relay; await using var _h = host; await using var _g = guest;
+        host.Sample(500, 600, 40); guest.Sample(10, 10, 10);
+        clock.Ms += 1000;
+        host.Sample(500, 600, 40, flags: 32);                                                              // the host is in a cutscene
+        await Until(() => guest.Game.Has("NOTE|Henry is in a cutscene"), what: "the friend told");
+        host.Sample(500, 600, 40);                                                                          // and it ends: he is far away
+        await Until(() => guest.Game.Has("NOTE|Henry's scene is over."), what: "the scene-over note");
+        guest.Refresh(); guest.Game.Emit("KCDUS|KEY|join");                                                                  // no story question: go to the host
+        await Until(() => guest.Game.Has("TP|"), what: "going to the host");
+        Assert.Contains("NOTE|Going to your host.", guest.Game.Snapshot());
+    }
+
 }
 
 public class NewSessionHelloTests

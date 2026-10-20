@@ -29,6 +29,9 @@ local function configure(ent)
     if AIPARAM_INVISIBLE ~= nil then
         K.try("ghost:ai-invisible", function() AI.ChangeParameter(ent.id, AIPARAM_INVISIBLE, 1) end)
     end
+    -- Henry's own look (head, hair, body) first, then his clothing preset; the friend's real outfit follows from the outfit snapshot (outfits.lua). Without this a
+    -- friend was a random villager in Henry's clothes ("players look like generic NPCs").
+    K.try("ghost:look", function() ent.actor:MakeLookAsActor(player.id, true) end)
     K.try("ghost:clothes", function() ent.actor:EquipClothingPreset(G.CLOTHES) end)
 end
 
@@ -101,6 +104,7 @@ function G.remove(key)
         return
     end
     local ent = entityOf(g)
+    if K.Riding then K.try("ghost:riding-release", function() K.Riding.release(g, ent) end) end   -- the horse gets its brain back
     if ent ~= nil then
         K.try("ghost:remove", function() System.RemoveEntity(ent.id) end)
     end
@@ -131,6 +135,18 @@ end
 
 K.handlers["PA"] = function(f)
     G.removeAll()
+end
+
+-- the friend's sword is out when theirs is (their outfit snapshot gave this body the weapon); a body with nothing to draw is left alone
+function G.weapon(ent, g, now)
+    if not g.appliedOutfit or now < (g.weaponRetry or 0) then return end
+    local want = K.num(g.flags, 0) % 2 >= 1
+    local drawn = false
+    pcall(function() drawn = ent.human:IsWeaponDrawn() end)
+    if want ~= drawn then
+        g.weaponRetry = now + 1.5
+        K.try("ghost:weapon", function() if want then ent.human:DrawWeapon() else ent.human:HolsterWeapon() end end)
+    end
 end
 
 function G.update(now)
@@ -166,11 +182,15 @@ function G.update(now)
             end
             if ent ~= nil then
                 K.Outfits.update(ent,g,now)
-                K.Locomotion.drive(ent,g,now)
-                K.try("ghost:move", function()
-                    ent:SetWorldPos({ x = g.cx, y = g.cy, z = g.cz })
-                    ent:SetWorldAngles({ x = 0, y = 0, z = g.cyaw })
-                end)
+                local carried = K.Riding and K.Riding.drive(ent, g, now)   -- on a horse: the horse moves and carries the body
+                if not carried then
+                    K.Locomotion.drive(ent,g,now)
+                    G.weapon(ent, g, now)
+                    K.try("ghost:move", function()
+                        ent:SetWorldPos({ x = g.cx, y = g.cy, z = g.cz })
+                        ent:SetWorldAngles({ x = 0, y = 0, z = g.cyaw })
+                    end)
+                end
             end
         end
     end
